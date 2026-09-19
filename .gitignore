@@ -47,6 +47,10 @@ repo/
 logs/
 .gradle-client.log
 
+# release output: the jars that get uploaded to Modrinth / CurseForge.
+# They are built from build/libs, so there is no reason to commit them.
+dist/
+
 # Internal development records and publishing notes. They document how each bug
 # was found, in Chinese, for the author - useful locally, not part of the public
 # repository, so they are ignored and live in the 红石电路 folder instead.
