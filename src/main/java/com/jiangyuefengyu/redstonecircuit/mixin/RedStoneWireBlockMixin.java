@@ -46,13 +46,13 @@ public abstract class RedStoneWireBlockMixin {
     @Inject(method = "calculateTargetStrength", at = @At("HEAD"))
     private void redstonecircuit$beforeStrength(Level level, BlockPos pos,
                                                 CallbackInfoReturnable<Integer> callback) {
-        SuperconductingWireBlock.beginOrdinaryWireCalculation();
+        SuperconductingWireBlock.beginSuppression();
     }
 
     @Inject(method = "calculateTargetStrength", at = @At("RETURN"))
     private void redstonecircuit$afterStrength(Level level, BlockPos pos,
                                                CallbackInfoReturnable<Integer> callback) {
-        SuperconductingWireBlock.endOrdinaryWireCalculation();
+        SuperconductingWireBlock.endSuppression();
     }
 
     /** Lets an ordinary wire's wire scan see a superconductor, so it charges its own hop for it. */
@@ -63,14 +63,30 @@ public abstract class RedStoneWireBlockMixin {
         }
     }
 
-    /** Hands the strength calculation over to the superconductor's own rules. */
+    /**
+     * Hands the strength calculation over to the superconductor's own rules.
+     *
+     * <p>Which solves the whole run rather than this one block: a lossless wire cannot be decided from
+     * its neighbours' current values, or a run whose source has just been switched off would hold itself
+     * up for ever. See {@link SuperconductingWireBlock}.
+     *
+     * <p>The nested calls are skipped while a solve is running. Every wire a solve writes notifies its
+     * neighbours, which would otherwise start a fresh solve of the same run for each of them - the same
+     * answer every time, at the cost of walking the run once per wire. Skipping them is safe because a
+     * solve finishes the whole run, and because one run never feeds another: a superconductor that is
+     * merely next to another, rather than joined to it, is not a supply for it.
+     */
     @Inject(method = "updatePowerStrength", at = @At("HEAD"), cancellable = true)
     private void redstonecircuit$updateStrength(Level level, BlockPos pos, BlockState state,
                                                 CallbackInfo callback) {
         if (!SuperconductingWireBlock.isSuperconductor(state)) {
             return;
         }
-        SuperconductingWireBlock.updateStrength(level, pos, state);
+        if (SuperconductingWireBlock.isSuppressed()) {
+            callback.cancel();
+            return;
+        }
+        SuperconductingWireBlock.updateComponent(level, pos);
         callback.cancel();
     }
 }

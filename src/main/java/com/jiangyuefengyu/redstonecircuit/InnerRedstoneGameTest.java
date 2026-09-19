@@ -1206,6 +1206,78 @@ public final class InnerRedstoneGameTest {
         }));
     }
 
+    /**
+     * The reported bug: switching the lever off left the wire at fifteen, still lighting what it touched.
+     *
+     * <p>A lossless wire cannot be decided from its neighbours' current values the way vanilla decides a
+     * fading one, because two wires at fifteen see nothing wrong with each other. The run therefore has
+     * to be solved from its sources, and this is the case that says so: with the source gone, there is
+     * nothing left in the run to hold it up.
+     */
+    @GameTest(template = "empty")
+    public void placedWireGoesDarkWhenItsSourceStops(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        // A lever on the floor beside the wire, which is how the bug was found.
+        setBlock(helper, 0, 1, 1, Blocks.LEVER.defaultBlockState()
+                .setValue(BlockStateProperties.ATTACH_FACE, net.minecraft.world.level.block.state.properties.AttachFace.FLOOR)
+                .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.NORTH)
+                .setValue(BlockStateProperties.POWERED, true));
+        for (int x = 1; x <= 3; x++) {
+            setBlock(helper, x, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.get().defaultBlockState());
+        }
+
+        afterTicks(helper, 3, () -> {
+            for (int x = 1; x <= 3; x++) {
+                helper.assertTrue(wirePowerAt(helper, x, 1, 1) == 15,
+                        "precondition: the lever lights the run, but x=" + x + " is "
+                                + wirePowerAt(helper, x, 1, 1));
+            }
+
+            // Switch the lever off, exactly as a player would.
+            setBlock(helper, 0, 1, 1, helper.getBlockState(new BlockPos(0, 1, 1))
+                    .setValue(BlockStateProperties.POWERED, false));
+
+            afterTicks(helper, 3, () -> helper.succeedWhen(() -> {
+                for (int x = 1; x <= 3; x++) {
+                    int power = wirePowerAt(helper, x, 1, 1);
+                    helper.assertTrue(power == 0,
+                            "with the lever off the whole run must go dark, but x=" + x + " is " + power);
+                }
+            }));
+        });
+    }
+
+    /** The same for a run buried inside blocks, which the inner solver is responsible for. */
+    @GameTest(template = "empty")
+    public void buriedSuperconductingDustGoesDarkWhenItsLeverIsOff(GameTestHelper helper) {
+        for (int x = 0; x <= 2; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+        }
+
+        BlockPos lever = at(helper, 0, 1, 1);
+        Slot leverSlot = placeComponent(helper, lever, ComponentType.LEVER, 15, Direction.NORTH);
+        leverSlot.powered = true;
+        placeComponent(helper, at(helper, 1, 1, 1), ComponentType.SUPERCONDUCTOR, 0, Direction.NORTH);
+        placeComponent(helper, at(helper, 2, 1, 1), ComponentType.SUPERCONDUCTOR, 0, Direction.NORTH);
+
+        solve(helper, at(helper, 2, 1, 1));
+        helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 15
+                        && powerAt(helper, at(helper, 2, 1, 1)) == 15,
+                "precondition: the lever lights the buried run");
+
+        InnerSwitches.toggle(helper.getLevel(), lever);
+        solve(helper, at(helper, 2, 1, 1));
+
+        helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 0
+                        && powerAt(helper, at(helper, 2, 1, 1)) == 0,
+                "and burying the run must not change that: got "
+                        + powerAt(helper, at(helper, 1, 1, 1)) + " and "
+                        + powerAt(helper, at(helper, 2, 1, 1)));
+        helper.succeed();
+    }
+
     /** The strength a wire block in the world currently holds. */
     private static int wirePowerAt(GameTestHelper helper, int x, int y, int z) {
         BlockState state = helper.getBlockState(new BlockPos(x, y, z));
