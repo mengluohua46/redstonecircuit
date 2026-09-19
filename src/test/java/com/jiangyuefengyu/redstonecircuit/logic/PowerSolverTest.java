@@ -163,7 +163,7 @@ class PowerSolverTest {
     private static final BlockPos HERE = new BlockPos(0, 0, 0);
 
     private static int target(FakeEnv env, int supply) {
-        return PowerSolver.dustTarget(env, HERE, supply, env.nodeAt(0, 0, 0));
+        return PowerSolver.wireTarget(env, HERE, supply, env.nodeAt(0, 0, 0));
     }
 
     // ------------------------------------------------------------ propagation --
@@ -178,14 +178,113 @@ class PowerSolverTest {
     @Test
     @DisplayName("one wire hop costs exactly one, a source hop costs nothing")
     void wireHopCostsOneButASourceDoesNot() {
+        // The receiver is what charges the hop - vanilla's rule, and the one a superconductor bends - so
+        // these cases put a wire at the origin rather than asking about an empty position.
         FakeEnv env = new FakeEnv();
         env.node(1, 0, 0, ComponentType.DUST, 15);
+        env.node(HERE, ComponentType.DUST, 0);
         assertEquals(14, target(env, 0), "15 - 1 from the neighbouring wire");
 
         FakeEnv lever = new FakeEnv();
         lever.node(1, 0, 0, ComponentType.LEVER, 15);
+        lever.node(HERE, ComponentType.DUST, 0);
         assertEquals(15, target(lever, 0),
                 "a lever is a source, so it lights wire at full strength - exactly like vanilla");
+    }
+
+    /**
+     * The whole point of the new material: a run of superconducting dust keeps the strength it was
+     * given, while ordinary dust fades a step per block.
+     *
+     * <p>Solved the way the network does it - repeatedly taking each wire's target until nothing rises
+     * any further - because the point is what reaches the far end of the run, not what one hop does.
+     */
+    @Test
+    @DisplayName("superconducting dust carries its strength without loss")
+    void superconductorLosesNothingPerHop() {
+        FakeEnv run = run(ComponentType.SUPERCONDUCTOR, -4, 0);
+        settle(run, -4, 0);
+        for (int x = -4; x <= 0; x++) {
+            assertEquals(15, run.at(x, 0, 0).power(),
+                    "every block of the run holds the full strength, at x = " + x);
+        }
+
+        FakeEnv fading = run(ComponentType.DUST, -4, 0);
+        settle(fading, -4, 0);
+        assertEquals(11, fading.at(0, 0, 0).power(),
+                "the same run in ordinary dust costs one per hop, which is what vanilla does");
+    }
+
+    /**
+     * The difference is distance, not hops: ordinary dust is out of signal after fifteen blocks, while
+     * superconducting dust is still at fifteen after sixty-four.
+     *
+     * <p>This is also what the network's fixpoint has to survive - a run longer than the fifteen blocks
+     * an ordinary signal can cross needs more passes than a bound sized for dust would allow.
+     */
+    @Test
+    @DisplayName("a long superconducting run is still at full strength at the far end")
+    void longSuperconductingRunHolds() {
+        FakeEnv run = run(ComponentType.SUPERCONDUCTOR, -64, 0);
+        settle(run, -64, 0);
+        assertEquals(15, run.at(0, 0, 0).power(), "sixty-four free hops cost nothing");
+
+        FakeEnv fading = run(ComponentType.DUST, -64, 0);
+        settle(fading, -64, 0);
+        assertEquals(0, fading.at(0, 0, 0).power(),
+                "while ordinary dust gave out long before: fifteen blocks is all a signal of fifteen crosses");
+    }
+
+    /** A run of wire from {@code fromX} to {@code toX} with its west end fed at fifteen. */
+    private static FakeEnv run(ComponentType type, int fromX, int toX) {
+        FakeEnv env = new FakeEnv();
+        for (int x = fromX; x <= toX; x++) {
+            env.node(x, 0, 0, type, 0);
+        }
+        // A source at the west end: standing in for the supply the network would read from the world.
+        env.at(fromX, 0, 0).setPower(15);
+        return env;
+    }
+
+    /**
+     * Grows every wire in the run towards its target until nothing changes, as the solver does.
+     *
+     * <p>The bound is the run's length: a wire's value only rises, so a run can never need more passes
+     * than it has blocks.
+     */
+    private static void settle(FakeEnv env, int fromX, int toX) {
+        int length = toX - fromX + 1;
+        for (int pass = 0; pass <= length; pass++) {
+            boolean changed = false;
+            for (int x = fromX; x <= toX; x++) {
+                FakeNode node = env.at(x, 0, 0);
+                int target = PowerSolver.wireTarget(env, new BlockPos(x, 0, 0), 0, node);
+                if (target > node.power()) {
+                    node.setPower(target);
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return;
+            }
+        }
+        throw new AssertionError("the run did not settle within " + length + " passes");
+    }
+
+    /** Entering the superconductor from ordinary wire must not cost anything either. */
+    @Test
+    @DisplayName("a hop into a superconductor is free even from ordinary dust")
+    void enteringASuperconductorIsFree() {
+        FakeEnv env = new FakeEnv();
+        env.node(1, 0, 0, ComponentType.DUST, 15);
+        env.node(HERE, ComponentType.SUPERCONDUCTOR, 0);
+        assertEquals(15, target(env, 0), "the superconducting side of the hop charges nothing");
+
+        // ...while the ordinary dust on the far side of it still charges its own hop, as it always does.
+        FakeEnv back = new FakeEnv();
+        back.node(1, 0, 0, ComponentType.SUPERCONDUCTOR, 15);
+        back.node(HERE, ComponentType.DUST, 0);
+        assertEquals(14, target(back, 0), "ordinary dust fades a wire feeding it by one");
     }
 
     @Test
@@ -211,10 +310,12 @@ class PowerSolverTest {
     void verticalNeighbourCouples() {
         FakeEnv above = new FakeEnv();
         above.node(0, 1, 0, ComponentType.DUST, 15);
+        above.node(HERE, ComponentType.DUST, 0);
         assertEquals(14, target(above, 0), "inner redstone in the block above is a direct neighbour");
 
         FakeEnv below = new FakeEnv();
         below.node(0, -1, 0, ComponentType.DUST, 15);
+        below.node(HERE, ComponentType.DUST, 0);
         assertEquals(14, target(below, 0), "and so is the block below");
     }
 
@@ -225,6 +326,7 @@ class PowerSolverTest {
         env.node(1, 0, 0, ComponentType.DUST, 4);
         env.node(-1, 0, 0, ComponentType.DUST, 9);
         env.node(0, 0, 1, ComponentType.DUST, 3);
+        env.node(HERE, ComponentType.DUST, 0);
         assertEquals(8, target(env, 0), "the strongest neighbouring wire (9) minus one hop");
 
         assertEquals(15, PowerSolver.clamp(99), "corrupt saved data is clamped, not propagated");
@@ -306,11 +408,11 @@ class PowerSolverTest {
     void forcedOffCutsDust() {
         FakeEnv env = new FakeEnv();
         env.node(1, 0, 0, ComponentType.DUST, 15);
+        FakeNode self = env.node(HERE, ComponentType.DUST, 0).at(0, 0, 0);
         assertEquals(14, target(env, 0), "precondition: normally it couples");
 
-        FakeNode self = env.node(HERE, ComponentType.DUST, 0).at(0, 0, 0);
         self.forced(Direction.EAST, false);
-        assertEquals(0, PowerSolver.dustTarget(env, HERE, 0, self),
+        assertEquals(0, PowerSolver.wireTarget(env, HERE, 0, self),
                 "with the side cut, nothing arrives from it");
     }
 
@@ -353,7 +455,7 @@ class PowerSolverTest {
 
         env.node(0, 0, -1, ComponentType.DUST, 2);
         assertEquals(15, PowerSolver.desiredOutput(env, HERE, repeater),
-                "input 2 (one hop from a wire of 3) comes out at 15");
+                "an input of 2 comes out at 15: a diode reads a wire beside it at its full strength");
     }
 
     @Test
@@ -362,11 +464,13 @@ class PowerSolverTest {
         FakeEnv env = new FakeEnv();
         FakeNode comparator = env.node(HERE, ComponentType.COMPARATOR, 0).at(0, 0, 0);
         comparator.facing(Direction.NORTH);
-        // Back input of 7 (a wire of 8 behind it), side input of 5 (a wire of 6 to the east).
+        // Back input of 8 (a wire of 8 behind it), side input of 6 (a wire of 6 to the east). A diode
+        // reads wires at full strength in vanilla, and so does this one: the hop cost is the receiving
+        // wire's, and a comparator is not a wire.
         env.node(0, 0, -1, ComponentType.DUST, 8);
         env.node(1, 0, 0, ComponentType.DUST, 6);
 
-        assertEquals(7, PowerSolver.desiredOutput(env, HERE, comparator),
+        assertEquals(8, PowerSolver.desiredOutput(env, HERE, comparator),
                 "compare: the back signal passes through while it is at least the sides");
 
         comparator.mode(ComparatorMode.SUBTRACT);
@@ -384,7 +488,7 @@ class PowerSolverTest {
         env.node(1, 0, 0, ComponentType.DUST, 12);
 
         assertEquals(0, PowerSolver.desiredOutput(env, HERE, comparator),
-                "back 5 is less than side 11, so compare outputs nothing");
+                "back 6 is less than side 12, so compare outputs nothing");
     }
 
     @Test

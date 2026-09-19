@@ -1045,6 +1045,89 @@ public final class InnerRedstoneGameTest {
                 "a disconnected side must carry nothing, got " + powerAt(helper, receiver)));
     }
 
+    // ------------------------------------------------- superconducting dust ------
+
+    /**
+     * 超导红石粉 in a real level: a run of it carries fifteen all the way, where ordinary dust fades.
+     *
+     * <p>Both runs are fed the same way - a lever, then one ordinary wire, then the material under test -
+     * so the only difference between them is the material itself.
+     */
+    @GameTest(template = "empty")
+    public void superconductingDustCarriesSignalWithoutLoss(GameTestHelper helper) {
+        layOutFedRun(helper, ComponentType.SUPERCONDUCTOR);
+
+        solve(helper, at(helper, 4, 1, 1));
+        for (int x = 2; x <= 4; x++) {
+            int power = powerAt(helper, at(helper, x, 1, 1));
+            helper.assertTrue(power == 15,
+                    "superconducting dust at x=" + x + " must hold the full 15, got " + power);
+        }
+
+        helper.succeed();
+    }
+
+    /** The control for the test above: the same run in ordinary dust fades a step per block. */
+    @GameTest(template = "empty")
+    public void ordinaryDustStillFadesOverDistance(GameTestHelper helper) {
+        layOutFedRun(helper, ComponentType.DUST);
+
+        solve(helper, at(helper, 4, 1, 1));
+        for (int x = 2; x <= 4; x++) {
+            int expected = 15 - (x - 1);
+            int power = powerAt(helper, at(helper, x, 1, 1));
+            helper.assertTrue(power == expected,
+                    "ordinary dust at x=" + x + " should have faded to " + expected + ", got " + power);
+        }
+
+        helper.succeed();
+    }
+
+    /**
+     * Lever host at (0,1,1), an ordinary wire at (1,1,1) to carry its fifteen, then {@code material} for
+     * the three blocks after it.
+     */
+    private static void layOutFedRun(GameTestHelper helper, ComponentType material) {
+        for (int x = 0; x <= 4; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+        }
+        placeComponent(helper, at(helper, 0, 1, 1), ComponentType.LEVER, 15, Direction.NORTH);
+        placeDust(helper, at(helper, 1, 1, 1), 0);
+        for (int x = 2; x <= 4; x++) {
+            placeComponent(helper, at(helper, x, 1, 1), material, 0, Direction.NORTH);
+        }
+    }
+
+    /**
+     * The two materials mix: entering the superconductor costs nothing, leaving it costs the ordinary
+     * dust's own hop.
+     */
+    @GameTest(template = "empty")
+    public void superconductingDustMixesWithOrdinaryDust(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+        }
+
+        // lever(15) -> dust -> superconductor -> dust
+        placeComponent(helper, at(helper, 0, 1, 1), ComponentType.LEVER, 15, Direction.NORTH);
+        placeDust(helper, at(helper, 1, 1, 1), 0);
+        placeComponent(helper, at(helper, 2, 1, 1), ComponentType.SUPERCONDUCTOR, 0, Direction.NORTH);
+        placeDust(helper, at(helper, 3, 1, 1), 0);
+
+        solve(helper, at(helper, 3, 1, 1));
+        helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 15,
+                "a lever lights the first wire at full strength, got "
+                        + powerAt(helper, at(helper, 1, 1, 1)));
+        helper.assertTrue(powerAt(helper, at(helper, 2, 1, 1)) == 15,
+                "ordinary dust feeding a superconductor charges nothing for the hop, got "
+                        + powerAt(helper, at(helper, 2, 1, 1)));
+        helper.assertTrue(powerAt(helper, at(helper, 3, 1, 1)) == 14,
+                "and ordinary dust on the far side fades by one, as it always does, got "
+                        + powerAt(helper, at(helper, 3, 1, 1)));
+
+        helper.succeed();
+    }
+
     // ---------------------------------------------------------------- wrench --
 
     /**

@@ -11,6 +11,16 @@ package com.jiangyuefengyu.redstonecircuit.data;
 public enum ComponentType {
     /** Redstone dust (wire). The only type that behaves like a wire rather than like a device. */
     DUST,
+    /**
+     * 超导红石粉 - superconducting dust: a wire whose hops cost nothing.
+     *
+     * <p>Vanilla charges every wire hop to the wire that receives it ({@code max(sources, best
+     * neighbouring wire - 1)}), which is why a normal line fades and why fifteen cannot travel far. A
+     * superconductor is the same wire with a hop cost of zero, so a run of it carries whatever strength
+     * it was given all the way to the end. Everything else about it - reading and emitting on every
+     * side, giving no strong power - is ordinary dust.
+     */
+    SUPERCONDUCTOR,
     /** Redstone repeater. Reads {@link Slot#facing}, delays by {@link Slot#delay}. */
     REPEATER,
     /** Redstone comparator. Reads {@link Slot#facing} and its two sides, uses {@link Slot#mode}. */
@@ -27,6 +37,24 @@ public enum ComponentType {
     /** True when this component is a power source rather than a conductor/relay. */
     public boolean isSource() {
         return this == TORCH || this == LEVER || this == BUTTON || this == PRESSURE_PLATE;
+    }
+
+    /**
+     * True when this component propagates like a wire: it reads and emits on every side, and a hop
+     * between two of them is charged by the receiver.
+     */
+    public boolean isWire() {
+        return this == DUST || this == SUPERCONDUCTOR;
+    }
+
+    /**
+     * What one hop into this wire costs.
+     *
+     * <p>One for ordinary dust - vanilla's rule, and the reason a line fades - and nothing for a
+     * superconductor, which is the whole point of it.
+     */
+    public int hopCost() {
+        return this == SUPERCONDUCTOR ? 0 : 1;
     }
 
     /** True when this component relays a signal and therefore has a direction. */
@@ -69,7 +97,9 @@ public enum ComponentType {
         }
     }
 
-    /** The output a freshly placed component starts with, before anything has been solved. */
+    /**
+     * The output a freshly placed component starts with, before anything has been solved.
+     */
     public int initialPower() {
         // A torch is lit the moment it is placed; everything else starts silent and is raised by
         // whatever feeds it (or by the player, for a lever).

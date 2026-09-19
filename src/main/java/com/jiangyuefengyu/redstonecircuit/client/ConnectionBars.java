@@ -71,8 +71,8 @@ final class ConnectionBars {
 
     /** The colour a connection bar takes from the component it leaves. */
     private static int wireColor(Slot slot) {
-        if (slot.type == com.jiangyuefengyu.redstonecircuit.data.ComponentType.DUST) {
-            return InnerComponentModel.dustColor(slot.power);
+        if (slot.type.isWire()) {
+            return InnerComponentModel.wireColor(slot.type, slot.power);
         }
         return slot.power > 0 ? 0xFFFF5030 : 0xFF7A4A3A;
     }

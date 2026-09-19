@@ -200,6 +200,9 @@ public final class HostRules {
         if (item == Items.REDSTONE) {
             return ComponentType.DUST;
         }
+        if (item == RCRegistry.SUPERCONDUCTING_REDSTONE.get()) {
+            return ComponentType.SUPERCONDUCTOR;
+        }
         if (item == Items.REPEATER) {
             return ComponentType.REPEATER;
         }
@@ -224,6 +227,7 @@ public final class HostRules {
     public static ItemStack itemFor(ComponentType type) {
         return switch (type) {
             case DUST -> new ItemStack(Items.REDSTONE);
+            case SUPERCONDUCTOR -> new ItemStack(RCRegistry.SUPERCONDUCTING_REDSTONE.get());
             case REPEATER -> new ItemStack(Items.REPEATER);
             case COMPARATOR -> new ItemStack(Items.COMPARATOR);
             case TORCH -> new ItemStack(Items.REDSTONE_TORCH);

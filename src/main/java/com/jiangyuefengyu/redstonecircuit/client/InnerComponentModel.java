@@ -3,6 +3,7 @@ package com.jiangyuefengyu.redstonecircuit.client;
 import java.util.List;
 
 import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
+import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
 import net.minecraft.core.Direction;
@@ -143,7 +144,7 @@ public final class InnerComponentModel {
         int first = out.size();
         ConnectionBars.bars(slot, neighbours, out);
         switch (slot.type) {
-            case DUST -> dust(slot, out);
+            case DUST, SUPERCONDUCTOR -> dust(slot, out);
             case REPEATER -> repeater(slot, out);
             case COMPARATOR -> comparator(slot, out);
             case TORCH -> torch(slot, out);
@@ -239,17 +240,52 @@ public final class InnerComponentModel {
     }
 
     /**
-     * The colour of a piece of wire at a given strength.
+     * The colour of a piece of wire at a given strength: red for dust, orange for the superconductor.
      *
-     * <p>Vanilla's own ramp: a wire starts at a third brightness when it is unpowered and reaches
-     * white-hot red at fifteen, which is what makes a run of inner wire readable at a glance.
+     * <p>Both keep vanilla's "dark when idle, hot at fifteen" brightness ramp, so a run of either is
+     * readable at a glance; the two materials are told apart by hue rather than by shape, which matters
+     * because they look identical otherwise.
+     */
+    public static int wireColor(ComponentType type, int power) {
+        return type == ComponentType.SUPERCONDUCTOR ? superconductorColor(power) : dustColor(power);
+    }
+
+    /**
+     * The colour of ordinary wire at a given strength: exactly vanilla's own ramp, so inner dust looks
+     * like the dust outside the block.
      */
     public static int dustColor(int power) {
-        float strength = Math.max(0, Math.min(15, power)) / 15.0F;
-        float red = strength * 0.6F + 0.4F;
-        float green = Math.max(0.0F, strength * strength * 0.7F - 0.5F);
-        float blue = Math.max(0.0F, strength * strength * 0.6F - 0.7F);
-        return 0xFF000000 | ((int) (red * 255) << 16) | ((int) (green * 255) << 8) | (int) (blue * 255);
+        float strength = strength(power);
+        return argb(
+                strength * 0.6F + 0.4F,
+                Math.max(0.0F, strength * strength * 0.7F - 0.5F),
+                Math.max(0.0F, strength * strength * 0.6F - 0.7F));
+    }
+
+    /**
+     * The same ramp in orange: the vanilla brightness, with the green channel carried along it instead
+     * of only appearing at full strength.
+     *
+     * <p>Vanilla's own green channel is zero for most of the range, which is what makes a wire red;
+     * giving orange a proportional share of the brightness keeps it orange when it is idle as well as
+     * when it is hot, so the two materials never look alike.
+     */
+    public static int superconductorColor(int power) {
+        float strength = strength(power);
+        float brightness = strength * 0.6F + 0.4F;
+        return argb(brightness, brightness * 0.55F + strength * strength * 0.2F, brightness * 0.05F);
+    }
+
+    private static float strength(int power) {
+        return Math.max(0, Math.min(15, power)) / 15.0F;
+    }
+
+    private static int argb(float red, float green, float blue) {
+        return 0xFF000000 | (channel(red) << 16) | (channel(green) << 8) | channel(blue);
+    }
+
+    private static int channel(float value) {
+        return (int) Math.min(255.0F, Math.max(0.0F, value) * 255.0F);
     }
 
     // ------------------------------------------------------------- geometry --

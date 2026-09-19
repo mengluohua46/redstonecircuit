@@ -6,6 +6,7 @@ import java.util.Map;
 
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneGogglesItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
+import com.jiangyuefengyu.redstonecircuit.item.SuperconductingRedstoneItem;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
@@ -67,6 +68,15 @@ public final class RCRegistry {
             ITEMS.register("redstone_wrench",
                     () -> new RedstoneWrenchItem(new Item.Properties().stacksTo(1)));
 
+    /**
+     * 超导红石粉 - the item form of {@link com.jiangyuefengyu.redstonecircuit.data.ComponentType#SUPERCONDUCTOR}.
+     *
+     * <p>Stacks to sixteen like vanilla redstone, since the recipe produces nine at a time.
+     */
+    public static final DeferredHolder<Item, SuperconductingRedstoneItem> SUPERCONDUCTING_REDSTONE =
+            ITEMS.register("superconducting_redstone",
+                    () -> new SuperconductingRedstoneItem(new Item.Properties()));
+
     /** Our own creative tab; the two items sit in it next to a stack of redstone. */
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MAIN_TAB =
             CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
@@ -75,6 +85,7 @@ public final class RCRegistry {
                     .displayItems((parameters, output) -> {
                         output.accept(REDSTONE_GOGGLES.get());
                         output.accept(REDSTONE_WRENCH.get());
+                        output.accept(SUPERCONDUCTING_REDSTONE.get());
                     })
                     .build());
 

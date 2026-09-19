@@ -1,5 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit.logic;
 
+import org.jetbrains.annotations.Nullable;
+
 import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
@@ -236,14 +238,14 @@ public final class PowerSolver {
     // ------------------------------------------------------------ propagation --
 
     /**
-     * The value inner dust at {@code pos} should hold.
+     * The value inner wire at {@code pos} should hold.
      *
      * <p>{@code value = max(supply, max over sides of what arrives from that side)}, where the supply
-     * is the component's own draw from outside the wire network (or an injected debug value) and a
-     * neighbouring wire is worth one less than its own value. Stated this way the answer depends only
-     * on the supplies, which is why the caller can iterate to a fixpoint in any order.
+     * is the component's own draw from outside the wire network (or an injected debug value) and each
+     * hop is charged according to {@link #afterHop}. Stated this way the answer depends only on the
+     * supplies, which is why the caller can iterate to a fixpoint in any order.
      */
-    public static int dustTarget(PowerEnvironment env, BlockPos pos, int supply,
+    public static int wireTarget(PowerEnvironment env, BlockPos pos, int supply,
                                  PowerEnvironment.Node self) {
         int best = clamp(supply);
         for (Direction direction : Direction.values()) {
@@ -253,37 +255,61 @@ public final class PowerSolver {
     }
 
     /**
-     * What the inner network delivers across one side, ignoring what the receiver is willing to read.
+     * What a neighbour offers across one side, before any wire hop is charged.
      *
      * <p>Split out because a comparator has three inputs, not one: its back is gated by
-     * {@link #readsFrom} but its two sides are read by design.
+     * {@link #readsFrom} but its two sides are read by design - and vanilla reads those side inputs at
+     * full strength, without the decrement a wire charges.
      */
     public static int neighbourValue(PowerEnvironment env, BlockPos pos, Direction direction) {
-        BlockPos neighbour = pos.relative(direction);
-        PowerEnvironment.Node other =
-                env.nodeAt(neighbour.getX(), neighbour.getY(), neighbour.getZ());
+        PowerEnvironment.Node other = nodeAt(env, pos.relative(direction));
         if (other == null || !emitsToward(other, direction.getOpposite())) {
             return 0;
         }
-        int value = clamp(other.power());
-        if (other.type() == ComponentType.DUST) {
-            value--;
-        }
-        return Math.max(0, value);
+        return clamp(other.power());
     }
 
     /**
      * What the inner network delivers to {@code self} at {@code pos} from {@code direction}.
      *
-     * @return 0 when the component does not read that side, the neighbour's value when it does, one
-     *     less than that when the neighbour is dust
+     * @return 0 when the component does not read that side, otherwise what arrives after the hop
      */
     public static int innerFrom(PowerEnvironment env, BlockPos pos, Direction direction,
                                 PowerEnvironment.Node self) {
         if (self != null && !readsFrom(self, direction)) {
             return 0;
         }
-        return neighbourValue(env, pos, direction);
+        PowerEnvironment.Node other = nodeAt(env, pos.relative(direction));
+        if (other == null || !emitsToward(other, direction.getOpposite())) {
+            return 0;
+        }
+        return afterHop(self, other, clamp(other.power()));
+    }
+
+    /**
+     * What survives the hop between two components.
+     *
+     * <p>Vanilla charges this to the wire that <em>receives</em>: a wire's strength is
+     * {@code max(sources around it, best neighbouring wire - 1)}, so a torch lights a wire to fifteen
+     * while wire only lights the next wire to fourteen. Modelling it as the receiver's cost is what
+     * makes a superconducting wire possible at all - its hop costs nothing, so a run of it carries the
+     * strength it was given all the way.
+     *
+     * <p>A hop into or out of anything that is not a wire costs nothing, which is why a repeater reads
+     * a wire at full strength, exactly as it does in vanilla.
+     */
+    private static int afterHop(@Nullable PowerEnvironment.Node receiver,
+                                PowerEnvironment.Node sender, int value) {
+        if (receiver == null || !receiver.type().isWire() || !sender.type().isWire() || value == 0) {
+            return value;
+        }
+        return Math.max(0, value - receiver.type().hopCost());
+    }
+
+    /** The component at a position, or {@code null}; the environment lookup in one place. */
+    @Nullable
+    private static PowerEnvironment.Node nodeAt(PowerEnvironment env, BlockPos pos) {
+        return env.nodeAt(pos.getX(), pos.getY(), pos.getZ());
     }
 
     /**

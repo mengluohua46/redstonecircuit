@@ -3,6 +3,10 @@
 
   "item.redstonecircuit.redstone_goggles": "红石眼镜",
   "item.redstonecircuit.redstone_wrench": "红石扳手",
+  "item.redstonecircuit.superconducting_redstone": "超导红石粉",
+
+  "item.redstonecircuit.superconducting_redstone.tip.place": "和红石一样：手持并 Shift+右键放进方块内部",
+  "item.redstonecircuit.superconducting_redstone.tip.lossless": "信号不衰减：无论传多远都保持原强度",
 
   "item.redstonecircuit.redstone_goggles.tip.wear": "戴在头上：含红石的方块会变成半透明，并显示里面的红石",
   "item.redstonecircuit.redstone_wrench.tip.select": "右键红石：选中它作为 A",

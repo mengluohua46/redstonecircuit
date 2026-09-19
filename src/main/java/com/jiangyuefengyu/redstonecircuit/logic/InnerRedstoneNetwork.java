@@ -62,6 +62,15 @@ public final class InnerRedstoneNetwork {
      */
     private static final int MAX_ROUNDS_PER_TICK = 2 * PowerSolver.MAX_POWER + 2;
 
+    /**
+     * Ceiling on the fixpoint passes one component may need in a single solve.
+     *
+     * <p>Only reached by a component far larger than anything a player builds (each pass walks the whole
+     * component), and only as a guard against a pathological wiring order; {@link #MAX_ROUNDS_PER_TICK}
+     * is the bound that actually keeps a tick short.
+     */
+    private static final int MAX_FIXPOINT_PASSES = 512;
+
     /** Per-level set of positions awaiting recomputation. */
     private static final Map<ResourceKey<Level>, Set<BlockPos>> DIRTY = new HashMap<>();
 
@@ -409,28 +418,34 @@ public final class InnerRedstoneNetwork {
         for (BlockPos pos : component) {
             Slot slot = store.slotAt(pos);
             previous.put(pos, slot == null ? 0 : slot.power);
-            if (slot != null && slot.type == ComponentType.DUST) {
+            if (slot != null && slot.type.isWire()) {
                 slot.power = 0;
             }
         }
 
+        // A wire's value only ever rises and is capped at fifteen, so this loop always terminates; the
+        // bound is a performance guard, not a correctness one. It is sized by the component because
+        // superconducting dust does not fade: a run of it can be far longer than the fifteen blocks an
+        // ordinary signal survives, and a small fixed bound would leave the far end of such a run dark
+        // until the next solve.
+        int maxPasses = 2 + Math.min(component.size(), MAX_FIXPOINT_PASSES);
         int pass = 0;
         boolean changed = true;
         while (changed) {
-            if (pass++ > PowerSolver.MAX_POWER) {
+            if (pass++ > maxPasses) {
                 RCConfig.LOGGER.warn(
-                        "[redstonecircuit] inner redstone network did not settle after {} passes",
-                        PowerSolver.MAX_POWER + 1);
+                        "[redstonecircuit] inner redstone network did not settle after {} passes over {} block(s)",
+                        maxPasses, component.size());
                 break;
             }
             changed = false;
             for (BlockPos pos : component) {
                 Slot slot = store.slotAt(pos);
-                if (slot == null || slot.type != ComponentType.DUST) {
+                if (slot == null || !slot.type.isWire()) {
                     continue;
                 }
                 env.setQueryPos(pos);
-                int target = PowerSolver.dustTarget(env, pos, supplyOf(env, slot), SlotNode.of(slot));
+                int target = PowerSolver.wireTarget(env, pos, supplyOf(env, slot), SlotNode.of(slot));
                 if (target > slot.power) {
                     slot.power = target;
                     changed = true;
