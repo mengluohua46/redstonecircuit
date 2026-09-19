@@ -1128,6 +1128,113 @@ public final class InnerRedstoneGameTest {
         helper.succeed();
     }
 
+    /**
+     * The wire form: laid on the ground it behaves like redstone, except that it never fades.
+     *
+     * <p>This is the block form of the same material, and it is vanilla's wire block underneath - so the
+     * test is about the one thing that was changed. A redstone block feeds the row, and the checked
+     * strengths are read out of the blockstates the world actually holds, which is what the player sees.
+     */
+    @GameTest(template = "empty")
+    public void placedSuperconductingWireDoesNotFade(GameTestHelper helper) {
+        // A floor for the wires to lie on, then a source and four blocks of wire.
+        for (int x = 0; x <= 4; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        setBlock(helper, 0, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+        for (int x = 1; x <= 4; x++) {
+            setBlock(helper, x, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.get().defaultBlockState());
+        }
+
+        afterTicks(helper, 3, () -> helper.succeedWhen(() -> {
+            for (int x = 1; x <= 4; x++) {
+                int power = wirePowerAt(helper, x, 1, 1);
+                helper.assertTrue(power == 15,
+                        "superconducting wire at x=" + x + " is fed at 15 and loses nothing, got " + power);
+            }
+        }));
+    }
+
+    /** The control: ordinary wire on the same floor fades a step per block. */
+    @GameTest(template = "empty")
+    public void placedOrdinaryWireStillFades(GameTestHelper helper) {
+        for (int x = 0; x <= 4; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        setBlock(helper, 0, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+        for (int x = 1; x <= 4; x++) {
+            setBlock(helper, x, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+        }
+
+        afterTicks(helper, 3, () -> helper.succeedWhen(() -> {
+            for (int x = 1; x <= 4; x++) {
+                int expected = 15 - (x - 1);
+                int power = wirePowerAt(helper, x, 1, 1);
+                helper.assertTrue(power == expected,
+                        "ordinary wire at x=" + x + " should be " + expected + ", got " + power);
+            }
+        }));
+    }
+
+    /**
+     * The mixing rule, on the ground this time: no hop into the superconductor, one hop out of it.
+     *
+     * <p>That is the same rule the buried kind follows, and it falls out of the same reasoning - each wire
+     * charges its own hop, and the superconductor's is nothing. Keeping the two consistent is the point:
+     * the material is the same either way.
+     */
+    @GameTest(template = "empty")
+    public void placedWiresMixLikeTheBuriedOnes(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        // redstone block -> dust -> superconductor -> dust
+        setBlock(helper, 0, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+        setBlock(helper, 1, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.get().defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+
+        afterTicks(helper, 3, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(wirePowerAt(helper, 1, 1, 1) == 15,
+                    "the source lights the first dust at full strength, got " + wirePowerAt(helper, 1, 1, 1));
+            helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 15,
+                    "dust feeding the superconductor charges nothing for the hop, got "
+                            + wirePowerAt(helper, 2, 1, 1));
+            helper.assertTrue(wirePowerAt(helper, 3, 1, 1) == 14,
+                    "and dust on the far side fades by one, as it always does, got "
+                            + wirePowerAt(helper, 3, 1, 1));
+        }));
+    }
+
+    /** The strength a wire block in the world currently holds. */
+    private static int wirePowerAt(GameTestHelper helper, int x, int y, int z) {
+        BlockState state = helper.getBlockState(new BlockPos(x, y, z));
+        if (!state.hasProperty(BlockStateProperties.POWER)) {
+            return -1;
+        }
+        return state.getValue(BlockStateProperties.POWER);
+    }
+
+    /**
+     * Breaking the placed wire gives it back.
+     *
+     * <p>A wire's drop comes from a loot table rather than from code, and a loot table that fails to load
+     * leaves the block silently dropping nothing - which is exactly the sort of thing that is only ever
+     * noticed after losing a stack of the material.
+     */
+    @GameTest(template = "empty")
+    public void placedWireDropsItself(GameTestHelper helper) {
+        setBlock(helper, 1, 0, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.get().defaultBlockState());
+
+        // Broken the way a player breaks it - dropping its loot. GameTestHelper#destroyBlock passes
+        // drop = false, which would prove nothing here.
+        helper.getLevel().destroyBlock(helper.absolutePos(new BlockPos(1, 1, 1)), true, null);
+
+        helper.assertItemEntityPresent(RCRegistry.SUPERCONDUCTING_REDSTONE.get());
+        helper.succeed();
+    }
+
     // ---------------------------------------------------------------- wrench --
 
     /**

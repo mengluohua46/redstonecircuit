@@ -3,7 +3,8 @@
   "package": "com.jiangyuefengyu.redstonecircuit.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "BlockStateSignalMixin"
+    "BlockStateSignalMixin",
+    "RedStoneWireBlockMixin"
   ],
   "client": [],
   "server": [],

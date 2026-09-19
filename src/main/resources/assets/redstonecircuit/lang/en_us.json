@@ -4,8 +4,12 @@
   "item.redstonecircuit.redstone_goggles": "Redstone Goggles",
   "item.redstonecircuit.redstone_wrench": "Redstone Wrench",
   "item.redstonecircuit.superconducting_redstone": "Superconducting Redstone Dust",
+  "block.redstonecircuit.superconducting_redstone": "Superconducting Redstone Dust",
 
-  "item.redstonecircuit.superconducting_redstone.tip.place": "Like redstone: hold it and shift-right-click a block to put it inside",
+  "item.redstonecircuit.redstone_goggles.tip.wear": "Worn on the head: blocks holding redstone turn translucent and show what is inside",
+  "item.redstonecircuit.redstone_goggles.tip.inside": "You can see the shape, facing, delay and wiring of the redstone inside a block",
+  "item.redstonecircuit.redstone_goggles.tip.wrench": "The redstone wrench needs them to be worn",
+  "item.redstonecircuit.superconducting_redstone.tip.place": "Like redstone: right-click to lay it on a block, shift-right-click to put it inside one",
   "item.redstonecircuit.superconducting_redstone.tip.lossless": "No signal loss: it carries its full strength however far it goes",
 
   "item.redstonecircuit.redstone_goggles.tip.wear": "Worn on the head: blocks holding redstone become translucent and show what is inside",

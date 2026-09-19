@@ -4,6 +4,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jiangyuefengyu.redstonecircuit.block.SuperconductingWireBlock;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneGogglesItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.SuperconductingRedstoneItem;
@@ -20,6 +21,10 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.material.PushReaction;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -33,6 +38,9 @@ public final class RCRegistry {
 
     public static final DeferredRegister.Items ITEMS =
             DeferredRegister.createItems(RedstoneCircuit.MODID);
+
+    public static final DeferredRegister.Blocks BLOCKS =
+            DeferredRegister.createBlocks(RedstoneCircuit.MODID);
 
     public static final DeferredRegister<ArmorMaterial> ARMOR_MATERIALS =
             DeferredRegister.create(Registries.ARMOR_MATERIAL, RedstoneCircuit.MODID);
@@ -73,9 +81,31 @@ public final class RCRegistry {
      *
      * <p>Stacks to sixteen like vanilla redstone, since the recipe produces nine at a time.
      */
+    /**
+     * 超导红石粉 as a block: an orange wire that loses nothing over distance.
+     *
+     * <p>Its properties are vanilla redstone wire's, so it is placed, supported, shaped and broken
+     * exactly like the wire everyone already knows - the only difference is the strength calculation.
+     */
+    public static final DeferredHolder<Block, SuperconductingWireBlock> SUPERCONDUCTING_WIRE =
+            BLOCKS.register("superconducting_redstone", () -> new SuperconductingWireBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .sound(SoundType.STONE)
+                            .pushReaction(PushReaction.DESTROY)));
+
+    /**
+     * The item form of {@link #SUPERCONDUCTING_WIRE}.
+     *
+     * <p>A {@code BlockItem}, so a plain right-click places the wire on the ground exactly as redstone
+     * does, while shift-right-click puts it inside a block - which is the mod's own behaviour, and is
+     * claimed before vanilla ever sees the click.
+     */
     public static final DeferredHolder<Item, SuperconductingRedstoneItem> SUPERCONDUCTING_REDSTONE =
             ITEMS.register("superconducting_redstone",
-                    () -> new SuperconductingRedstoneItem(new Item.Properties()));
+                    () -> new SuperconductingRedstoneItem(SUPERCONDUCTING_WIRE.get(),
+                            new Item.Properties()));
 
     /** Our own creative tab; the two items sit in it next to a stack of redstone. */
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MAIN_TAB =
@@ -117,6 +147,7 @@ public final class RCRegistry {
 
     public static void register(IEventBus modEventBus) {
         ITEMS.register(modEventBus);
+        BLOCKS.register(modEventBus);
         ARMOR_MATERIALS.register(modEventBus);
         CREATIVE_TABS.register(modEventBus);
     }
