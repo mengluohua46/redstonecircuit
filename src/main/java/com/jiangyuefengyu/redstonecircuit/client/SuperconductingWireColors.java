@@ -10,16 +10,22 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 
 /**
- * Tints the placed superconducting wire orange.
+ * Brightens the placed superconducting wire as its signal rises.
  *
- * <h2>Why a tint and not a texture</h2>
- * Redstone wire is drawn with a greyscale dust texture and coloured by strength in code - vanilla
- * registers its own handler for exactly that - so recolouring it means registering one, not drawing new
- * art. The same ramp the goggles draw with is used here
- * ({@link InnerComponentModel#superconductorColor}), so the wire on the ground and the wire inside a
- * block are the same colour at the same strength, which matters because they are the same material.
+ * <h2>Why only brightness, when vanilla tints the whole colour</h2>
+ * Vanilla's wire art is greyscale and its red comes entirely from a tint applied in code. The
+ * superconductor's art is that same art multiplied by orange, so the colour is already in the texture -
+ * which also means a placed wire is unmistakably orange even before this handler runs, and the tint
+ * only has to say how bright it is.
+ *
+ * <h2>Why the mod bus</h2>
+ * {@code RegisterColorHandlersEvent} is a <b>mod bus</b> event. Subscribing to the game bus - which is
+ * what this did at first - leaves the handler registered nowhere, and a wire with no tint at all is not
+ * merely duller: with none of vanilla's red applied it looks wrong in every state. The handler is
+ * therefore declared with {@code bus = Bus.MOD}, and the block also carries its colour in its art.
  */
-@EventBusSubscriber(modid = RedstoneCircuit.MODID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = RedstoneCircuit.MODID, value = Dist.CLIENT,
+        bus = EventBusSubscriber.Bus.MOD)
 public final class SuperconductingWireColors {
 
     private SuperconductingWireColors() {
@@ -27,7 +33,7 @@ public final class SuperconductingWireColors {
 
     @SubscribeEvent
     public static void onRegisterBlockColors(RegisterColorHandlersEvent.Block event) {
-        event.register((state, level, pos, tintIndex) -> InnerComponentModel.superconductorColor(
+        event.register((state, level, pos, tintIndex) -> InnerComponentModel.wireBrightness(
                 state.getValue(SuperconductingWireBlock.POWER)), RCRegistry.SUPERCONDUCTING_WIRE.get());
     }
 }

@@ -276,6 +276,19 @@ public final class InnerComponentModel {
         return argb(brightness, brightness * 0.55F + strength * strength * 0.2F, brightness * 0.05F);
     }
 
+    /**
+     * How much to brighten the placed wire's own orange art at a given strength.
+     *
+     * <p>The placed wire carries its colour in its texture - vanilla's wire art is greyscale and tinted
+     * in code, and the superconductor's is the same art multiplied by orange - so the tint that remains
+     * is brightness alone. It is the same curve vanilla uses, from four tenths when idle to full when
+     * the wire is at fifteen, which is what makes a line's strength readable at a glance.
+     */
+    public static int wireBrightness(int power) {
+        int brightness = channel(strength(power) * 0.6F + 0.4F);
+        return (brightness << 16) | (brightness << 8) | brightness;
+    }
+
     private static float strength(int power) {
         return Math.max(0, Math.min(15, power)) / 15.0F;
     }

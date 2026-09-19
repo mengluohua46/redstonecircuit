@@ -138,6 +138,50 @@ class InnerComponentModelTest {
         assertTrue((full & 0xFF0000) >> 16 >= 250, "and white hot at fifteen");
     }
 
+    /**
+     * The two wire materials must never be mistaken for each other, at any strength: dust is red
+     * throughout and the superconductor is orange throughout.
+     */
+    @Test
+    @DisplayName("superconducting wire is orange at every strength, and never red")
+    void superconductorColourIsOrange() {
+        for (int power = 0; power <= 15; power++) {
+            int colour = InnerComponentModel.superconductorColor(power);
+            int red = (colour >> 16) & 0xFF;
+            int green = (colour >> 8) & 0xFF;
+            int blue = colour & 0xFF;
+
+            assertTrue(green > 0, "power " + power + " must not be a pure red: " + Integer.toHexString(colour));
+            assertTrue(green < red, "power " + power + " must stay red-dominant, not yellow");
+            assertTrue(green * 2 > red, "power " + power + " needs enough green to read as orange");
+            assertTrue(blue < green, "power " + power + " must not drift towards white");
+        }
+        assertTrue(((InnerComponentModel.superconductorColor(15) >> 8) & 0xFF)
+                        > ((InnerComponentModel.superconductorColor(0) >> 8) & 0xFF),
+                "and brighter as the signal rises");
+    }
+
+    /**
+     * The tint the placed wire gets is brightness only - its colour is in the texture - so it has to be
+     * a grey, never a colour of its own, or the two would multiply into something dark and muddy.
+     */
+    @Test
+    @DisplayName("the placed wire's tint is a grey brightness ramp")
+    void wireBrightnessIsGrey() {
+        for (int power = 0; power <= 15; power++) {
+            int tint = InnerComponentModel.wireBrightness(power);
+            int red = (tint >> 16) & 0xFF;
+            int green = (tint >> 8) & 0xFF;
+            int blue = tint & 0xFF;
+
+            assertEquals(red, green, "power " + power + " must be grey");
+            assertEquals(green, blue, "power " + power + " must be grey");
+        }
+        assertEquals(0x66, InnerComponentModel.wireBrightness(0) & 0xFF,
+                "idle wire is four tenths bright, exactly like vanilla's");
+        assertEquals(0xFF, InnerComponentModel.wireBrightness(15) & 0xFF, "and full at fifteen");
+    }
+
     @Test
     @DisplayName("a wire reaches towards a neighbour that holds redstone, and not into thin air")
     void connectionBarsFollowTheNeighbours() {

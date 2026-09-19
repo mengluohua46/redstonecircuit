@@ -1,0 +1,7 @@
+{
+    "render_type": "minecraft:cutout",
+    "parent": "redstonecircuit:block/superconducting_dust_side_alt",
+    "textures": {
+        "line": "redstonecircuit:block/superconducting_dust_line0"
+    }
+}
