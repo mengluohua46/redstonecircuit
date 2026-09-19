@@ -439,9 +439,13 @@ public final class InnerRedstoneGameTest {
         int emitted = hostState.getSignal(level, host, Direction.EAST);
         int direct = hostState.getDirectSignal(level, host, Direction.EAST);
 
-        if (emitted != 15 || direct != 15) {
-            helper.fail("the host block should emit 15 in both signal queries,"
-                    + " but getSignal=" + emitted + " getDirectSignal=" + direct);
+        if (emitted != 15) {
+            helper.fail("the host block should emit 15 towards the lamp, but getSignal=" + emitted);
+            return;
+        }
+        if (direct != 0) {
+            helper.fail("inner dust is a weak source and must not charge the block it touches,"
+                    + " but getDirectSignal=" + direct);
             return;
         }
 
@@ -963,6 +967,39 @@ public final class InnerRedstoneGameTest {
                                 + powerAt(helper, output));
             }));
         });
+    }
+
+    /**
+     * A repeater inside a block drives only the side it points at, exactly like one on the ground.
+     *
+     * <p>A host block is not a redstone block: it emits what its component emits, and where. This is
+     * what stops a repeater's output from leaking sideways into whatever vanilla wiring happens to run
+     * alongside the block.
+     */
+    @GameTest(template = "empty")
+    public void repeaterOnlySignalsTheWayItFaces(GameTestHelper helper) {
+        // lever host at x=1, repeater host at x=2 with its input facing west, so its output is east.
+        for (int x = 1; x <= 4; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+            // Shelves first: a wire needs something to sit on when it is placed.
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+            setBlock(helper, x, 0, 2, Blocks.STONE.defaultBlockState());
+        }
+        // One lamp in front of the repeater, one beside it.
+        setBlock(helper, 3, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 2, 1, 2, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 2, 0, 2, Blocks.STONE.defaultBlockState());
+
+        placeComponent(helper, at(helper, 1, 1, 1), ComponentType.LEVER, 15, Direction.NORTH);
+        placeComponent(helper, at(helper, 2, 1, 1), ComponentType.REPEATER, 0, Direction.WEST);
+
+        afterTicks(helper, 6, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(lampLit(helper, 3, 1, 1),
+                    "the lamp in front of the repeater should be lit");
+            helper.assertTrue(!lampLit(helper, 2, 1, 2),
+                    "the lamp beside the repeater must stay dark: a repeater points one way, and the"
+                            + " lever's weak power must not be carried through the repeater's block");
+        }));
     }
 
     /** The wrench's "disconnect" override really cuts a wire in the world, not only in the data. */

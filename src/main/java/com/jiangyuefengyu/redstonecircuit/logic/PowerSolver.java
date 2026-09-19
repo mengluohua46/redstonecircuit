@@ -46,26 +46,73 @@ public final class PowerSolver {
 
     // ------------------------------------------------------- connection rules --
 
-    /** True when this component's output leaves it towards {@code direction}. */
-    public static boolean emitsToward(PowerEnvironment.Node node, Direction direction) {
-        if (node.forcedOff(direction)) {
+    /**
+     * Whether the component's output also counts as <b>strong</b> power towards the side a query came
+     * from - vanilla's {@code getDirectSignal}.
+     *
+     * <p>Strong and weak power are not the same thing in vanilla, and the difference is what stops a
+     * block from becoming a redstone block: <b>weak</b> power is only ever seen by the block it is
+     * asked about, while <b>strong</b> power is carried onwards by a solid block to everything around
+     * it. So a lever at the far side of a stone block does not light a lamp on the near side, whereas
+     * a repeater pushed into that stone does - because only the repeater gives strong power.
+     *
+     * <p>Vanilla's rules, and the reason this matters: a lever, button or plate gives none, dust gives
+     * none in practice, and only a repeater or comparator charges the block in front of it. So a lever
+     * on the far side of a stone block does not light a lamp on the near side, while a repeater pushed
+     * into that stone does.
+     *
+     * @param querySide the direction the query came from, as every redstone signal method receives it
+     */
+    public static boolean directSignalToward(ComponentType type, Direction facing, Direction querySide,
+                                             boolean forcedOff) {
+        if (forcedOff) {
             return false;
         }
-        if (node.forcedOn(direction)) {
+        if (type == ComponentType.REPEATER || type == ComponentType.COMPARATOR) {
+            // A diode strongly powers the block in front of it, which is what lets it drive a wire on
+            // the far side of a solid block - exactly as it does in vanilla. FACING points at the
+            // input, so the block in front is the opposite side.
+            return querySide == facing.getOpposite();
+        }
+        // Everything else is a weak source, just like in vanilla: a lever never charges a block, and
+        // dust only powers what it actually touches. That is what keeps a host block from behaving
+        // like a redstone block and charging every solid block around it.
+        return false;
+    }
+
+    /**
+     * Primitive overload of {@link #emitsToward(PowerEnvironment.Node, Direction)}.
+     *
+     * <p>Exists because the host block's own signal query runs on Minecraft's hottest path
+     * ({@code BlockState#getSignal} is asked by every redstone update in the world), and it must not
+     * allocate a node view for a one-line rule.
+     */
+    public static boolean emitsToward(ComponentType type, Direction facing, Direction direction,
+                                      boolean forcedOn, boolean forcedOff) {
+        if (forcedOff) {
+            return false;
+        }
+        if (forcedOn) {
             return true;
         }
-        switch (node.type()) {
+        switch (type) {
             case TORCH:
                 // A torch does not signal into the block it is attached to - that is what lets it sit
                 // on its own input without latching itself on.
-                return direction != node.facing();
+                return direction != facing;
             case REPEATER:
             case COMPARATOR:
                 // Diodes are one-way by definition: everything goes out the far side.
-                return direction == node.facing().getOpposite();
+                return direction == facing.getOpposite();
             default:
                 return true;
         }
+    }
+
+    /** True when this component's output leaves it towards {@code direction}. */
+    public static boolean emitsToward(PowerEnvironment.Node node, Direction direction) {
+        return emitsToward(node.type(), node.facing(), direction,
+                node.forcedOn(direction), node.forcedOff(direction));
     }
 
     /** True when this component takes its input from {@code direction}. */

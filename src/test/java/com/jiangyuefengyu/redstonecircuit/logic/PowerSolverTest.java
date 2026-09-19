@@ -401,6 +401,27 @@ class PowerSolverTest {
                 "the same lever behind it does nothing: diodes are directional");
     }
 
+    @Test
+    @DisplayName("only a diode charges the block in front of it, everything else is weak power")
+    void strongPowerFollowsVanilla() {
+        // A lever inside a block must not charge the stone beside it: if it did, the stone would carry
+        // that power onwards and light things the lever was never pointed at.
+        assertFalse(PowerSolver.directSignalToward(ComponentType.LEVER, Direction.NORTH, Direction.NORTH, false));
+        assertFalse(PowerSolver.directSignalToward(ComponentType.BUTTON, Direction.NORTH, Direction.SOUTH, false));
+        assertFalse(PowerSolver.directSignalToward(ComponentType.DUST, Direction.NORTH, Direction.NORTH, false));
+        assertFalse(PowerSolver.directSignalToward(ComponentType.TORCH, Direction.NORTH, Direction.NORTH, false));
+
+        // A repeater with FACING = NORTH reads from the north, so it charges the block to its south:
+        // that is how "repeater into a block, redstone off that block" works, exactly as in vanilla.
+        assertTrue(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.SOUTH, false));
+        assertFalse(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.NORTH, false));
+        assertFalse(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.UP, false));
+        assertTrue(PowerSolver.directSignalToward(ComponentType.COMPARATOR, Direction.NORTH, Direction.SOUTH, false));
+
+        // And the wrench can still cut it.
+        assertFalse(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.SOUTH, true));
+    }
+
     // ---------------------------------------------------------------- delays --
 
     @Test

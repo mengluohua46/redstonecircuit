@@ -6,8 +6,11 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -27,13 +30,36 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
  * indistinguishable from a real signal source.
  *
  * <h2>What it does</h2>
- * Before the vanilla implementations of {@code getSignal} and {@code getDirectSignal} run, this
- * checks whether a component is stored inside the queried position and, if so, reports its power.
- * Every redstone consumer - pistons, lamps, wire, comparators, observers - asks exactly these two
- * methods, so they all see the inner component.
+ * Before the vanilla implementations of {@code getSignal} and {@code getDirectSignal} run, this checks
+ * whether a component is stored inside the queried position and, if so, reports its power. Every
+ * redstone consumer - pistons, lamps, wire, comparators, observers - asks exactly these two methods,
+ * so they all see the inner component.
  *
- * <p>The emitted signal is omnidirectional (like a redstone block), which needs no per-direction
- * state and keeps the "power in equals power out" contract that {@code PowerSolver} relies on.
+ * <h2>Where it emits</h2>
+ * The host emits <b>exactly what its component emits, and exactly where</b> - the same rule the inner
+ * network uses, so a block is not a better signal source than the device inside it:
+ *
+ * <pre>
+ *   dust                      every side except upwards (vanilla wire's own quirk)
+ *   torch                     every side except the one it hangs on
+ *   repeater / comparator     only the side it points at
+ *   lever / button / plate    every side
+ * </pre>
+ *
+ * <p>So a repeater inside a block drives the block in front of it and nothing else, just like a
+ * repeater on the ground.
+ *
+ * <h2>Weak and strong are answered separately</h2>
+ * Vanilla has two signal queries and they are not interchangeable: <b>weak</b> power
+ * ({@code getSignal}) is only ever seen by the block it is asked about, while <b>strong</b> power
+ * ({@code getDirectSignal}) is carried onwards by a solid block to everything around it. A lever has
+ * no strong power at all, and only a diode charges the block in front of it. Answering both queries
+ * with the inner power - which is what this mixin used to do - turned every host block into a
+ * redstone block: a lever inside one charged the stone beside it, and that stone then lit whatever
+ * touched it. {@link PowerSolver#directSignalToward} now keeps the two apart.
+ *
+ * <p>The wrench's {@code forcedOn}/{@code forcedOff} overrides apply to the emitted (weak) directions,
+ * which is how a connection is pinned open or cut from the outside.
  *
  * <h2>Safety</h2>
  * <ul>
@@ -43,7 +69,8 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
  *       server-authoritative), or when the query happens while {@link InnerRedstoneNetwork} is
  *       evaluating its own power - otherwise a component would charge itself from its own value and
  *       the network could never settle.</li>
- *   <li>Rejects {@code Direction.DOWN}, matching vanilla wire, which does not signal downwards.</li>
+ *   <li>Allocates nothing: the rules are asked through primitive overloads, because this is the hottest
+ *       signal path in the game.</li>
  * </ul>
  *
  * <h2>Why the target is {@code BlockStateBase}</h2>
@@ -59,7 +86,7 @@ public abstract class BlockStateSignalMixin {
     @Inject(method = "getSignal", at = @At("HEAD"), cancellable = true)
     private void redstonecircuit$innerSignal(BlockGetter level, BlockPos pos, Direction direction,
                                              CallbackInfoReturnable<Integer> cir) {
-        int power = redstonecircuit$innerPower(level, pos, direction);
+        int power = redstonecircuit$innerPower(level, pos, direction, false);
         if (power > 0) {
             cir.setReturnValue(power);
         }
@@ -68,21 +95,20 @@ public abstract class BlockStateSignalMixin {
     @Inject(method = "getDirectSignal", at = @At("HEAD"), cancellable = true)
     private void redstonecircuit$innerDirectSignal(BlockGetter level, BlockPos pos, Direction direction,
                                                    CallbackInfoReturnable<Integer> cir) {
-        int power = redstonecircuit$innerPower(level, pos, direction);
+        int power = redstonecircuit$innerPower(level, pos, direction, true);
         if (power > 0) {
             cir.setReturnValue(power);
         }
     }
 
-    /** Shared body: the inner component's power, or 0 when this position should behave normally. */
+    /**
+     * Shared body: the inner component's power, or 0 when this position should behave normally.
+     *
+     * @param strong whether the caller is the strong-power query ({@code getDirectSignal})
+     */
     private static int redstonecircuit$innerPower(@Nullable BlockGetter level, BlockPos pos,
-                                                  @Nullable Direction direction) {
-        if (!(level instanceof ServerLevel serverLevel)) {
-            return 0;
-        }
-        // Vanilla wire does not signal downwards; mirroring that avoids surprising behaviour below
-        // a host block and keeps the rule identical to the vanilla source the solver was derived from.
-        if (direction == Direction.DOWN) {
+                                                  @Nullable Direction direction, boolean strong) {
+        if (!(level instanceof ServerLevel serverLevel) || direction == null) {
             return 0;
         }
         if (InnerRedstoneNetwork.isSignalSuppressed(serverLevel)) {
@@ -92,6 +118,29 @@ public abstract class BlockStateSignalMixin {
         InnerRedstoneStore store = InnerRedstoneStore.get(serverLevel);
         if (store == null || store.isEmpty()) {
             return 0;
+        }
+        Slot slot = store.slotAt(pos);
+        if (slot == null) {
+            return 0;
+        }
+
+        // Signalling methods are backwards: `direction` points from the querier to this block, so the
+        // signal this answers travels towards its opposite.
+        Direction emitted = direction.getOpposite();
+        boolean forcedOff = slot.forcedOff.contains(emitted);
+        if (strong) {
+            if (!PowerSolver.directSignalToward(slot.type, slot.facing, direction, forcedOff)) {
+                return 0;
+            }
+        } else {
+            if (!PowerSolver.emitsToward(slot.type, slot.facing, emitted,
+                    slot.forcedOn.contains(emitted), forcedOff)) {
+                return 0;
+            }
+            // Dust keeps vanilla wire's quirk of not powering the block above it.
+            if (slot.type == ComponentType.DUST && emitted == Direction.UP) {
+                return 0;
+            }
         }
         return store.getSignal(pos);
     }
