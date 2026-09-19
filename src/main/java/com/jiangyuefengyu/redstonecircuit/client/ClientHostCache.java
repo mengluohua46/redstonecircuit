@@ -1,34 +1,42 @@
 package com.jiangyuefengyu.redstonecircuit.client;
 
 import java.util.List;
+import java.util.function.BiConsumer;
+
+import org.jetbrains.annotations.Nullable;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.data.HostEntry;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 /**
- * The client's copy of "which blocks hold redstone", and the thing that makes the world re-render
- * when that answer changes.
+ * The client's copy of "which blocks hold redstone, and what is inside them".
  *
- * <p>This is the client-only half: it owns the shared {@link HostIndex} and turns "this section
- * changed" into a mesh rebuild. The bookkeeping itself lives in {@code HostIndex} so it can be tested
- * without a game.
+ * <p>This is the client-only half: it owns the shared {@link HostIndex}. The bookkeeping itself lives
+ * in {@code HostIndex} so it can be tested without a game.
+ *
+ * <h2>Nothing is baked into the world</h2>
+ * The shell and the component inside it are drawn once per frame rather than written into the chunk
+ * mesh, so a change here needs no mesh rebuild: the next frame simply draws something else. (The
+ * earlier build wrote the shell into the section's own buffer through
+ * {@code AddSectionGeometryEvent}, which looked right but could not be switched off again - a baked
+ * mesh cannot react to a player putting goggles on - and had to force a section rebuild on every
+ * power change.)
  */
 public final class ClientHostCache {
 
-    private static final HostIndex INDEX = new HostIndex(ClientHostCache::markSectionDirty);
+    private static final HostIndex INDEX = new HostIndex();
 
     private ClientHostCache() {
     }
 
     /** Replaces the whole set. Sent on login, dimension change and respawn. */
-    public static void applySnapshot(ResourceKey<Level> dimension, List<BlockPos> positions) {
-        INDEX.applySnapshot(dimension, positions);
+    public static void applySnapshot(ResourceKey<Level> dimension, List<HostEntry> entries) {
+        INDEX.applySnapshot(dimension, entries);
         // Logged because "the client never learned about the block" and "the client learned but drew
         // nothing" look identical on screen; this line tells the two apart.
         if (RCConfig.debugLog()) {
@@ -37,14 +45,19 @@ public final class ClientHostCache {
         }
     }
 
-    /** Adds or removes one position. Sent whenever a block gains or loses a component. */
-    public static void applyChange(ResourceKey<Level> dimension, BlockPos pos, boolean present) {
+    /** Adds, updates or removes one position. */
+    public static void applyChange(ResourceKey<Level> dimension, BlockPos pos, @Nullable Slot slot) {
         int before = INDEX.size();
-        INDEX.applyChange(dimension, pos, present);
+        INDEX.applyChange(dimension, pos, slot);
         if (INDEX.size() != before && RCConfig.debugLog()) {
             RCConfig.LOGGER.info("[redstonecircuit] client: host {} at {} -> {} host(s) in total",
-                    present ? "added" : "removed", pos.toShortString(), INDEX.size());
+                    slot != null ? "added" : "removed", pos.toShortString(), INDEX.size());
         }
+    }
+
+    /** Adds, updates or removes several positions in one packet. */
+    public static void applyChanges(ResourceKey<Level> dimension, List<HostEntry> entries) {
+        INDEX.applyChanges(dimension, entries);
     }
 
     /** Drops everything, e.g. when leaving the world. */
@@ -52,40 +65,20 @@ public final class ClientHostCache {
         INDEX.clear();
     }
 
-    /**
-     * The hosts inside one section, for the renderer.
-     *
-     * <p>Returns a copy on purpose: the caller may keep it past the end of the frame, because the
-     * section mesh is built on a worker thread.
-     */
-    public static List<BlockPos> hostsInSection(ResourceKey<Level> dimension, BlockPos sectionOrigin) {
-        return INDEX.hostsInSection(dimension, sectionOrigin);
+    /** Visits every host within a radius of sections; the per-frame renderer's entry point. */
+    public static void forEachNear(ResourceKey<Level> dimension, BlockPos center, int sectionRadius,
+                                   BiConsumer<BlockPos, Slot> action) {
+        INDEX.forEachNear(dimension, center, sectionRadius, action);
     }
 
-    /** How many blocks the client currently believes hide redstone; used by the debug command. */
+    /** What the client believes is inside one block, or {@code null}. */
+    @Nullable
+    public static Slot slotAt(ResourceKey<Level> dimension, BlockPos pos) {
+        return INDEX.slotAt(dimension, pos);
+    }
+
+    /** How many blocks the client currently believes hold redstone; used by the debug command. */
     public static int size() {
         return INDEX.size();
-    }
-
-    /**
-     * Queues one section for a mesh rebuild.
-     *
-     * <p>Nothing else re-renders the world when our data changes: the block state is untouched, so
-     * the chunk renderer would happily keep serving the mesh it built before. This is the vanilla
-     * entry point for that, and modded chunk renderers hook it too (Sodium's {@code LevelRendererMixin}
-     * does).
-     */
-    private static void markSectionDirty(long sectionKey) {
-        Minecraft minecraft = Minecraft.getInstance();
-        // Null only in a headless unit test; the index is deliberately usable without a client.
-        if (minecraft == null) {
-            return;
-        }
-        LevelRenderer renderer = minecraft.levelRenderer;
-        if (renderer == null) {
-            return;
-        }
-        renderer.setSectionDirty(SectionPos.x(sectionKey), SectionPos.y(sectionKey),
-                SectionPos.z(sectionKey));
     }
 }

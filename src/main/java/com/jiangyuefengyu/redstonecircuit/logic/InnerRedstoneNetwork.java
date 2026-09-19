@@ -11,14 +11,17 @@ import java.util.Set;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.data.HostEntry;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -292,10 +295,28 @@ public final class InnerRedstoneNetwork {
      *
      * <p>{@code updateNeighborsAt} is exactly the path vanilla uses: it fires
      * {@code NeighborNotifyEvent} and runs each of the six neighbours' own {@code neighborChanged}.
+     *
+     * <p>A diode does one thing more, which is what vanilla's {@code DiodeBlock#updateNeighborsInFront}
+     * exists for: a diode pushes <b>strong</b> power into the block in front of it, so everything around
+     * that block sees a new signal too - and none of those blocks is a neighbour of the diode, so
+     * notifying the diode's own neighbours is not enough. The case that makes it obvious is "repeater,
+     * a stone block, a lamp": without this second step the stone is charged and the lamp never hears
+     * about it.
      */
     public static void notifyOutputChanged(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        level.updateNeighborsAt(pos, state.getBlock());
+        Block source = state.getBlock();
+        level.updateNeighborsAt(pos, source);
+
+        Slot slot = InnerRedstoneStore.get(level).slotAt(pos);
+        if (slot == null || !slot.type.isDiode()) {
+            return;
+        }
+        Direction output = slot.facing.getOpposite();
+        BlockPos front = pos.relative(output);
+        level.neighborChanged(front, source, pos);
+        // Everything around the charged block, except back towards the diode - which was just notified.
+        level.updateNeighborsAtExceptFromFacing(front, source, output.getOpposite());
     }
 
     /**
@@ -348,6 +369,7 @@ public final class InnerRedstoneNetwork {
             // The host block emits something else now, and the network around it has to re-settle.
             notifyOutputChanged(level, pos);
             markDirty(level, pos);
+            HostSync.broadcast(level, pos, slot);
         }
     }
 
@@ -362,6 +384,7 @@ public final class InnerRedstoneNetwork {
         store.markDirty();
         notifyOutputChanged(level, pos);
         markDirty(level, pos);
+        HostSync.broadcast(level, pos, slot);
         if (RCConfig.debugLog()) {
             RCConfig.LOGGER.info("[redstonecircuit] BUTTON at {} released", pos.toShortString());
         }
@@ -433,10 +456,30 @@ public final class InnerRedstoneNetwork {
         }
         if (!changedPositions.isEmpty()) {
             store.markDirty();
+            // Tell clients once for the whole component: the drawing shows where power actually is,
+            // and a wire that just dropped several steps is one visible change, not several.
+            HostSync.broadcast(level, entriesOf(store, changedPositions));
         }
 
         scheduleStaleDevices(level, store, env, component);
         return changedPositions;
+    }
+
+    /**
+     * Copies the named positions' current contents into wire form.
+     *
+     * <p>Copied rather than referenced: the solver keeps mutating its slots, and a packet must carry
+     * the value as it was at this moment.
+     */
+    private static List<HostEntry> entriesOf(InnerRedstoneStore store, List<BlockPos> positions) {
+        List<HostEntry> entries = new ArrayList<>(positions.size());
+        for (BlockPos pos : positions) {
+            Slot slot = store.slotAt(pos);
+            if (slot != null) {
+                entries.add(new HostEntry(pos.immutable(), slot.copy()));
+            }
+        }
+        return entries;
     }
 
     /**
@@ -467,6 +510,7 @@ public final class InnerRedstoneNetwork {
                 slot.power = desired;
                 store.markDirty();
                 notifyOutputChanged(level, pos);
+                HostSync.broadcast(level, pos, slot);
                 continue;
             }
             PendingFlips pending =

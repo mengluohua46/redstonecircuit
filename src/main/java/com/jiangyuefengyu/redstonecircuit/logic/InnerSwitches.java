@@ -5,6 +5,7 @@ import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -69,6 +70,7 @@ public final class InnerSwitches {
         store.markDirty();
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         InnerRedstoneNetwork.notifyOutputChanged(level, pos);
+        HostSync.broadcast(level, pos, slot);
 
         boolean lever = slot.type == ComponentType.LEVER;
         SoundEvent sound = lever

@@ -411,8 +411,9 @@ class PowerSolverTest {
         assertFalse(PowerSolver.directSignalToward(ComponentType.DUST, Direction.NORTH, Direction.NORTH, false));
         assertFalse(PowerSolver.directSignalToward(ComponentType.TORCH, Direction.NORTH, Direction.NORTH, false));
 
-        // A repeater with FACING = NORTH reads from the north, so it charges the block to its south:
-        // that is how "repeater into a block, redstone off that block" works, exactly as in vanilla.
+        // The direction is where the signal travels, the same frame emitsToward uses: a repeater with
+        // FACING = NORTH reads from the north, so it charges the block to its south. (Vanilla's own
+        // getDirectSignal is handed the opposite direction; the mixin converts before calling in.)
         assertTrue(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.SOUTH, false));
         assertFalse(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.NORTH, false));
         assertFalse(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.UP, false));
@@ -420,6 +421,32 @@ class PowerSolverTest {
 
         // And the wrench can still cut it.
         assertFalse(PowerSolver.directSignalToward(ComponentType.REPEATER, Direction.NORTH, Direction.SOUTH, true));
+    }
+
+    /**
+     * The same rule stated where it is easy to get backwards: the two queries must agree about which
+     * side a diode drives, because vanilla's {@code getDirectSignal} receives the opposite direction
+     * from {@code getSignal} and a mistake there is invisible to any weak-power test.
+     */
+    @Test
+    @DisplayName("weak and strong emission agree on which side a diode drives")
+    void diodeDrivesOneSideForBothQueries() {
+        Direction facing = Direction.WEST;
+        Direction output = facing.getOpposite();
+        Direction input = facing;
+
+        for (ComponentType type : new ComponentType[] { ComponentType.REPEATER, ComponentType.COMPARATOR }) {
+            assertTrue(PowerSolver.emitsToward(type, facing, output, false, false),
+                    type + " emits weakly towards the block in front");
+            assertTrue(PowerSolver.directSignalToward(type, facing, output, false),
+                    type + " also charges that block, which is what carries the signal onwards");
+            assertFalse(PowerSolver.emitsToward(type, facing, input, false, false),
+                    type + " must not emit towards its own input");
+            assertFalse(PowerSolver.directSignalToward(type, facing, input, false),
+                    type + " must not charge the block behind it either");
+            assertFalse(PowerSolver.emitsToward(type, facing, Direction.UP, false, false),
+                    "nor sideways");
+        }
     }
 
     // ---------------------------------------------------------------- delays --

@@ -8,6 +8,7 @@ import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
+import com.jiangyuefengyu.redstonecircuit.logic.WrenchLinks;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -1042,5 +1043,213 @@ public final class InnerRedstoneGameTest {
 
         helper.succeedWhen(() -> helper.assertTrue(powerAt(helper, receiver) == 0,
                 "a disconnected side must carry nothing, got " + powerAt(helper, receiver)));
+    }
+
+    // ---------------------------------------------------------------- wrench --
+
+    /**
+     * The wrench's headline: force a connection the component would never make on its own.
+     *
+     * <p>A repeater drives one side only, which is why it can be used to route a signal - and why
+     * "细微调整走向" needs a tool. Pinning the south side makes the repeater feed a wire that is not on
+     * its output side at all, which is the whole of R7's first half.
+     */
+    @GameTest(template = "empty")
+    public void wrenchForcesAConnectionTheComponentWouldNotMake(GameTestHelper helper) {
+        // Repeater host at (1,1,1), input on its west, output east. A wire sits to its south.
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 2, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 0, 2, Blocks.STONE.defaultBlockState());
+
+        BlockPos repeater = at(helper, 1, 1, 1);
+        BlockPos wire = at(helper, 1, 1, 2);
+        placeComponent(helper, repeater, ComponentType.REPEATER, 15, Direction.WEST);
+        Slot wireSlot = placeDust(helper, wire, 0);
+
+        solve(helper, wire);
+        helper.assertTrue(powerAt(helper, wire) == 0,
+                "precondition: a repeater must not feed the side it is not pointing at, got "
+                        + powerAt(helper, wire));
+
+        WrenchLinks.Result result = WrenchLinks.link(helper.getLevel(), repeater, wire);
+        helper.assertTrue(result == WrenchLinks.Result.LINKED_ON,
+                "the first use of the wrench on a fresh pair pins it on, got " + result);
+        solve(helper, wire);
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(slotAt(helper, repeater).forcedOn.contains(Direction.SOUTH),
+                    "the clicked end must be pinned towards the neighbour");
+            helper.assertTrue(wireSlot.forcedOn.contains(Direction.NORTH),
+                    "and the neighbour must be pinned back, so neither can be re-routed alone");
+            helper.assertTrue(powerAt(helper, wire) > 0,
+                    "a pinned side now carries the repeater's output, got " + powerAt(helper, wire));
+        });
+    }
+
+    /**
+     * The wrench's second half: the same pair steps on to "cut", and the cut really cuts.
+     *
+     * <p>Clicking the same pair again is how the design says a connection is changed, so the states have
+     * to be reachable in order and each one has to mean something in the world - a cut that only
+     * changed the data would be found immediately and would be far more annoying than no wrench at all.
+     */
+    @GameTest(template = "empty")
+    public void wrenchCutsAndRestoresTheSameLink(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos source = at(helper, 1, 1, 1);
+        BlockPos receiver = at(helper, 2, 1, 1);
+        placeDust(helper, source, 15);
+        placeDust(helper, receiver, 0);
+
+        solve(helper, receiver);
+        helper.assertTrue(powerAt(helper, receiver) == 14,
+                "precondition: the two wires couple on their own, got " + powerAt(helper, receiver));
+
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), source, receiver)
+                        == WrenchLinks.Result.LINKED_ON,
+                "auto -> pinned on");
+        solve(helper, receiver);
+        helper.assertTrue(powerAt(helper, receiver) == 14,
+                "a pinned link still carries the signal, got " + powerAt(helper, receiver));
+
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), source, receiver)
+                        == WrenchLinks.Result.LINKED_OFF,
+                "pinned on -> cut");
+        solve(helper, receiver);
+        helper.assertTrue(powerAt(helper, receiver) == 0,
+                "a cut link must stop the signal, got " + powerAt(helper, receiver));
+
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), source, receiver)
+                        == WrenchLinks.Result.LINKED_AUTO,
+                "cut -> automatic");
+        solve(helper, receiver);
+
+        helper.succeedWhen(() -> helper.assertTrue(powerAt(helper, receiver) == 14,
+                "and automatic means the network decides again, got " + powerAt(helper, receiver)));
+    }
+
+    /** The wrench refuses a pair that is not adjacent, instead of linking something arbitrary. */
+    @GameTest(template = "empty")
+    public void wrenchRefusesNonAdjacentPairs(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos first = at(helper, 1, 1, 1);
+        BlockPos second = at(helper, 3, 1, 1);
+        placeDust(helper, first, 15);
+        placeDust(helper, second, 0);
+
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), first, second)
+                        == WrenchLinks.Result.NOT_ADJACENT,
+                "two blocks with a gap between them have no shared face to pin");
+        helper.assertTrue(slotAt(helper, first).forcedOn.isEmpty()
+                        && slotAt(helper, second).forcedOn.isEmpty(),
+                "and nothing may be written when the pair is refused");
+        helper.succeed();
+    }
+
+    // ----------------------------------------------------- strong power ------
+
+    /**
+     * A repeater inside a block charges the block <b>in front of it</b>, not the one behind.
+     *
+     * <p>This is the vanilla rule that makes "repeater into a stone block, redstone off that block" work,
+     * and getting the direction backwards is invisible to every weak-power test: weak power is asked
+     * about one block at a time, while strong power is asked about the block the signal was pushed into.
+     * It was backwards until this test existed, which meant a diode inside a block was quietly charging
+     * the block on its input side.
+     */
+    @GameTest(template = "empty")
+    public void repeaterStronglyPowersTheBlockInFront(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        // FACING is the input side, so the block in front is the opposite one: WEST input, EAST output.
+        placeComponent(helper, host, ComponentType.REPEATER, 15, Direction.WEST);
+
+        ServerLevel level = helper.getLevel();
+        BlockState hostState = level.getBlockState(host);
+        // Directions in signal methods point from the asker towards the block being asked, so a query
+        // from the east is the one that asks "what do you push towards the east".
+        int towardsFront = hostState.getDirectSignal(level, host, Direction.WEST);
+        int towardsBack = hostState.getDirectSignal(level, host, Direction.EAST);
+        int weakFront = hostState.getSignal(level, host, Direction.WEST);
+        int weakBack = hostState.getSignal(level, host, Direction.EAST);
+
+        if (towardsFront != 15) {
+            helper.fail("a repeater must strongly power the block in front of it, but"
+                    + " getDirectSignal towards the output side was " + towardsFront);
+            return;
+        }
+        if (towardsBack != 0) {
+            helper.fail("and must never charge the block behind it, but getDirectSignal towards the"
+                    + " input side was " + towardsBack);
+            return;
+        }
+        if (weakFront != 15 || weakBack != 0) {
+            helper.fail("weak power must follow the same side: towards the output side " + weakFront
+                    + ", towards the input side " + weakBack);
+            return;
+        }
+        helper.succeed();
+    }
+
+    /**
+     * And the consequence, measured in the world: a lamp on the far side of the block in front lights.
+     *
+     * <p>That is what strong power is <em>for</em> - the block carries it onwards - and it is the reason
+     * a solid block between a repeater and a lamp is not simply an obstacle. It also covers the second
+     * half of that rule, which is about notifications rather than power: the lamp is two blocks away
+     * from the repeater, so nothing that notifies only the repeater's own neighbours will ever wake it.
+     * Both directions are checked, because a lamp that lights but never goes out is the classic symptom
+     * of a notification that happens to work one way.
+     */
+    @GameTest(template = "empty")
+    public void repeaterDrivesALampThroughTheBlockInFront(GameTestHelper helper) {
+        // Lever host at (1,1,1) feeds a repeater at (2,1,1) facing west.
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 4, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        BlockPos lever = at(helper, 1, 1, 1);
+        placeComponent(helper, lever, ComponentType.LEVER, 15, Direction.NORTH);
+        placeComponent(helper, at(helper, 2, 1, 1), ComponentType.REPEATER, 0, Direction.WEST);
+
+        afterTicks(helper, 6, () -> helper.succeedWhen(() -> helper.assertTrue(
+                lampLit(helper, 4, 1, 1),
+                "the lamp beyond the charged block must light: strong power is carried onwards")));
+    }
+
+    /** The same lamp must go dark again when the repeater's input stops. */
+    @GameTest(template = "empty")
+    public void lampGoesDarkWhenTheChargedBlockIsReleased(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 4, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        BlockPos lever = at(helper, 1, 1, 1);
+        Slot leverSlot = placeComponent(helper, lever, ComponentType.LEVER, 15, Direction.NORTH);
+        // A lever that is delivering power has to say so: InnerSwitches.toggle flips POWERED, so a
+        // lever placed "on" with power 15 but powered = false would be turned on by the next click
+        // instead of off.
+        leverSlot.powered = true;
+        placeComponent(helper, at(helper, 2, 1, 1), ComponentType.REPEATER, 0, Direction.WEST);
+
+        afterTicks(helper, 6, () -> {
+            helper.assertTrue(lampLit(helper, 4, 1, 1),
+                    "precondition: the lamp should be lit through the charged block");
+
+            // Throw the lever back, exactly as a player would.
+            InnerSwitches.toggle(helper.getLevel(), lever);
+            helper.assertTrue(!leverSlot.powered, "the lever must be off now, or the rest proves nothing");
+
+            afterTicks(helper, 8, () -> helper.succeedWhen(() -> helper.assertTrue(
+                    !lampLit(helper, 4, 1, 1),
+                    "and it must go out again: a lamp two blocks away still has to be told")));
+        });
     }
 }

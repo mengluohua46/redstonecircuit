@@ -21,6 +21,7 @@ import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 import com.jiangyuefengyu.redstonecircuit.logic.PowerEnvironment;
 import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 import com.jiangyuefengyu.redstonecircuit.logic.SlotNode;
+import com.jiangyuefengyu.redstonecircuit.logic.WrenchLinks;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.ChatFormatting;
@@ -294,7 +295,7 @@ public final class RCCommand {
         store.markDirty();
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         InnerRedstoneNetwork.notifyOutputChanged(level, pos);
-        HostSync.broadcastChange(level, pos, true);
+        HostSync.broadcast(level, pos, slot);
 
         feedback(ctx, header("placed " + type + " (" + slot.describe() + ") at " + pos.toShortString()));
         return 1;
@@ -425,8 +426,9 @@ public final class RCCommand {
             error(ctx, "no inner redstone at " + pos.toShortString());
             return 0;
         }
-        node.slot().setConnection(direction, state);
-        store.markDirty();
+        // Through the same path the wrench uses, so the command also re-solves the network and tells
+        // clients - without that the pin would only take effect the next time something else moved.
+        WrenchLinks.setState(level(ctx), pos, direction, state);
 
         feedback(ctx, header("connection " + direction.getName() + " -> " + state
                 + " at " + pos.toShortString()));
@@ -440,8 +442,7 @@ public final class RCCommand {
             error(ctx, "no inner redstone at " + pos.toShortString());
             return 0;
         }
-        node.slot().clearConnections();
-        store.markDirty();
+        WrenchLinks.clear(level(ctx), pos);
 
         feedback(ctx, header("all connection overrides cleared at " + pos.toShortString()));
         return 1;
@@ -484,7 +485,7 @@ public final class RCCommand {
         InnerRedstoneNode removed = store.remove(pos);
         boolean had = removed != null && !removed.isEmpty();
         if (had) {
-            HostSync.broadcastChange(level(ctx), pos, false);
+            HostSync.broadcast(level(ctx), pos, null);
         }
         feedback(ctx, header((had ? "cleared " + removed.type() : "nothing to clear")
                 + " at " + pos.toShortString()));

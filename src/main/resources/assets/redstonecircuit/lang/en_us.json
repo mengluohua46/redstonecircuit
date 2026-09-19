@@ -1,10 +1,38 @@
 {
   "itemGroup.redstonecircuit": "Redstone Circuit",
 
+  "item.redstonecircuit.redstone_goggles": "Redstone Goggles",
+  "item.redstonecircuit.redstone_wrench": "Redstone Wrench",
+
+  "item.redstonecircuit.redstone_goggles.tip.wear": "Worn on the head: blocks holding redstone become translucent and show what is inside",
+  "item.redstonecircuit.redstone_wrench.tip.select": "Right-click redstone to pick it as A",
+  "item.redstonecircuit.redstone_wrench.tip.link": "Shift-right-click a neighbouring component B to pin the A-B link; repeat to step through connect / cut / auto",
+  "item.redstonecircuit.redstone_wrench.tip.requires": "Requires the redstone goggles",
+
+  "message.redstonecircuit.wrench.selected": "Selected %s (%s) - shift-right-click a neighbour to pin the link",
+  "message.redstonecircuit.wrench.cleared": "Cleared every connection override on %s; it decides for itself again",
+  "message.redstonecircuit.wrench.no_selection": "Right-click a component first, then shift-right-click the one beside it",
+  "message.redstonecircuit.wrench.linked_on": "Pinned %s: the two are connected, and placing redstone nearby will not change that",
+  "message.redstonecircuit.wrench.linked_off": "Cut %s: the two are held apart, and placing redstone nearby will not join them",
+  "message.redstonecircuit.wrench.linked_auto": "%s is back to automatic: the surrounding blocks decide",
+  "message.redstonecircuit.wrench.not_adjacent": "The two components have to share a face to be linked",
+  "message.redstonecircuit.wrench.no_component": "That block holds no redstone",
+  "message.redstonecircuit.wrench.need_goggles": "Wear the redstone goggles to use the redstone wrench",
+
   "redstonecircuit.configuration.title": "Redstone Circuit Configs",
   "redstonecircuit.configuration.section.redstonecircuit.common.toml": "Common Settings",
   "redstonecircuit.configuration.section.redstonecircuit.common.toml.title": "Redstone Circuit - Common Settings",
   "redstonecircuit.configuration.validateHosts": "Validate host blocks",
   "redstonecircuit.configuration.debugLog": "Debug logging",
-  "redstonecircuit.configuration.maxComponentsPerBlock": "Max components per block"
+  "redstonecircuit.configuration.hostOverlayMode": "Appearance mode (GOGGLES/ALWAYS/OFF)",
+  "redstonecircuit.configuration.hostOverlayAlpha": "Shell opacity",
+  "redstonecircuit.configuration.hostOverlayColor": "Shell colour",
+  "redstonecircuit.configuration.hostOverlayFrameAlpha": "Border opacity",
+  "redstonecircuit.configuration.hostOverlayFrameColor": "Border colour",
+  "redstonecircuit.configuration.showInnerComponents": "Draw the component inside the block",
+  "redstonecircuit.configuration.seeInnerComponentsThroughWalls": "See components through walls",
+  "redstonecircuit.configuration.wrenchNeedsGoggles": "Wrench requires the goggles",
+  "redstonecircuit.configuration.wrenchClearOnSameBlock": "Shift-right-click the selected block clears its links",
+  "redstonecircuit.configuration.traceSlotSync": "Log component sync",
+  "redstonecircuit.configuration.slotSyncRange": "Component sync range"
 }

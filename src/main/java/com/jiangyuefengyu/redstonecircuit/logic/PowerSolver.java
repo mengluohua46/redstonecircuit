@@ -61,9 +61,12 @@ public final class PowerSolver {
      * on the far side of a stone block does not light a lamp on the near side, while a repeater pushed
      * into that stone does.
      *
-     * @param querySide the direction the query came from, as every redstone signal method receives it
+     * @param direction where the signal would travel: from this component towards the neighbour asking,
+     *     the same frame {@link #emitsToward} uses. Vanilla's {@code getDirectSignal} is handed the
+     *     opposite of this - see the note on directions in {@code BlockStateSignalMixin} - and converts
+     *     before calling in, so every rule in this class speaks one frame.
      */
-    public static boolean directSignalToward(ComponentType type, Direction facing, Direction querySide,
+    public static boolean directSignalToward(ComponentType type, Direction facing, Direction direction,
                                              boolean forcedOff) {
         if (forcedOff) {
             return false;
@@ -72,7 +75,7 @@ public final class PowerSolver {
             // A diode strongly powers the block in front of it, which is what lets it drive a wire on
             // the far side of a solid block - exactly as it does in vanilla. FACING points at the
             // input, so the block in front is the opposite side.
-            return querySide == facing.getOpposite();
+            return direction == facing.getOpposite();
         }
         // Everything else is a weak source, just like in vanilla: a lever never charges a block, and
         // dust only powers what it actually touches. That is what keeps a host block from behaving
@@ -115,25 +118,38 @@ public final class PowerSolver {
                 node.forcedOn(direction), node.forcedOff(direction));
     }
 
-    /** True when this component takes its input from {@code direction}. */
-    public static boolean readsFrom(PowerEnvironment.Node node, Direction direction) {
-        if (node.forcedOff(direction)) {
+    /**
+     * Primitive overload of {@link #readsFrom(PowerEnvironment.Node, Direction)}.
+     *
+     * <p>Exists for the same reason as the emit one: the client draws a component's input side, and
+     * asking the rules directly is the only way for the drawing and the solver to agree by
+     * construction rather than by being kept in step by hand.
+     */
+    public static boolean readsToward(ComponentType type, Direction facing, Direction direction,
+                                      boolean forcedOn, boolean forcedOff) {
+        if (forcedOff) {
             return false;
         }
-        if (node.forcedOn(direction)) {
+        if (forcedOn) {
             return true;
         }
-        switch (node.type()) {
+        switch (type) {
             case TORCH:
             case REPEATER:
             case COMPARATOR:
-                return direction == node.facing();
+                return direction == facing;
             default:
                 // Dust reads every side. The manual sources are never driven, so their answer here is
                 // never consulted - but claiming they read everything keeps the default branch honest
                 // for any future type that is neither driven nor manual.
                 return true;
         }
+    }
+
+    /** True when this component takes its input from {@code direction}. */
+    public static boolean readsFrom(PowerEnvironment.Node node, Direction direction) {
+        return readsToward(node.type(), node.facing(), direction,
+                node.forcedOn(direction), node.forcedOff(direction));
     }
 
     // ------------------------------------------------------------ propagation --

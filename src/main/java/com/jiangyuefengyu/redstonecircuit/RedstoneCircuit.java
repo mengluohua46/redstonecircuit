@@ -22,8 +22,8 @@ public final class RedstoneCircuit {
     public RedstoneCircuit(IEventBus modEventBus, ModContainer modContainer) {
         RCRegistry.register(modEventBus);
 
-        // Hosts have to be known on the client to be drawn differently, and the store is
-        // server-authoritative, so two clientbound payloads keep the two sides in step.
+        // Everything a client needs to be told about the server's inner redstone: which blocks hold a
+        // component, what is inside them, and which block the player's wrench picked.
         modEventBus.addListener(com.jiangyuefengyu.redstonecircuit.network.RCNetwork::register);
 
         // Everything below is server-authoritative: placement, retrieval and the host sync.

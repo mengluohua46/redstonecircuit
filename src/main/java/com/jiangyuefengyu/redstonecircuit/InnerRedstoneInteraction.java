@@ -8,14 +8,19 @@ import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
+import com.jiangyuefengyu.redstonecircuit.logic.WrenchLinks;
+import com.jiangyuefengyu.redstonecircuit.logic.WrenchSelection;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -54,6 +59,96 @@ public final class InnerRedstoneInteraction {
     private BlockPos lastHandledPos = BlockPos.ZERO;
     private InteractionHand lastHandledHand = null;
 
+    // ---------------------------------------------------------------- wrench --
+
+    /**
+     * The redstone wrench: pick a component, then pin the link to the one next to it (R7).
+     *
+     * <ul>
+     *   <li>{@code right-click} a block holding a component - make it the selected one.</li>
+     *   <li>{@code shift + right-click} a component next to the selected one - step the link between
+     *       the two through connect / cut / automatic. Repeating it on the same pair keeps stepping, and
+     *       using a different neighbour re-routes the connection.</li>
+     *   <li>{@code shift + right-click} the selected block itself - drop every override on it, so it
+     *       goes back to deciding for itself.</li>
+     * </ul>
+     *
+     * @return whether the click was ours to consume; {@code false} lets vanilla have it, which is what
+     *     happens when the block holds nothing
+     */
+    private boolean useWrench(ServerLevel level, ServerPlayer player, BlockPos pos,
+                              @Nullable Direction face) {
+        Slot slot = WrenchLinks.slotAt(level, pos);
+        if (slot == null) {
+            // Nothing here: not our click. Right-clicking a chest with the wrench still opens it.
+            return false;
+        }
+        if (RCConfig.wrenchNeedsGoggles() && !wearsGoggles(player)) {
+            message(player, Component.translatable("message.redstonecircuit.wrench.need_goggles")
+                    .withStyle(ChatFormatting.RED));
+            return true;
+        }
+
+        if (!player.isSecondaryUseActive()) {
+            WrenchSelection.select(player, pos);
+            message(player, Component.translatable("message.redstonecircuit.wrench.selected",
+                    Component.literal(pos.toShortString()),
+                    Component.literal(WrenchLinks.describe(slot))).withStyle(ChatFormatting.YELLOW));
+            return true;
+        }
+
+        BlockPos selected = WrenchSelection.get(player);
+        if (pos.equals(selected)) {
+            if (!RCConfig.wrenchClearOnSameBlock()) {
+                return true;
+            }
+            WrenchLinks.Result result = WrenchLinks.clear(level, pos);
+            message(player, Component.translatable("message.redstonecircuit.wrench.cleared",
+                    Component.literal(pos.toShortString())).withStyle(ChatFormatting.AQUA));
+            debug("wrench clear at {} -> {}", pos.toShortString(), result);
+            return true;
+        }
+        if (selected == null) {
+            message(player, Component.translatable("message.redstonecircuit.wrench.no_selection")
+                    .withStyle(ChatFormatting.RED));
+            return true;
+        }
+
+        WrenchLinks.Result result = WrenchLinks.link(level, selected, pos);
+        message(player, describeLink(result, selected, pos));
+        debug("wrench link {} -> {} : {}", selected.toShortString(), pos.toShortString(), result);
+        return true;
+    }
+
+    private static Component describeLink(WrenchLinks.Result result, BlockPos a, BlockPos b) {
+        String direction = WrenchLinks.directionBetween(a, b)
+                .map(Direction::getName)
+                .orElse("?");
+        return switch (result) {
+            case LINKED_ON -> Component.translatable("message.redstonecircuit.wrench.linked_on",
+                    Component.literal(direction)).withStyle(ChatFormatting.GREEN);
+            case LINKED_OFF -> Component.translatable("message.redstonecircuit.wrench.linked_off",
+                    Component.literal(direction)).withStyle(ChatFormatting.RED);
+            case LINKED_AUTO -> Component.translatable("message.redstonecircuit.wrench.linked_auto",
+                    Component.literal(direction)).withStyle(ChatFormatting.GRAY);
+            case NOT_ADJACENT -> Component.translatable(
+                    "message.redstonecircuit.wrench.not_adjacent").withStyle(ChatFormatting.RED);
+            case NO_COMPONENT -> Component.translatable(
+                    "message.redstonecircuit.wrench.no_component").withStyle(ChatFormatting.RED);
+            case CLEARED -> Component.translatable("message.redstonecircuit.wrench.cleared",
+                    Component.literal(a.toShortString())).withStyle(ChatFormatting.AQUA);
+        };
+    }
+
+    /** True when the player is actually wearing the goggles in the head slot. */
+    private static boolean wearsGoggles(ServerPlayer player) {
+        return RCRegistry.isGoggles(player.getItemBySlot(EquipmentSlot.HEAD));
+    }
+
+    private static void message(ServerPlayer player, Component text) {
+        player.displayClientMessage(text, true);
+    }
+
     // ------------------------------------------------------------- placement --
 
     @SubscribeEvent
@@ -82,6 +177,14 @@ public final class InnerRedstoneInteraction {
         markHandled(tick, pos, event.getHand());
 
         ItemStack stack = player.getItemInHand(event.getHand());
+
+        // The wrench takes the whole click, both halves of it, before anything else looks at it.
+        if (RCRegistry.isWrench(stack)) {
+            if (useWrench(serverLevel, player, pos, event.getFace())) {
+                event.setCanceled(true);
+            }
+            return;
+        }
 
         if (!player.isSecondaryUseActive()) {
             // Plain right-click stays vanilla's, with one exception: an empty hand can work the switch
@@ -153,7 +256,7 @@ public final class InnerRedstoneInteraction {
         // ...tell vanilla consumers to re-check, since no block state changed...
         notifyNeighbours(level, pos);
         // ...and tell clients, whose renderer draws this block differently from now on.
-        HostSync.broadcastChange(level, pos, true);
+        HostSync.broadcast(level, pos, slot);
 
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
@@ -202,7 +305,9 @@ public final class InnerRedstoneInteraction {
         // Removing a component can cut power to its neighbours, so re-derive the local network.
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
-        HostSync.broadcastChange(level, pos, false);
+        HostSync.broadcast(level, pos, null);
+        // A block that no longer holds anything cannot be either half of a wrench link.
+        WrenchSelection.clearIf(level, pos);
 
         if (!player.getAbilities().instabuild) {
             ItemStack back = HostRules.itemFor(removed.type());
@@ -244,7 +349,9 @@ public final class InnerRedstoneInteraction {
         // The host is going away, so whatever coupled to it must re-derive its power.
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
-        HostSync.broadcastChange(level, pos, false);
+        HostSync.broadcast(level, pos, null);
+        // A block that no longer holds anything cannot be either half of a wrench link.
+        WrenchSelection.clearIf(level, pos);
         Block.popResource(level, pos, HostRules.itemFor(node.type()));
         debug("dropped {} from broken host {}", node.type(), pos.toShortString());
     }

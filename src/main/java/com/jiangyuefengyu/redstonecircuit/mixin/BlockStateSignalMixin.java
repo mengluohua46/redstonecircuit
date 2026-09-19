@@ -49,6 +49,13 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
  * <p>So a repeater inside a block drives the block in front of it and nothing else, just like a
  * repeater on the ground.
  *
+ * <h2>Directions are backwards in these methods</h2>
+ * Both vanilla queries receive the direction pointing <em>from the asker towards the block being
+ * asked</em>, so the signal being answered travels the other way. Everything in {@link PowerSolver} is
+ * written in terms of where the signal goes, which is why the direction is flipped once, here, before
+ * any rule is consulted. Getting this wrong is invisible to a weak-power test - weak power is asked
+ * about one block at a time - so it only showed up as a diode charging the block behind it.
+ *
  * <h2>Weak and strong are answered separately</h2>
  * Vanilla has two signal queries and they are not interchangeable: <b>weak</b> power
  * ({@code getSignal}) is only ever seen by the block it is asked about, while <b>strong</b> power
@@ -125,11 +132,12 @@ public abstract class BlockStateSignalMixin {
         }
 
         // Signalling methods are backwards: `direction` points from the querier to this block, so the
-        // signal this answers travels towards its opposite.
+        // signal this answers travels towards its opposite. Everything in PowerSolver is written in
+        // terms of that emission direction, so it is converted once, here.
         Direction emitted = direction.getOpposite();
         boolean forcedOff = slot.forcedOff.contains(emitted);
         if (strong) {
-            if (!PowerSolver.directSignalToward(slot.type, slot.facing, direction, forcedOff)) {
+            if (!PowerSolver.directSignalToward(slot.type, slot.facing, emitted, forcedOff)) {
                 return 0;
             }
         } else {
