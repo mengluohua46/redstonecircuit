@@ -1,41 +1,44 @@
 package com.jiangyuefengyu.redstonecircuit.data;
 
-import java.util.LinkedHashSet;
+import java.util.EnumSet;
 import java.util.Set;
 
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 
 /**
- * One redstone component attached to a single face of a host block.
+ * The single redstone component stored inside one host block.
  *
- * <p>A host block can hold up to six of these (one per {@link Direction}).
+ * <p>Design note: a host block holds <b>one</b> component, not one per face. The component can
+ * connect towards any of the six neighbouring positions; connectivity is derived from what is
+ * around it and can be overridden per direction with the redstone wrench.
+ *
+ * <pre>
+ *   forcedOn  - directions the wrench explicitly connected
+ *   forcedOff - directions the wrench explicitly disconnected
+ *   neither   - automatic: connect if the neighbour holds inner redstone, or if a piece of
+ *               vanilla redstone wire sits against this block on that side
+ * </pre>
  */
 public final class Slot {
 
-    /** What is installed on this face. */
+    /** What is installed inside this block. */
     public ComponentType type;
     /** Signal strength for {@link ComponentType#DUST}, 0-15. Ignored by the other types. */
     public int power;
     /** On/off state for torches, repeaters and comparators. */
     public boolean powered;
-    /** In-face orientation for diodes (repeaters/comparators) and wall-mounted parts. */
+    /** Orientation for diodes (repeaters/comparators) and directional parts. */
     public Direction facing;
     /** Repeater delay in redstone ticks, 1-4. */
     public int delay = 1;
     /** Comparator output mode. */
     public ComparatorMode mode = ComparatorMode.COMPARE;
-    /**
-     * Connections locked by the redstone wrench. When non-empty the automatic topology is
-     * ignored for this slot, which keeps the locked connections stable while neighbouring
-     * redstone is added or removed.
-     */
-    public final Set<Direction> wrenchLinks = new LinkedHashSet<>();
-    /**
-     * Monotonic placement counter, used to retrieve components in reverse placement order
-     * (last one placed is the first one taken back out).
-     */
-    public int placeOrder;
+
+    /** Directions the wrench forced ON. */
+    public final Set<Direction> forcedOn = EnumSet.noneOf(Direction.class);
+    /** Directions the wrench forced OFF. */
+    public final Set<Direction> forcedOff = EnumSet.noneOf(Direction.class);
 
     public Slot(ComponentType type) {
         this.type = type;
@@ -52,9 +55,44 @@ public final class Slot {
         copy.facing = this.facing;
         copy.delay = this.delay;
         copy.mode = this.mode;
-        copy.wrenchLinks.addAll(this.wrenchLinks);
-        copy.placeOrder = this.placeOrder;
+        copy.forcedOn.addAll(this.forcedOn);
+        copy.forcedOff.addAll(this.forcedOff);
         return copy;
+    }
+
+    // ---------------------------------------------------------- connectivity --
+
+    /** True when this component may connect towards {@code direction}. */
+    public boolean isConnected(Direction direction) {
+        if (forcedOn.contains(direction)) {
+            return true;
+        }
+        if (forcedOff.contains(direction)) {
+            return false;
+        }
+        return true; // AUTO: whether it actually links up is decided by the network solver.
+    }
+
+    /** True when the wrench has pinned this direction either way. */
+    public boolean isLocked(Direction direction) {
+        return forcedOn.contains(direction) || forcedOff.contains(direction);
+    }
+
+    /** Sets an explicit connection state, or clears the override for {@link ConnectionState#AUTO}. */
+    public void setConnection(Direction direction, ConnectionState state) {
+        forcedOn.remove(direction);
+        forcedOff.remove(direction);
+        switch (state) {
+            case ON -> forcedOn.add(direction);
+            case OFF -> forcedOff.add(direction);
+            case AUTO -> {
+            }
+        }
+    }
+
+    public void clearConnections() {
+        forcedOn.clear();
+        forcedOff.clear();
     }
 
     // ------------------------------------------------------------------ NBT --
@@ -66,10 +104,8 @@ public final class Slot {
         tag.putString("facing", facing.getName());
         tag.putInt("delay", delay);
         tag.putString("mode", mode.name());
-        tag.putInt("placeOrder", placeOrder);
-
-        int[] links = wrenchLinks.stream().mapToInt(Direction::get3DDataValue).toArray();
-        tag.putIntArray("wrenchLinks", links);
+        tag.putIntArray("forcedOn", encode(forcedOn));
+        tag.putIntArray("forcedOff", encode(forcedOff));
     }
 
     public static Slot load(CompoundTag tag) {
@@ -80,15 +116,23 @@ public final class Slot {
         slot.facing = readDirection(tag.getString("facing"), Direction.NORTH);
         slot.delay = Math.max(1, Math.min(4, tag.getInt("delay") == 0 ? 1 : tag.getInt("delay")));
         slot.mode = ComparatorMode.byName(tag.getString("mode"), ComparatorMode.COMPARE);
-        slot.placeOrder = tag.getInt("placeOrder");
+        decode(tag.getIntArray("forcedOn"), slot.forcedOn);
+        decode(tag.getIntArray("forcedOff"), slot.forcedOff);
+        return slot;
+    }
 
-        for (int value : tag.getIntArray("wrenchLinks")) {
-            Direction direction = directionByIndex(value);
-            if (direction != null) {
-                slot.wrenchLinks.add(direction);
+    private static int[] encode(Set<Direction> directions) {
+        return directions.stream().mapToInt(Direction::get3DDataValue).toArray();
+    }
+
+    private static void decode(int[] values, Set<Direction> out) {
+        for (int value : values) {
+            for (Direction direction : Direction.values()) {
+                if (direction.get3DDataValue() == value) {
+                    out.add(direction);
+                }
             }
         }
-        return slot;
     }
 
     private static Direction readDirection(String name, Direction fallback) {
@@ -98,15 +142,6 @@ public final class Slot {
             }
         }
         return fallback;
-    }
-
-    private static Direction directionByIndex(int index) {
-        for (Direction direction : Direction.values()) {
-            if (direction.get3DDataValue() == index) {
-                return direction;
-            }
-        }
-        return null;
     }
 
     /** Human readable summary used by the {@code /rc dump} debug command. */
@@ -123,18 +158,25 @@ public final class Slot {
             }
             sb.append(" powered=").append(powered);
         }
-        if (!wrenchLinks.isEmpty()) {
-            sb.append(" locked=[");
-            boolean first = true;
-            for (Direction direction : wrenchLinks) {
-                if (!first) {
-                    sb.append(',');
-                }
-                sb.append(direction.getName());
-                first = false;
-            }
-            sb.append(']');
+        if (!forcedOn.isEmpty()) {
+            sb.append(" forcedOn=").append(names(forcedOn));
+        }
+        if (!forcedOff.isEmpty()) {
+            sb.append(" forcedOff=").append(names(forcedOff));
         }
         return sb.toString();
+    }
+
+    private static String names(Set<Direction> directions) {
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (Direction direction : directions) {
+            if (!first) {
+                sb.append(',');
+            }
+            sb.append(direction.getName());
+            first = false;
+        }
+        return sb.append(']').toString();
     }
 }

@@ -4,12 +4,14 @@ import org.jetbrains.annotations.Nullable;
 
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
+import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -24,10 +26,9 @@ import net.neoforged.neoforge.event.level.BlockEvent;
  * Placement and retrieval of inner redstone.
  *
  * <ul>
- *   <li>{@code shift + right-click} with a redstone component in hand - store it inside the
- *       clicked block (on the clicked face).</li>
- *   <li>{@code shift + right-click} with an empty hand - take the most recently stored component
- *       back out.</li>
+ *   <li>{@code shift + right-click} a block holding a redstone component - store it inside that
+ *       block. A block holds at most one component.</li>
+ *   <li>{@code shift + right-click} with an empty hand - take the component back out.</li>
  * </ul>
  *
  * <p>Anything that does not qualify falls through untouched, so vanilla behaviour (including
@@ -46,7 +47,7 @@ public final class InnerRedstoneInteraction {
      */
     private long lastHandledTick = Long.MIN_VALUE;
     private BlockPos lastHandledPos = BlockPos.ZERO;
-    private net.minecraft.world.InteractionHand lastHandledHand = null;
+    private InteractionHand lastHandledHand = null;
 
     // ------------------------------------------------------------- placement --
 
@@ -82,7 +83,7 @@ public final class InnerRedstoneInteraction {
         ItemStack stack = player.getItemInHand(event.getHand());
 
         if (stack.isEmpty()) {
-            if (tryRetrieve(serverLevel, player, pos, face)) {
+            if (tryRetrieve(serverLevel, player, pos)) {
                 event.setCanceled(true);
             }
             return;
@@ -92,82 +93,67 @@ public final class InnerRedstoneInteraction {
         if (type == null) {
             return;
         }
-        if (tryPlace(serverLevel, player, stack, pos, face, type)) {
+        if (tryPlace(serverLevel, player, stack, pos, type)) {
             event.setCanceled(true);
         }
     }
 
-    private void markHandled(long tick, BlockPos pos, net.minecraft.world.InteractionHand hand) {
+    private void markHandled(long tick, BlockPos pos, InteractionHand hand) {
         lastHandledTick = tick;
         lastHandledPos = pos.immutable();
         lastHandledHand = hand;
     }
 
     private boolean tryPlace(ServerLevel level, ServerPlayer player, ItemStack stack,
-                             BlockPos pos, Direction face, ComponentType type) {
+                             BlockPos pos, ComponentType type) {
         if (RCConfig.validateHosts() && !HostRules.isValidHost(level.getBlockState(pos))) {
-            debug("refused {} on face {} at {}: block is not a valid host",
-                    type, face.getName(), pos.toShortString());
+            debug("refused {} at {}: block is not a valid host", type, pos.toShortString());
             return false;
         }
 
-        var store = com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(level);
-        InnerRedstoneNode node = store.get(pos);
-
-        if (node != null && node.has(face)) {
-            // That face is already occupied - keep vanilla behaviour rather than silently replacing.
-            debug("refused {} on face {} at {}: face already holds {}",
-                    type, face.getName(), pos.toShortString(), node.get(face).type);
-            return false;
-        }
-        if (node != null && node.size() >= RCConfig.maxComponentsPerBlock()) {
-            debug("refused {} on face {} at {}: block already holds {} component(s)",
-                    type, face.getName(), pos.toShortString(), node.size());
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        InnerRedstoneNode existing = store.get(pos);
+        if (existing != null && !existing.isEmpty()) {
+            // One component per block - keep vanilla behaviour instead of silently replacing.
+            debug("refused {} at {}: block already holds {}",
+                    type, pos.toShortString(), existing.type());
             return false;
         }
 
-        node = store.getOrCreate(pos);
-        node.put(face, type);
+        InnerRedstoneNode node = store.getOrCreate(pos);
+        node.setSlot(new com.jiangyuefengyu.redstonecircuit.data.Slot(type));
         store.markDirty();
 
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
         }
-        // Reuse the placed block's own sound so the feedback matches what the player just clicked.
+        // Reuse the host block's own sound so the feedback matches what the player just clicked.
         BlockState hostState = level.getBlockState(pos);
         SoundType sound = hostState.getSoundType();
         level.playSound(null, pos, sound.getPlaceSound(), SoundSource.BLOCKS,
                 (sound.getVolume() + 1.0F) / 2.0F, sound.getPitch() * 0.8F);
 
-        debug("placed {} on face {} at {}", type, face.getName(), pos.toShortString());
-
-        if (RCConfig.debugLog()) {
-            logNode(store, pos);
-        }
+        debug("placed {} at {}", type, pos.toShortString());
+        logNode(store, pos);
         return true;
     }
 
     // ------------------------------------------------------------- retrieval --
 
-    private boolean tryRetrieve(ServerLevel level, ServerPlayer player, BlockPos pos, Direction face) {
-        var store = com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(level);
+    private boolean tryRetrieve(ServerLevel level, ServerPlayer player, BlockPos pos) {
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
         InnerRedstoneNode node = store.get(pos);
         if (node == null || node.isEmpty()) {
             return false;
         }
 
-        // Take back whatever was put in last.
-        Direction newest = node.newestFace();
-        if (newest == null) {
-            return false;
-        }
-        var removed = store.removeSlot(pos, newest);
-        if (removed == null) {
+        InnerRedstoneNode removed = store.remove(pos);
+        if (removed == null || removed.isEmpty()) {
             return false;
         }
 
         if (!player.getAbilities().instabuild) {
-            ItemStack back = HostRules.itemFor(removed.type);
+            ItemStack back = HostRules.itemFor(removed.type());
             if (!player.getInventory().add(back)) {
                 Block.popResource(level, pos, back);
             }
@@ -178,15 +164,7 @@ public final class InnerRedstoneInteraction {
         level.playSound(null, pos, sound.getBreakSound(), SoundSource.BLOCKS,
                 (sound.getVolume() + 1.0F) / 2.0F, sound.getPitch() * 0.8F);
 
-        debug("retrieved {} from face {} at {}", removed.type, newest.getName(), pos.toShortString());
-
-        if (RCConfig.debugLog()) {
-            if (store.get(pos) == null) {
-                RCConfig.LOGGER.info("[redstonecircuit] host {} is now empty", pos.toShortString());
-            } else {
-                logNode(store, pos);
-            }
-        }
+        debug("retrieved {} at {}", removed.type(), pos.toShortString());
         return true;
     }
 
@@ -206,15 +184,13 @@ public final class InnerRedstoneInteraction {
 
     /** Clears the store for a position and drops its contents into the world. */
     public static void cleanup(ServerLevel level, BlockPos pos) {
-        var store = com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(level);
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
         InnerRedstoneNode node = store.remove(pos);
         if (node == null || node.isEmpty()) {
             return;
         }
-        for (var slot : node.slots().values()) {
-            Block.popResource(level, pos, HostRules.itemFor(slot.type));
-        }
-        debug("dropped {} component(s) from broken host {}", node.size(), pos.toShortString());
+        Block.popResource(level, pos, HostRules.itemFor(node.type()));
+        debug("dropped {} from broken host {}", node.type(), pos.toShortString());
     }
 
     // ----------------------------------------------------------------- utils --
@@ -230,7 +206,10 @@ public final class InnerRedstoneInteraction {
         }
     }
 
-    private static void logNode(com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore store, BlockPos pos) {
+    private static void logNode(InnerRedstoneStore store, BlockPos pos) {
+        if (!RCConfig.debugLog()) {
+            return;
+        }
         InnerRedstoneNode node = store.get(pos);
         if (node != null) {
             RCConfig.LOGGER.info("[redstonecircuit] {}", node.describe(pos));

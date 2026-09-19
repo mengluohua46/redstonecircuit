@@ -12,7 +12,6 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
@@ -26,13 +25,13 @@ import net.minecraft.world.level.saveddata.SavedData;
 /**
  * Per-dimension store for "redstone inside a block".
  *
- * <p>Data layout: {@code BlockPos.asLong() -> InnerRedstoneNode}. The store deliberately lives
- * next to the world instead of replacing the host block, which is what allows redstone to sit
- * inside untouched vanilla blocks such as stone.
+ * <p>Data layout: {@code BlockPos.asLong() -> InnerRedstoneNode}, one node per host block holding
+ * at most one component. The store deliberately lives next to the world instead of replacing the
+ * host block, which is what allows redstone to sit inside untouched vanilla blocks such as stone.
  *
  * <h2>Performance</h2>
  * Later stages call into this from redstone hot paths, so reads are guarded by two cheap levels
- * before the map is touched:
+ * before the position map is touched:
  * <ol>
  *   <li>{@link #isEmpty()} - a single boolean while no redstone exists anywhere in the level;</li>
  *   <li>{@link #sectionHasNodes(int, int, int)} - a set of occupied 16x16x16 sections.</li>
@@ -42,7 +41,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 public final class InnerRedstoneStore extends SavedData {
 
     /** Bumped whenever the on-disk layout changes, so old saves can be migrated or discarded. */
-    public static final int DATA_VERSION = 1;
+    public static final int DATA_VERSION = 2;
 
     private static final String DATA_NAME = "redstonecircuit_inner";
 
@@ -104,18 +103,24 @@ public final class InnerRedstoneStore extends SavedData {
         return nodes.get(posKey);
     }
 
+    /** Shorthand for {@link #get(BlockPos)}, for the future network solver. */
+    @Nullable
+    public Slot slotAt(BlockPos pos) {
+        InnerRedstoneNode node = nodes.get(pos.asLong());
+        return node == null ? null : node.slot();
+    }
+
     /**
      * Signal strength this position should report to the outside world, or {@code 0}.
      *
-     * <p>Stage 5 wires this into {@code BlockState#getSignal}. For now it reports the strongest
-     * dust installed on any face, which is the value the wrench/goggles stages will visualise.
+     * <p>Stage 5 wires this into {@code BlockState#getSignal}.
      */
     public int getSignal(BlockPos pos) {
         if (nodes.isEmpty()) {
             return 0;
         }
         InnerRedstoneNode node = nodes.get(pos.asLong());
-        return node == null ? 0 : node.maxPower();
+        return node == null ? 0 : node.power();
     }
 
     /** Every stored node; used by the debug command and by client sync in later stages. */
@@ -157,28 +162,6 @@ public final class InnerRedstoneStore extends SavedData {
         return removed;
     }
 
-    /**
-     * Removes a single face; drops the whole node when it becomes empty so that the
-     * hot-path section index stays tight.
-     */
-    @Nullable
-    public Slot removeSlot(BlockPos pos, Direction face) {
-        InnerRedstoneNode node = nodes.get(pos.asLong());
-        if (node == null) {
-            return null;
-        }
-        Slot removed = node.remove(face);
-        if (removed == null) {
-            return null;
-        }
-        if (node.isEmpty()) {
-            nodes.remove(pos.asLong());
-            pruneSectionIndex(pos);
-        }
-        setDirty();
-        return removed;
-    }
-
     /** Marks the store dirty; call after mutating a node obtained from {@link #getOrCreate}. */
     public void markDirty() {
         setDirty();
@@ -201,6 +184,12 @@ public final class InnerRedstoneStore extends SavedData {
         int version = tag.getInt("dataVersion");
         if (version > DATA_VERSION) {
             // Written by a newer build; refuse to guess and start clean rather than corrupting data.
+            return store;
+        }
+        if (version < DATA_VERSION) {
+            // Layout changed between versions 1 and 2 (per-face components -> one component per
+            // block). There is no meaningful automatic migration, and the mod is unreleased, so the
+            // old data is simply dropped.
             return store;
         }
 

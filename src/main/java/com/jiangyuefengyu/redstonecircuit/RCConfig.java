@@ -24,9 +24,10 @@ public final class RCConfig {
                     "On by default while the mod is in development; set to false once it is stable.")
             .define("debugLog", true);
 
-    public static final ModConfigSpec.IntValue MAX_COMPONENTS_PER_BLOCK = BUILDER
-            .comment("Maximum number of redstone components stored in a single block (1-6).")
-            .defineInRange("maxComponentsPerBlock", 6, 1, 6);
+    public static final ModConfigSpec.BooleanValue ALLOW_REPLACE = BUILDER
+            .comment("Allow shift-right-clicking a block that already holds a component to replace it.",
+                    "Off by default: a second placement falls through to vanilla instead.")
+            .define("allowReplace", false);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 
@@ -38,15 +39,15 @@ public final class RCConfig {
         try {
             return DEBUG_LOG.get();
         } catch (IllegalStateException notLoadedYet) {
-            return false;
+            return true;
         }
     }
 
-    public static int maxComponentsPerBlock() {
+    public static boolean allowReplace() {
         try {
-            return MAX_COMPONENTS_PER_BLOCK.get();
+            return ALLOW_REPLACE.get();
         } catch (IllegalStateException notLoadedYet) {
-            return 6;
+            return false;
         }
     }
 
