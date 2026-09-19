@@ -59,7 +59,9 @@ public final class RCRegistry {
 
     public static final DeferredHolder<Item, RedstoneGogglesItem> REDSTONE_GOGGLES =
             ITEMS.register("redstone_goggles",
-                    () -> new RedstoneGogglesItem(GOGGLES_MATERIAL, new Item.Properties()));
+                    // No durability, so they never wear out - and one per stack, or a player could put
+                    // sixty-four pairs on their head at once.
+                    () -> new RedstoneGogglesItem(GOGGLES_MATERIAL, new Item.Properties().stacksTo(1)));
 
     public static final DeferredHolder<Item, RedstoneWrenchItem> REDSTONE_WRENCH =
             ITEMS.register("redstone_wrench",
