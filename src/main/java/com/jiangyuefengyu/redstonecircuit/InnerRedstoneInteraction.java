@@ -5,6 +5,9 @@ import org.jetbrains.annotations.Nullable;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.core.BlockPos;
@@ -24,12 +27,13 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 
 /**
- * Placement and retrieval of inner redstone.
+ * Placement, retrieval and operation of inner redstone.
  *
  * <ul>
- *   <li>{@code shift + right-click} a block holding a redstone component - store it inside that
- *       block. A block holds at most one component.</li>
+ *   <li>{@code shift + right-click} a block holding a component - store a component inside it. A block
+ *       holds at most one component, and the clicked side becomes the component's input side.</li>
  *   <li>{@code shift + right-click} with an empty hand - take the component back out.</li>
+ *   <li>{@code right-click} with an empty hand on a block holding a lever or button - work it.</li>
  * </ul>
  *
  * <p>Anything that does not qualify falls through untouched, so vanilla behaviour (including
@@ -59,10 +63,6 @@ public final class InnerRedstoneInteraction {
         if (player == null || !(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        // Only the dedicated sneak + right-click gesture, and only while not using an item.
-        if (!player.isSecondaryUseActive()) {
-            return;
-        }
 
         BlockPos pos = event.getPos();
         Direction face = event.getFace();
@@ -83,6 +83,17 @@ public final class InnerRedstoneInteraction {
 
         ItemStack stack = player.getItemInHand(event.getHand());
 
+        if (!player.isSecondaryUseActive()) {
+            // Plain right-click stays vanilla's, with one exception: an empty hand can work the switch
+            // hidden inside the block. That is safe precisely because vanilla has no empty-hand action
+            // on a full opaque block - every block that does have one (chest, crafting table, bed, ...)
+            // is already excluded from being a host.
+            if (stack.isEmpty() && tryToggle(serverLevel, player, pos)) {
+                event.setCanceled(true);
+            }
+            return;
+        }
+
         if (stack.isEmpty()) {
             if (tryRetrieve(serverLevel, player, pos)) {
                 event.setCanceled(true);
@@ -94,7 +105,7 @@ public final class InnerRedstoneInteraction {
         if (type == null) {
             return;
         }
-        if (tryPlace(serverLevel, player, stack, pos, type)) {
+        if (tryPlace(serverLevel, player, stack, pos, type, face)) {
             event.setCanceled(true);
         }
     }
@@ -106,7 +117,7 @@ public final class InnerRedstoneInteraction {
     }
 
     private boolean tryPlace(ServerLevel level, ServerPlayer player, ItemStack stack,
-                             BlockPos pos, ComponentType type) {
+                             BlockPos pos, ComponentType type, Direction face) {
         if (RCConfig.validateHosts() && !HostRules.isValidHost(level.getBlockState(pos))) {
             debug("refused {} at {}: block is not a valid host", type, pos.toShortString());
             return false;
@@ -115,18 +126,30 @@ public final class InnerRedstoneInteraction {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
         InnerRedstoneNode existing = store.get(pos);
         if (existing != null && !existing.isEmpty()) {
-            // One component per block - keep vanilla behaviour instead of silently replacing.
-            debug("refused {} at {}: block already holds {}",
-                    type, pos.toShortString(), existing.type());
-            return false;
+            if (!RCConfig.allowReplace()) {
+                // One component per block - keep vanilla behaviour instead of silently replacing.
+                debug("refused {} at {}: block already holds {}",
+                        type, pos.toShortString(), existing.type());
+                return false;
+            }
+            // Replacing is opt-in, and even then the old component is not destroyed: it drops in the
+            // world exactly like a retrieval, so nothing can be lost by a mis-click.
+            Block.popResource(level, pos, HostRules.itemFor(existing.type()));
+            debug("replacing {} at {}", existing.type(), pos.toShortString());
         }
 
+        Slot slot = new Slot(type);
+        slot.power = type.initialPower();
+        // The side the player clicked is the component's input side. For a diode that means "it reads
+        // from where I clicked and drives the far side", and for a torch "it hangs on that side".
+        slot.facing = face;
+
         InnerRedstoneNode node = store.getOrCreate(pos);
-        node.setSlot(new com.jiangyuefengyu.redstonecircuit.data.Slot(type));
+        node.setSlot(slot);
         store.markDirty();
 
         // Adding a component changes the surrounding network, so queue a propagation pass.
-        com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         // ...tell vanilla consumers to re-check, since no block state changed...
         notifyNeighbours(level, pos);
         // ...and tell clients, whose renderer draws this block differently from now on.
@@ -146,6 +169,22 @@ public final class InnerRedstoneInteraction {
         return true;
     }
 
+    // --------------------------------------------------------------- switches --
+
+    /**
+     * Works the switch hidden inside a block: toggles a lever, presses a button.
+     *
+     * <p>Only ever reached with a bare hand, so a player holding anything still gets vanilla's
+     * behaviour. It is safe to take the bare-hand click because a host block is always a full opaque
+     * cube, and vanilla has no bare-hand action on one - every block that does have an interaction
+     * (chest, crafting table, bed, ...) is already excluded from holding redstone.
+     */
+    private boolean tryToggle(ServerLevel level, ServerPlayer player, BlockPos pos) {
+        // The state change itself lives in InnerSwitches so that the player click, the /rc toggle
+        // command and the game tests cannot drift apart.
+        return InnerSwitches.toggle(level, pos) != InnerSwitches.Result.NONE;
+    }
+
     // ------------------------------------------------------------- retrieval --
 
     private boolean tryRetrieve(ServerLevel level, ServerPlayer player, BlockPos pos) {
@@ -161,7 +200,7 @@ public final class InnerRedstoneInteraction {
         }
 
         // Removing a component can cut power to its neighbours, so re-derive the local network.
-        com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
         HostSync.broadcastChange(level, pos, false);
 
@@ -203,7 +242,7 @@ public final class InnerRedstoneInteraction {
             return;
         }
         // The host is going away, so whatever coupled to it must re-derive its power.
-        com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
         HostSync.broadcastChange(level, pos, false);
         Block.popResource(level, pos, HostRules.itemFor(node.type()));

@@ -12,11 +12,15 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
 import com.jiangyuefengyu.redstonecircuit.data.ConnectionState;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerEnvironment;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
+import com.jiangyuefengyu.redstonecircuit.logic.SlotNode;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.ChatFormatting;
@@ -27,6 +31,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * {@code /rc} debug command (permission level 2).
@@ -59,7 +66,9 @@ public final class RCCommand {
         root.then(positionSub("clear", RCCommand::clear));
         root.then(positionSub("rules", RCCommand::rules));
         root.then(positionSub("solve", RCCommand::solve));
+        root.then(positionSub("toggle", RCCommand::toggle));
         root.then(connectSub());
+        root.then(setSub());
         root.then(positionSub("disconnect", RCCommand::disconnect));
         root.then(Commands.literal("list").executes(RCCommand::list));
         root.then(placeSub());
@@ -133,6 +142,57 @@ public final class RCCommand {
         return place;
     }
 
+    /**
+     * {@code set <facing|delay|mode> <value> [pos]} - the properties of the component at a position.
+     *
+     * <p>Stands in for the wrench while it does not exist yet: a repeater's input side and delay, and
+     * a comparator's mode, all have to be settable to test them in game.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> setSub() {
+        LiteralArgumentBuilder<CommandSourceStack> set = Commands.literal("set");
+
+        RequiredArgumentBuilder<CommandSourceStack, String> facing =
+                Commands.argument("direction", StringArgumentType.word());
+        facing.suggests((ctx, builder) -> {
+            for (Direction direction : Direction.values()) {
+                builder.suggest(direction.getName());
+            }
+            return builder.buildFuture();
+        });
+        facing.executes(ctx -> setProperty(ctx, ownPos(ctx), "facing",
+                StringArgumentType.getString(ctx, "direction")));
+        facing.then(Commands.argument("pos", BlockPosArgument.blockPos())
+                .executes(ctx -> setProperty(ctx, BlockPosArgument.getBlockPos(ctx, "pos"), "facing",
+                        StringArgumentType.getString(ctx, "direction"))));
+        set.then(Commands.literal("facing").then(facing));
+
+        RequiredArgumentBuilder<CommandSourceStack, Integer> delay =
+                Commands.argument("ticks", IntegerArgumentType.integer(1, 4));
+        delay.executes(ctx -> setProperty(ctx, ownPos(ctx), "delay",
+                Integer.toString(IntegerArgumentType.getInteger(ctx, "ticks"))));
+        delay.then(Commands.argument("pos", BlockPosArgument.blockPos())
+                .executes(ctx -> setProperty(ctx, BlockPosArgument.getBlockPos(ctx, "pos"), "delay",
+                        Integer.toString(IntegerArgumentType.getInteger(ctx, "ticks")))));
+        set.then(Commands.literal("delay").then(delay));
+
+        RequiredArgumentBuilder<CommandSourceStack, String> mode =
+                Commands.argument("mode", StringArgumentType.word());
+        mode.suggests((ctx, builder) -> {
+            for (ComparatorMode value : ComparatorMode.values()) {
+                builder.suggest(value.name().toLowerCase(Locale.ROOT));
+            }
+            return builder.buildFuture();
+        });
+        mode.executes(ctx -> setProperty(ctx, ownPos(ctx), "mode",
+                StringArgumentType.getString(ctx, "mode")));
+        mode.then(Commands.argument("pos", BlockPosArgument.blockPos())
+                .executes(ctx -> setProperty(ctx, BlockPosArgument.getBlockPos(ctx, "pos"), "mode",
+                        StringArgumentType.getString(ctx, "mode"))));
+        set.then(Commands.literal("mode").then(mode));
+
+        return set;
+    }
+
     // --------------------------------------------------------------- helpers --
 
     private static BlockPos ownPos(CommandContext<CommandSourceStack> ctx) {
@@ -178,15 +238,18 @@ public final class RCCommand {
         Slot slot = node.slot();
         feedback(ctx, Component.literal("  " + slot.describe()).withStyle(ChatFormatting.WHITE));
 
-        // Show the resolved connection state per direction so the wrench logic is testable
-        // before the wrench item exists.
+        // Show what the component does with each side, so a diode's dead ends and the wrench's
+        // overrides are both visible without guessing.
+        PowerEnvironment.Node view = SlotNode.of(slot);
         for (Direction direction : Direction.values()) {
-            boolean connected = slot.isConnected(direction);
-            String state = slot.isLocked(direction)
-                    ? (connected ? "forced ON" : "forced OFF")
-                    : (connected ? "auto (on)" : "auto");
+            boolean reads = PowerSolver.readsFrom(view, direction);
+            boolean emits = PowerSolver.emitsToward(view, direction);
+            String state = (reads ? "in " : "   ") + (emits ? "out" : "   ");
+            if (slot.isLocked(direction)) {
+                state += slot.forcedOn.contains(direction) ? "  forced ON" : "  forced OFF";
+            }
             feedback(ctx, Component.literal("    " + direction.getName() + ": " + state)
-                    .withStyle(connected ? ChatFormatting.GREEN : ChatFormatting.DARK_GRAY));
+                    .withStyle(reads || emits ? ChatFormatting.GREEN : ChatFormatting.DARK_GRAY));
         }
         return 1;
     }
@@ -198,24 +261,129 @@ public final class RCCommand {
             error(ctx, "unknown component type '" + typeName + "'");
             return 0;
         }
+        if (type == ComponentType.PRESSURE_PLATE) {
+            error(ctx, "a pressure plate inside a block is not implemented yet");
+            return 0;
+        }
 
         BlockPos pos = ownPos(ctx);
         ServerLevel level = level(ctx);
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
 
         Slot slot = new Slot(type);
-        slot.power = Math.max(0, Math.min(15, power));
-        // Seeded by hand, so it is an input like a lever against the host block - not something the
-        // solver is free to derive away on its next pass.
-        slot.injectedPower = slot.power;
+        int value = Math.max(0, Math.min(PowerSolver.MAX_POWER, power));
+        if (type == ComponentType.DUST) {
+            slot.power = value;
+            // Seeded by hand, so it is an input like a lever against the host block - not something
+            // the solver is free to derive away on its next pass.
+            slot.injectedPower = value;
+        } else if (type.isManual()) {
+            slot.powered = value > 0;
+            slot.power = slot.powered ? PowerSolver.MAX_POWER : 0;
+        } else {
+            // A device's output follows its input, so it starts silent and the solver decides.
+            slot.power = 0;
+        }
+        // Default the input side to where the operator is looking: "point the repeater away from me"
+        // is the gesture that matches how a repeater is placed in vanilla.
+        slot.facing = facingOf(ctx.getSource().getPlayer());
 
         InnerRedstoneNode node = store.getOrCreate(pos);
         node.setSlot(slot);
         store.markDirty();
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.notifyOutputChanged(level, pos);
         HostSync.broadcastChange(level, pos, true);
 
-        feedback(ctx, header("placed " + type + " (power " + slot.power + ") at " + pos.toShortString()));
+        feedback(ctx, header("placed " + type + " (" + slot.describe() + ") at " + pos.toShortString()));
+        return 1;
+    }
+
+    /** The horizontal direction the operator faces, or north when there is no player (command block). */
+    private static Direction facingOf(@Nullable ServerPlayer player) {
+        return player == null ? Direction.NORTH : player.getDirection();
+    }
+
+    /** {@code set facing|delay|mode}: changes one property of the component at a position. */
+    private static int setProperty(CommandContext<CommandSourceStack> ctx, BlockPos pos,
+                                   String property, String value) {
+        ServerLevel level = level(ctx);
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        InnerRedstoneNode node = store.get(pos);
+        if (node == null || node.isEmpty()) {
+            error(ctx, "no inner redstone at " + pos.toShortString());
+            return 0;
+        }
+        Slot slot = node.slot();
+
+        switch (property) {
+            case "facing" -> {
+                Direction direction = faceByName(value);
+                if (direction == null) {
+                    error(ctx, "unknown direction '" + value + "'");
+                    return 0;
+                }
+                slot.facing = direction;
+            }
+            case "delay" -> {
+                if (slot.type != ComponentType.REPEATER) {
+                    error(ctx, "delay only applies to a repeater (this block holds " + slot.type + ")");
+                    return 0;
+                }
+                slot.delay = Math.max(1, Math.min(4, Integer.parseInt(value)));
+            }
+            case "mode" -> {
+                if (slot.type != ComponentType.COMPARATOR) {
+                    error(ctx, "mode only applies to a comparator (this block holds " + slot.type + ")");
+                    return 0;
+                }
+                ComparatorMode mode = ComparatorMode.byName(value, null);
+                if (mode == null) {
+                    error(ctx, "unknown comparator mode '" + value + "'");
+                    return 0;
+                }
+                slot.mode = mode;
+            }
+            default -> {
+                error(ctx, "unknown property '" + property + "'");
+                return 0;
+            }
+        }
+
+        store.markDirty();
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.settle(level);
+        feedback(ctx, header("set " + property + " = " + value + " at " + pos.toShortString()
+                + " -> " + slot.describe()));
+        return 1;
+    }
+
+    /** {@code toggle [pos]}: works a lever or button stored inside a block, without a player click. */
+    private static int toggle(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
+        ServerLevel level = level(ctx);
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        InnerRedstoneNode node = store.get(pos);
+        if (node == null || node.isEmpty()) {
+            error(ctx, "no inner redstone at " + pos.toShortString());
+            return 0;
+        }
+        Slot slot = node.slot();
+        if (!slot.type.isManual()) {
+            error(ctx, slot.type + " cannot be toggled; only a lever or button can");
+            return 0;
+        }
+
+        slot.powered = !slot.powered;
+        slot.power = slot.powered ? PowerSolver.MAX_POWER : 0;
+        if (slot.powered && slot.type == ComponentType.BUTTON) {
+            InnerRedstoneNetwork.scheduleRelease(level, pos, 20);
+        }
+        store.markDirty();
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.settle(level);
+
+        feedback(ctx, header((slot.powered ? "engaged " : "released ") + slot.type
+                + " at " + pos.toShortString()));
         return 1;
     }
 

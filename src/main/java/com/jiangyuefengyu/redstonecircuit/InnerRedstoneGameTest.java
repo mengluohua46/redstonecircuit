@@ -1,10 +1,13 @@
 package com.jiangyuefengyu.redstonecircuit;
 
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
+import com.jiangyuefengyu.redstonecircuit.data.ConnectionState;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -79,6 +82,36 @@ public final class InnerRedstoneGameTest {
         if (node != null && !node.isEmpty()) {
             node.slot().injectedPower = -1;
         }
+    }
+
+    /** Places an inner component of any type and returns its slot so tests can inspect power. */
+    private static Slot placeComponent(GameTestHelper helper, BlockPos pos, ComponentType type,
+                                       int power, Direction facing) {
+        ServerLevel level = helper.getLevel();
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+
+        Slot slot = new Slot(type);
+        slot.power = power;
+        // FACING is the component's input side: the side it reads, and for a torch the side it hangs on.
+        slot.facing = facing;
+
+        InnerRedstoneNode node = store.getOrCreate(pos);
+        node.setSlot(slot);
+        store.markDirty();
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneInteraction.notifyNeighbours(level, pos);
+        return slot;
+    }
+
+    /** Resolves everything queued for this level the way one server tick would. */
+    private static void tick(GameTestHelper helper) {
+        InnerRedstoneNetwork.tick(helper.getLevel());
+    }
+
+    /** The slot stored at an absolute position, for asserting on a component's own state. */
+    private static Slot slotAt(GameTestHelper helper, BlockPos pos) {
+        InnerRedstoneNode node = InnerRedstoneStore.get(helper.getLevel()).get(pos);
+        return node == null || node.isEmpty() ? null : node.slot();
     }
 
     /**
@@ -698,5 +731,209 @@ public final class InnerRedstoneGameTest {
                 powerAt(helper, host) == 15,
                 "a block strongly powered by the repeater should feed the host, got "
                         + powerAt(helper, host))));
+    }
+
+    // ------------------------------------------------- components in a block --
+
+    /**
+     * A lever stored inside a block powers the block next door.
+     *
+     * <p>The first component test, and the one that shows what a source is worth: a lever is not wire,
+     * so the dust it feeds holds the full 15 rather than 14 - exactly as a lever does against a piece
+     * of vanilla wire.
+     */
+    @GameTest(template = "empty")
+    public void leverInsideHostPowersDust(GameTestHelper helper) {
+        setBlock(helper, 0, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos lever = at(helper, 0, 1, 1);
+        BlockPos dust = at(helper, 1, 1, 1);
+        placeComponent(helper, lever, ComponentType.LEVER, 0, Direction.NORTH);
+        placeDust(helper, dust, 0);
+
+        tick(helper);
+        helper.assertTrue(powerAt(helper, dust) == 0,
+                "precondition: a lever that is off powers nothing");
+
+        InnerSwitches.toggle(helper.getLevel(), lever);
+        tick(helper);
+        helper.assertTrue(powerAt(helper, dust) == 15,
+                "a lever inside the block should light the dust beside it at full strength, got "
+                        + powerAt(helper, dust));
+
+        InnerSwitches.toggle(helper.getLevel(), lever);
+        tick(helper);
+        helper.succeedWhen(() -> helper.assertTrue(powerAt(helper, dust) == 0,
+                "and switching it off must drain the dust again, got " + powerAt(helper, dust)));
+    }
+
+    /**
+     * A torch stored inside a block inverts its input, and takes its two ticks to do it.
+     *
+     * <p>This is a torch's whole purpose: lit on its own, out once the block it hangs on is powered.
+     * The torch here hangs on its west side, so the lever drives it and the dust to the east is what
+     * it lights.
+     */
+    @GameTest(template = "empty")
+    public void torchInsideHostInvertsItsInput(GameTestHelper helper) {
+        setBlock(helper, 0, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos lever = at(helper, 0, 1, 1);
+        BlockPos torch = at(helper, 1, 1, 1);
+        BlockPos dust = at(helper, 2, 1, 1);
+        placeComponent(helper, lever, ComponentType.LEVER, 0, Direction.NORTH);
+        placeComponent(helper, torch, ComponentType.TORCH, 15, Direction.WEST);
+        placeDust(helper, dust, 0);
+
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(powerAt(helper, torch) == 15,
+                    "precondition: nothing on its attachment side, so the torch is lit");
+            helper.assertTrue(powerAt(helper, dust) == 15,
+                    "precondition: a torch is a source, so the dust holds 15 and not 14");
+
+            InnerSwitches.toggle(helper.getLevel(), lever);
+
+            // A driven component never reacts in the tick it is told to: vanilla gives a torch two.
+            afterTicks(helper, 1, () -> helper.assertTrue(powerAt(helper, torch) == 15,
+                    "a torch must not follow its input within the same tick, got "
+                            + powerAt(helper, torch)));
+
+            afterTicks(helper, 6, () -> helper.succeedWhen(() -> {
+                helper.assertTrue(powerAt(helper, torch) == 0,
+                        "the lever on its attachment side puts the torch out, got "
+                                + powerAt(helper, torch));
+                helper.assertTrue(powerAt(helper, dust) == 0,
+                        "and the dust goes dark with it, got " + powerAt(helper, dust));
+            }));
+        });
+    }
+
+    /**
+     * A repeater stored inside a block amplifies a weak signal, after its setting in ticks.
+     *
+     * <p>An input of 13 comes out at 15, and delay 3 holds the old output for six ticks - the two
+     * things a repeater exists for.
+     */
+    @GameTest(template = "empty")
+    public void repeaterAmplifiesAndDelays(GameTestHelper helper) {
+        for (int x = 0; x <= 4; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+        }
+
+        BlockPos lever = at(helper, 0, 1, 1);
+        BlockPos wire = at(helper, 2, 1, 1);
+        BlockPos repeater = at(helper, 3, 1, 1);
+        BlockPos output = at(helper, 4, 1, 1);
+        placeComponent(helper, lever, ComponentType.LEVER, 0, Direction.NORTH);
+        placeDust(helper, at(helper, 1, 1, 1), 0);
+        placeDust(helper, wire, 0);
+        Slot repeaterSlot = placeComponent(helper, repeater, ComponentType.REPEATER, 0, Direction.WEST);
+        repeaterSlot.delay = 3;
+        placeDust(helper, output, 0);
+
+        tick(helper);
+        InnerSwitches.toggle(helper.getLevel(), lever);
+        tick(helper);
+        helper.assertTrue(powerAt(helper, wire) == 14,
+                "precondition: two wire hops from the lever, 15 -> 15 -> 14, got "
+                        + powerAt(helper, wire));
+
+        // Delay 3 is six ticks, so at four ticks the repeater must still be dark.
+        afterTicks(helper, 4, () -> helper.assertTrue(powerAt(helper, repeater) == 0,
+                "delay 3 must hold the output six ticks, but it already moved: "
+                        + powerAt(helper, repeater)));
+
+        afterTicks(helper, 12, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(powerAt(helper, repeater) == 15,
+                    "a repeater puts any input out at full strength, got " + powerAt(helper, repeater));
+            helper.assertTrue(powerAt(helper, output) == 15,
+                    "and drives the wire on its output side with it, got " + powerAt(helper, output));
+        }));
+    }
+
+    /**
+     * A comparator stored inside a block compares its back against its sides, and subtracts when asked.
+     *
+     * <p>Both inputs are levers, so compare sees 15 against 15 and passes 15 through, while subtract
+     * sees the same numbers and puts out nothing.
+     */
+    @GameTest(template = "empty")
+    public void comparatorComparesThenSubtracts(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
+
+        BlockPos back = at(helper, 1, 1, 1);
+        BlockPos comparator = at(helper, 2, 1, 1);
+        BlockPos side = at(helper, 2, 1, 2);
+        BlockPos output = at(helper, 3, 1, 1);
+        placeComponent(helper, back, ComponentType.LEVER, 15, Direction.NORTH);
+        Slot comparatorSlot =
+                placeComponent(helper, comparator, ComponentType.COMPARATOR, 0, Direction.WEST);
+        placeComponent(helper, side, ComponentType.LEVER, 15, Direction.NORTH);
+        placeDust(helper, output, 0);
+
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(powerAt(helper, output) == 15,
+                    "compare mode passes the back signal through when the sides match it, got "
+                            + powerAt(helper, output));
+
+            comparatorSlot.mode = ComparatorMode.SUBTRACT;
+            InnerRedstoneNetwork.markDirtyWithNeighbours(helper.getLevel(), comparator);
+
+            afterTicks(helper, 6, () -> helper.succeedWhen(() -> helper.assertTrue(
+                    powerAt(helper, output) == 0,
+                    "subtract takes the side input off the back, so 15 - 15 is nothing, got "
+                            + powerAt(helper, output))));
+        });
+    }
+
+    /** A button stored inside a block springs back on its own, like vanilla's. */
+    @GameTest(template = "empty")
+    public void buttonInsideHostReleasesItself(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos button = at(helper, 1, 1, 1);
+        BlockPos dust = at(helper, 2, 1, 1);
+        placeComponent(helper, button, ComponentType.BUTTON, 0, Direction.NORTH);
+        placeDust(helper, dust, 0);
+
+        tick(helper);
+        InnerSwitches.toggle(helper.getLevel(), button);
+        tick(helper);
+        helper.assertTrue(powerAt(helper, dust) == 15,
+                "a pressed button powers the dust beside it, got " + powerAt(helper, dust));
+
+        // One second later it lets go by itself, with no second click.
+        afterTicks(helper, 40, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, dust) == 0,
+                "a button must release itself, but the dust is still lit: " + powerAt(helper, dust))));
+    }
+
+    /** The wrench's "disconnect" override really cuts a wire in the world, not only in the data. */
+    @GameTest(template = "empty")
+    public void forcedOffCutsAWire(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos source = at(helper, 1, 1, 1);
+        BlockPos receiver = at(helper, 2, 1, 1);
+        Slot sourceSlot = placeDust(helper, source, 15);
+        placeDust(helper, receiver, 0);
+
+        solve(helper, receiver);
+        helper.assertTrue(powerAt(helper, receiver) == 14,
+                "precondition: the two wires couple normally, got " + powerAt(helper, receiver));
+
+        sourceSlot.setConnection(Direction.EAST, ConnectionState.OFF);
+        solve(helper, receiver);
+
+        helper.succeedWhen(() -> helper.assertTrue(powerAt(helper, receiver) == 0,
+                "a disconnected side must carry nothing, got " + powerAt(helper, receiver)));
     }
 }

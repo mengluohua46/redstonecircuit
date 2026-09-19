@@ -1,69 +1,64 @@
 package com.jiangyuefengyu.redstonecircuit.logic;
 
+import org.jetbrains.annotations.Nullable;
+
+import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
+import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+
 import net.minecraft.core.Direction;
 
 /**
  * What {@link PowerSolver} needs to know about the world.
  *
- * <p>Kept as a narrow interface (rather than taking a {@code Level} directly) so the power
- * algorithm can be unit-tested without bootstrapping Minecraft's registries.
+ * <p>Kept as a narrow interface (rather than taking a {@code Level} directly) so the power and
+ * component rules can be unit-tested without bootstrapping Minecraft's registries.
  */
 public interface PowerEnvironment {
 
-    /**
-     * Strongest signal any neighbouring block pushes into the wire at the queried position.
-     *
-     * <p>This mirrors vanilla's {@code Level#getBestNeighborSignal}: the maximum of
-     * {@code BlockState#getSignal(level, pos, oppositeDirection)} over all six neighbours.
-     */
-    int bestNeighborSignal();
+    /** The inner component at a position, or {@code null} when that block holds none. */
+    @Nullable
+    Node nodeAt(int x, int y, int z);
 
     /**
-     * Power this component receives from the vanilla world, which is what makes a lever or redstone
-     * torch placed against the host block drive the redstone inside it.
+     * Strongest signal any neighbouring block pushes into the host at the queried position.
      *
-     * <p>Kept separate from {@link #bestNeighborSignal()} so it can be overridden in tests; the
-     * default simply mirrors the neighbour signal.
+     * <p>Mirrors vanilla's {@code Level#getBestNeighborSignal}. This is the supply a piece of inner
+     * dust draws from the world around its host block, and it is deliberately omnidirectional: dust
+     * has no input side.
      */
-    default int externalSignal() {
-        return bestNeighborSignal();
-    }
+    int externalSignal();
 
     /**
-     * The inner redstone dust at {@code pos}, or {@code null} when there is none.
+     * Signal the vanilla world pushes into the host at the queried position from one specific side.
      *
-     * <p>Only dust participates in wire-to-wire propagation, matching vanilla where
-     * {@code getWireSignal} returns 0 for anything that is not redstone wire.
+     * <p>This is what gives an inner repeater, comparator or torch its direction: a lever or a piece
+     * of vanilla wire touching the host block on the component's input side feeds it, while one on
+     * any other side does not.
      */
-    WireNode dustAt(int x, int y, int z);
+    int externalSignal(Direction direction);
 
-    /**
-     * Whether the block at {@code (x, y, z)} is a redstone conductor (opaque full block).
-     *
-     * <p>Vanilla uses this to decide whether a wire may step up onto, or down off, a neighbour.
-     */
+    /** Whether the block at {@code (x, y, z)} is a redstone conductor (opaque full block). */
     boolean isRedstoneConductor(int x, int y, int z);
 
-    /** Read/write access to a neighbouring wire's stored power. */
-    interface WireNode {
+    /** Read/write access to one inner component, as the solver sees it. */
+    interface Node {
+        ComponentType type();
+
+        /** The strength this component currently puts out, 0-15. */
         int power();
 
         void setPower(int power);
-    }
 
-    /**
-     * The four horizontal directions vanilla iterates for wire-to-wire coupling.
-     *
-     * <p>Vanilla only couples wires horizontally; vertical movement happens through the
-     * climb/step-down rules instead. Kept in a class rather than on this interface so it is a
-     * compile-time constant instead of an interface field.
-     */
-    final class Directions {
-        public static final Direction[] HORIZONTAL = {
-                Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST
-        };
+        /** Input side for a driven component; for a torch, the side it is attached to. */
+        Direction facing();
 
-        private Directions() {
-        }
+        /** Comparator output mode. */
+        ComparatorMode mode();
+
+        /** True when the wrench pinned this direction ON. */
+        boolean forcedOn(Direction direction);
+
+        /** True when the wrench pinned this direction OFF. */
+        boolean forcedOff(Direction direction);
     }
 }

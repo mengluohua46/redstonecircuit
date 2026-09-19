@@ -135,6 +135,11 @@ public final class HostRules {
      *
      * <p>Pistons, dispensers, droppers and observers are intentionally absent: they are full-cube
      * blocks and the design forbids putting them inside another block.
+     *
+     * <p>Pressure plates are absent for now as well, but for a different reason: nothing would happen.
+     * A plate has to answer to whatever stands on the host block, which needs a per-position index and
+     * a per-tick entity check; until that exists, offering the placement would just be a silent
+     * no-op. Everything else in {@link ComponentType} works.
      */
     @Nullable
     public static ComponentType componentFor(ItemStack stack) {
@@ -161,10 +166,6 @@ public final class HostRules {
                 || item == Items.OAK_BUTTON
                 || item == Items.POLISHED_BLACKSTONE_BUTTON) {
             return ComponentType.BUTTON;
-        }
-        if (item == Items.LIGHT_WEIGHTED_PRESSURE_PLATE
-                || item == Items.HEAVY_WEIGHTED_PRESSURE_PLATE) {
-            return ComponentType.PRESSURE_PLATE;
         }
         return null;
     }

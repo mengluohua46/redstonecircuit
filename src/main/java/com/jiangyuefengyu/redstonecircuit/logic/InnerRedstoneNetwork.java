@@ -16,64 +16,64 @@ import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Drives power propagation for inner redstone dust.
+ * Drives power propagation for everything stored inside host blocks.
  *
- * <p>When anything that could affect a dust network changes (a component is placed or removed, a
+ * <p>When anything that could affect a network changes (a component is placed or removed, a
  * neighbouring block changes), the affected position is marked dirty. At the end of the tick the
- * dirty positions are resolved: the connected dust component around each one is re-derived from
- * scratch, and - when that changed what the host blocks emit - the surrounding world is told.
+ * dirty positions are resolved, and - when that changed what the host blocks emit - the surrounding
+ * world is told.
  *
- * <h2>A solve has two halves</h2>
+ * <h2>A solve has three parts</h2>
  * <ol>
- *   <li><b>Inwards</b> ({@link #relax}): the component is reset to zero and grown to the least fixed
- *       point of {@code value = max(supply, max over neighbours (value - 1))}. Starting from zero is
- *       what makes the result a function of the supplies alone.</li>
- *   <li><b>Outwards</b> ({@link #recompute}): once the values are final <em>and</em> the signal
- *       suppression has been lifted, every host block whose power changed sends a vanilla neighbour
- *       update, so the world re-reads it through {@code BlockState#getSignal}.</li>
+ *   <li><b>Dust</b> ({@link #relax}): the wire part of the component is reset to zero and grown to the
+ *       least fixed point of {@code value = max(supply, max over sides of what arrives)}, using the
+ *       <em>current</em> outputs of the driven components.</li>
+ *   <li><b>Devices</b> ({@link #relax} again, second phase): a torch, repeater or comparator whose
+ *       output no longer matches its input gets a re-evaluation <em>scheduled a few ticks ahead</em>
+ *       rather than changed now. That single decision gives every component its vanilla delay, keeps a
+ *       repeater loop ticking at a fixed rate, and - importantly - bounds each tick's work: nothing a
+ *       device does can feed back into the same tick's solve.</li>
+ *   <li><b>Outwards</b> ({@link #recompute}, and {@link #applyDueFlips} for the scheduled ones): once
+ *       the values are final <em>and</em> suppression is lifted, every host whose output changed sends
+ *       a vanilla neighbour update, because a stored value is not a block state and nothing else would
+ *       wake the lamps, wire and pistons around it.</li>
  * </ol>
- *
- * <p>The second half is not optional. Storing a new power changes no block state, so nothing
- * schedules an update by itself: without it a redstone lamp lit by an inner component stays lit
- * forever after the component drains, and only corrected itself when an unrelated block change
- * happened to notify it. That was a real bug report.
- *
- * <p>{@link #settle(ServerLevel)} repeats both halves until the queue stays empty, because
- * notifying the world can bounce straight back into the network (a vanilla wire drops a step, a lamp
- * goes out and stops lighting something).
+ * {@link #settle(ServerLevel)} repeats the first and third parts until the queue stays empty, because
+ * notifying the world can bounce straight back into the network.
  */
 public final class InnerRedstoneNetwork {
 
     /**
      * Most resolve rounds per tick.
      *
-     * <p>Every round either changes nothing (and stops) or strictly decreases some signal, and
-     * signals bottom out at 0, so a round is never wasted work. Anything still queued after this
-     * many rounds is simply left for the next tick, which keeps a pathological build from stalling
-     * the server inside one tick.
+     * <p>Every round either changes nothing (and stops) or strictly decreases some signal, and signals
+     * bottom out at 0, so a round is never wasted work. Anything still queued after this many rounds is
+     * left for the next tick, which keeps a pathological build from stalling the server inside one tick.
      */
     private static final int MAX_ROUNDS_PER_TICK = 2 * PowerSolver.MAX_POWER + 2;
 
     /** Per-level set of positions awaiting recomputation. */
-    private static final Map<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>, Set<BlockPos>> DIRTY =
-            new HashMap<>();
+    private static final Map<ResourceKey<Level>, Set<BlockPos>> DIRTY = new HashMap<>();
+
+    /** Per-level set of driven components waiting for their output to follow their input. */
+    private static final Map<ResourceKey<Level>, PendingFlips> PENDING = new HashMap<>();
 
     /**
      * Re-entrancy guard mirroring vanilla's {@code RedStoneWireBlock#shouldSignal}.
      *
      * <p>While a wire evaluates its own target strength it must not report its current power to
-     * neighbours, otherwise a wire would charge itself from its own value and the network could
-     * never settle. Vanilla flips a field around its {@code getBestNeighborSignal} call; the
-     * equivalent here is a level-scoped flag consulted by the signal query in
-     * {@code BlockStateSignalMixin}.
+     * neighbours, otherwise a wire would charge itself from its own value and the network could never
+     * settle. Vanilla flips a field around its {@code getBestNeighborSignal} call; the equivalent here
+     * is a level-scoped flag consulted by the signal query in {@code BlockStateSignalMixin}.
      */
-    private static final Set<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>> SUPPRESS_SIGNAL =
-            new HashSet<>();
+    private static final Set<ResourceKey<Level>> SUPPRESS_SIGNAL = new HashSet<>();
 
     private InnerRedstoneNetwork() {
     }
@@ -94,8 +94,23 @@ public final class InnerRedstoneNetwork {
         }
     }
 
+    /**
+     * Queues a button to release itself, and anything else that has to happen at a known later tick.
+     *
+     * <p>Shares the driven components' queue because it is the same idea: something has to be
+     * re-examined once the world has moved on a few ticks.
+     */
+    public static void scheduleRelease(ServerLevel level, BlockPos pos, int ticks) {
+        PENDING.computeIfAbsent(level.dimension(), key -> new PendingFlips())
+                .schedule(pos, level.getGameTime() + Math.max(1, ticks));
+    }
+
     /** Resolves everything queued for this level. Called once per server tick. */
     public static void tick(ServerLevel level) {
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        if (!store.isEmpty()) {
+            applyDueFlips(level, store);
+        }
         settle(level);
     }
 
@@ -104,10 +119,9 @@ public final class InnerRedstoneNetwork {
      *
      * <p>One solve is not always the end of the story, because telling the world about it can change
      * the world in a way that comes straight back: a vanilla wire laid against a host block drops a
-     * step (it is charged one hop, see {@link SolverEnvironment#externalSignal()}), and that change
-     * is reported back to us synchronously by the very neighbour update we just sent. Repeating the
-     * whole solve/notify cycle in the same tick is what makes a source removal visible immediately
-     * instead of fading one strength per tick.
+     * step, and that change is reported back to us synchronously by the very neighbour update we just
+     * sent. Repeating the whole solve/notify cycle in the same tick is what makes a source removal
+     * visible immediately instead of fading one strength per tick.
      */
     public static void settle(ServerLevel level) {
         Set<BlockPos> dirty = DIRTY.get(level.dimension());
@@ -151,22 +165,27 @@ public final class InnerRedstoneNetwork {
     public static void clear(ServerLevel level) {
         DIRTY.remove(level.dimension());
         SUPPRESS_SIGNAL.remove(level.dimension());
+        PendingFlips pending = PENDING.remove(level.dimension());
+        if (pending != null) {
+            pending.clear();
+        }
     }
 
     /** True while the given level is evaluating wire power and must not report it to neighbours. */
-    public static boolean isSignalSuppressed(net.minecraft.world.level.Level level) {
+    public static boolean isSignalSuppressed(Level level) {
         return SUPPRESS_SIGNAL.contains(level.dimension());
+    }
+
+    /** Number of driven components waiting for their delayed output, for the debug command. */
+    public static int pendingCount(ServerLevel level) {
+        PendingFlips pending = PENDING.get(level.dimension());
+        return pending == null ? 0 : pending.size();
     }
 
     // ---------------------------------------------------------- propagation --
 
     /**
-     * Re-evaluates the connected dust component containing {@code seed}, and tells the world if the
-     * result changed.
-     *
-     * <p>The component is recomputed from scratch rather than only from {@code seed}, because a
-     * removed power source has to propagate a <em>decrease</em> as well, and that requires
-     * re-deriving the whole component.
+     * Re-evaluates the component containing {@code seed}, and tells the world if the result changed.
      *
      * @return every position in the component, so the caller can skip re-solving them
      */
@@ -181,13 +200,6 @@ public final class InnerRedstoneNetwork {
         }
 
         List<BlockPos> changed;
-        // Suppress inner-redstone signal output for the WHOLE solve.
-        //
-        // While the solver is deciding what each component should hold, the values it reads are
-        // intermediate: reporting them to the world would let a component charge itself from its own
-        // half-computed value. The flag is therefore scoped to the solve rather than to individual
-        // signal queries, which is both easier to reason about and impossible to leak (it is cleared
-        // in a finally block even if a solve blows up).
         boolean alreadySuppressed = !SUPPRESS_SIGNAL.add(level.dimension());
         try {
             changed = relax(level, store, component);
@@ -197,11 +209,9 @@ public final class InnerRedstoneNetwork {
             }
         }
 
-        // Outwards - and only now. While the solve above was running every inner component reported
-        // 0 to the world (that is what stops a component charging itself from its own value), so a
-        // consumer woken up mid-solve would read that stub and latch onto the wrong state. With the
-        // values final and the stub gone, a plain vanilla neighbour update is all it takes: every
-        // consumer re-reads the host block through BlockState#getSignal.
+        // Outwards - and only now. While the solve above was running every inner component reported 0
+        // to the world (that is what stops a component charging itself from its own value), so a
+        // consumer woken up mid-solve would read that stub and latch onto the wrong state.
         for (BlockPos pos : changed) {
             notifyOutputChanged(level, pos);
         }
@@ -219,34 +229,92 @@ public final class InnerRedstoneNetwork {
         level.updateNeighborsAt(pos, state.getBlock());
     }
 
+    /**
+     * Applies every driven component whose scheduled re-evaluation has come due.
+     *
+     * <p>The output is decided <em>now</em> rather than remembered from when the re-evaluation was
+     * scheduled, which is what vanilla does and what makes a pulse shorter than the delay disappear
+     * instead of being stretched by it.
+     */
+    private static void applyDueFlips(ServerLevel level, InnerRedstoneStore store) {
+        PendingFlips pending = PENDING.get(level.dimension());
+        if (pending == null || pending.size() == 0) {
+            return;
+        }
+        List<BlockPos> due = pending.takeDue(level.getGameTime());
+        if (due.isEmpty()) {
+            return;
+        }
+
+        SolverEnvironment env = new SolverEnvironment(level, store);
+        for (BlockPos pos : due) {
+            Slot slot = store.slotAt(pos);
+            // A component that was taken out (or replaced) in the meantime simply drops its pending
+            // re-evaluation; its replacement starts from its own initial output.
+            if (slot == null) {
+                continue;
+            }
+
+            if (slot.type == ComponentType.BUTTON) {
+                releaseButton(level, store, pos, slot);
+                continue;
+            }
+            if (!slot.type.isDriven()) {
+                continue;
+            }
+
+            env.setQueryPos(pos);
+            int desired = PowerSolver.desiredOutput(env, pos, SlotNode.of(slot));
+            if (desired == slot.power) {
+                continue;
+            }
+            RCConfig.LOGGER.info(
+                    "[redstonecircuit] {} at {} output {} -> {} (after its delay)",
+                    slot.type, pos.toShortString(), slot.power, desired);
+            slot.power = desired;
+            store.markDirty();
+            // The host block emits something else now, and the network around it has to re-settle.
+            notifyOutputChanged(level, pos);
+            markDirty(level, pos);
+        }
+    }
+
+    /** A button that has been held down for long enough lets go. */
+    private static void releaseButton(ServerLevel level, InnerRedstoneStore store, BlockPos pos,
+                                      Slot slot) {
+        if (!slot.powered) {
+            return;
+        }
+        slot.powered = false;
+        slot.power = 0;
+        store.markDirty();
+        notifyOutputChanged(level, pos);
+        markDirty(level, pos);
+        if (RCConfig.debugLog()) {
+            RCConfig.LOGGER.info("[redstonecircuit] BUTTON at {} released", pos.toShortString());
+        }
+    }
+
     // --------------------------------------------------------------- solver --
 
     /**
-     * Re-derives every value in {@code component} and returns the positions whose power changed.
+     * Re-derives the component's wire values and schedules any driven component that is stale.
      *
-     * <p>The solve resets the component to zero and then only ever raises values, so the answer is
-     * the <em>least</em> fixed point of {@code value = max(supply, max over neighbours (value - 1))}.
-     * That is also the only fixed point: every coupling between two components costs a hop, so a
-     * non-zero value has to come from a supply. Stating it this way makes the result a function of
-     * the supplies alone, independent of the order the positions happen to be visited in.
-     *
-     * <p>Seeding the iteration with the previous values instead - letting values fall as well as
-     * rise - reaches the same answer in theory but behaves badly in practice: a component whose
-     * supply has just been removed can keep feeding off its own stale value and its neighbour's, so
-     * the pair walks down one step per pass (visible in the logs as 15 -&gt; 13 -&gt; 11 -&gt; ...)
-     * and needs a dozen passes to reach zero. Growing from zero reaches the answer in at most
-     * {@code MAX_POWER + 1} passes, because a value of {@code v} needs {@code v} hops of propagation.
+     * @return the positions whose output changed <em>immediately</em> (dust only - a driven component
+     *     changes later, at its scheduled tick, and reports itself then)
      */
-    private static List<BlockPos> relax(ServerLevel level, InnerRedstoneStore store, List<BlockPos> component) {
+    private static List<BlockPos> relax(ServerLevel level, InnerRedstoneStore store,
+                                        List<BlockPos> component) {
         SolverEnvironment env = new SolverEnvironment(level, store);
 
-        // The solve starts from zero, so "did anything change?" has to be answered against where the
-        // component was before.
+        // The wire solve starts from zero, so "did anything change?" has to be answered against where
+        // the component was before. Driven components are NOT reset: their output is held until their
+        // own scheduled tick replaces it.
         Map<BlockPos, Integer> previous = new HashMap<>(component.size() * 2);
         for (BlockPos pos : component) {
             Slot slot = store.slotAt(pos);
             previous.put(pos, slot == null ? 0 : slot.power);
-            if (slot != null) {
+            if (slot != null && slot.type == ComponentType.DUST) {
                 slot.power = 0;
             }
         }
@@ -260,16 +328,14 @@ public final class InnerRedstoneNetwork {
                         PowerSolver.MAX_POWER + 1);
                 break;
             }
-
             changed = false;
             for (BlockPos pos : component) {
                 Slot slot = store.slotAt(pos);
                 if (slot == null || slot.type != ComponentType.DUST) {
                     continue;
                 }
-
                 env.setQueryPos(pos);
-                int target = PowerSolver.targetStrength(env, pos, supplyOf(env, slot));
+                int target = PowerSolver.dustTarget(env, pos, supplyOf(env, slot), SlotNode.of(slot));
                 if (target > slot.power) {
                     slot.power = target;
                     changed = true;
@@ -284,35 +350,67 @@ public final class InnerRedstoneNetwork {
                 continue;
             }
             int before = previous.get(pos);
-            if (before == slot.power) {
-                continue;
+            if (before != slot.power) {
+                changedPositions.add(pos);
+                env.setQueryPos(pos);
+                RCConfig.LOGGER.info(
+                        "[redstonecircuit] {} at {} power {} -> {} (supply={}, externalSignal={}, injected={})",
+                        slot.type, pos.toShortString(), before, slot.power, supplyOf(env, slot),
+                        env.externalSignal(), slot.injectedPower);
             }
-            changedPositions.add(pos);
-
-            // Logged whenever a value actually changes, which is the only reliable way to diagnose
-            // "the lever does nothing" / "it stays powered" reports: placement alone says nothing
-            // about the power that resulted from it. Only final values are reported, never the
-            // intermediate ones, so a line here means the component really moved.
-            env.setQueryPos(pos);
-            RCConfig.LOGGER.info(
-                    "[redstonecircuit] {} at {} power {} -> {} (supply={}, externalSignal={}, injected={})",
-                    slot.type, pos.toShortString(), before, slot.power, supplyOf(env, slot),
-                    env.externalSignal(), slot.injectedPower);
         }
-
         if (!changedPositions.isEmpty()) {
             store.markDirty();
         }
+
+        scheduleStaleDevices(level, store, env, component);
         return changedPositions;
     }
 
     /**
-     * The power the component draws from outside the wire network.
+     * Gives every driven component whose output no longer matches its input a delayed re-evaluation.
+     *
+     * <p>This is the only place a torch, repeater or comparator ever changes, and it never changes
+     * here - it changes when the scheduled tick arrives. Vanilla's "do not reschedule while a tick is
+     * already pending" rule lives in {@link PendingFlips#schedule}.
+     */
+    private static void scheduleStaleDevices(ServerLevel level, InnerRedstoneStore store,
+                                             SolverEnvironment env, List<BlockPos> component) {
+        for (BlockPos pos : component) {
+            Slot slot = store.slotAt(pos);
+            if (slot == null || !slot.type.isDriven()) {
+                continue;
+            }
+            env.setQueryPos(pos);
+            int desired = PowerSolver.desiredOutput(env, pos, SlotNode.of(slot));
+            if (desired == slot.power) {
+                continue;
+            }
+            int delay = slot.type.delayTicks(slot.delay);
+            if (delay <= 0) {
+                // A driven component with no delay would be a contradiction; treat it as immediate so
+                // a future type cannot silently stop working.
+                slot.power = desired;
+                store.markDirty();
+                notifyOutputChanged(level, pos);
+                continue;
+            }
+            PendingFlips pending =
+                    PENDING.computeIfAbsent(level.dimension(), key -> new PendingFlips());
+            if (pending.schedule(pos, level.getGameTime() + delay) && RCConfig.debugLog()) {
+                RCConfig.LOGGER.info(
+                        "[redstonecircuit] {} at {} will follow its input in {} tick(s) ({} -> {})",
+                        slot.type, pos.toShortString(), delay, slot.power, desired);
+            }
+        }
+    }
+
+    /**
+     * The power a piece of dust draws from outside the wire network.
      *
      * <p>{@link PowerEnvironment#externalSignal()} is what the vanilla world pushes into the host
-     * block (a lever, torch or redstone block against it, or a neighbouring wire);
-     * {@code injectedPower} is a value planted by the debug command or a game test. Both are inputs.
-     * A neighbouring component's own power is never one - that is the difference between "this
+     * block, {@code injectedPower} is a value planted by the debug command or a game test. Both are
+     * inputs. A neighbouring component's own power is never one - that is the difference between "this
      * component is fed" and "this component is merely next to something powered".
      */
     private static int supplyOf(PowerEnvironment env, Slot slot) {
@@ -323,8 +421,16 @@ public final class InnerRedstoneNetwork {
         return PowerSolver.clamp(supply);
     }
 
-    /** Collects every dust position connected to {@code seed}, following vanilla's coupling rules. */
-    private static List<BlockPos> collectComponent(ServerLevel level, InnerRedstoneStore store, BlockPos seed) {
+    /**
+     * Collects every component reachable from {@code seed}.
+     *
+     * <p>Two neighbours are part of the same network when <em>either</em> of them reaches the other, so
+     * a lever feeding a repeater that feeds dust is one component, while two repeaters sitting
+     * back-to-back are two - each keeps its own value, exactly like vanilla diodes that face away from
+     * each other.
+     */
+    private static List<BlockPos> collectComponent(ServerLevel level, InnerRedstoneStore store,
+                                                   BlockPos seed) {
         List<BlockPos> out = new ArrayList<>();
         Set<BlockPos> seen = new HashSet<>();
         Deque<BlockPos> queue = new ArrayDeque<>();
@@ -334,41 +440,32 @@ public final class InnerRedstoneNetwork {
         while (!queue.isEmpty()) {
             BlockPos pos = queue.poll();
             Slot slot = store.slotAt(pos);
-            if (slot == null || slot.type != ComponentType.DUST) {
+            if (slot == null) {
                 continue;
             }
             out.add(pos);
 
-            for (BlockPos neighbour : neighbours(store, pos)) {
-                if (seen.add(neighbour)) {
-                    queue.add(neighbour);
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbour = pos.relative(direction);
+                Slot other = store.slotAt(neighbour);
+                if (other == null || !connected(SlotNode.of(slot), SlotNode.of(other), direction)) {
+                    continue;
+                }
+                if (seen.add(neighbour.immutable())) {
+                    queue.add(neighbour.immutable());
                 }
             }
         }
         return out;
     }
 
-    /**
-     * The dust positions that couple with {@code pos}.
-     *
-     * <p>All six directions are considered, mirroring {@link PowerSolver#targetStrength}: inner
-     * redstone sits inside its host block, so an adjacent block holding a component is directly
-     * coupled. Vanilla's terrain-aware climb/step-down rules deliberately do not apply here - see
-     * the note on {@code PowerSolver}.
-     */
-    private static List<BlockPos> neighbours(InnerRedstoneStore store, BlockPos pos) {
-        List<BlockPos> out = new ArrayList<>(6);
-        for (Direction direction : Direction.values()) {
-            addIfDust(store, pos.relative(direction), out);
-        }
-        return out;
-    }
-
-    private static void addIfDust(InnerRedstoneStore store, BlockPos pos, List<BlockPos> out) {
-        Slot slot = store.slotAt(pos);
-        if (slot != null && slot.type == ComponentType.DUST) {
-            out.add(pos.immutable());
-        }
+    /** True when the two components talk across the side between them, in either direction. */
+    private static boolean connected(PowerEnvironment.Node self, PowerEnvironment.Node other,
+                                     Direction direction) {
+        return PowerSolver.readsFrom(self, direction)
+                        && PowerSolver.emitsToward(other, direction.getOpposite())
+                || PowerSolver.readsFrom(other, direction.getOpposite())
+                        && PowerSolver.emitsToward(self, direction);
     }
 
     // ------------------------------------------------------------- env view --
@@ -379,7 +476,7 @@ public final class InnerRedstoneNetwork {
         private final ServerLevel level;
         private final InnerRedstoneStore store;
 
-        /** The position currently being solved, needed because {@link #externalSignal()} is a no-arg query. */
+        /** The position currently being solved, needed because the queries here are position-relative. */
         private BlockPos queryPos = BlockPos.ZERO;
 
         SolverEnvironment(ServerLevel level, InnerRedstoneStore store) {
@@ -391,52 +488,16 @@ public final class InnerRedstoneNetwork {
             this.queryPos = pos;
         }
 
-        /**
-         * Strongest signal the world pushes into the host block at {@link #queryPos}.
-         *
-         * <p>This is literally vanilla {@code Level#getBestNeighborSignal}: the same six queries, with
-         * the same direction and the same weak-power handling, so a lever, torch, redstone block,
-         * repeater, comparator, observer or strongly powered block feeds the inner redstone exactly as
-         * it would feed a piece of vanilla wire.
-         *
-         * <h2>Which direction to ask</h2>
-         * {@code getSignal(neighbour, direction)} expects the direction <em>from the queried block to
-         * the neighbour</em>; the signal methods themselves then read the other way round (which is why
-         * {@code RedstoneTorchBlock} carries a note saying the directions are backwards). Vanilla
-         * therefore passes {@code direction} here - not its opposite.
-         *
-         * <p>Asking with the opposite direction was a real bug, and it hit every <b>directional</b>
-         * source: {@code ObserverBlock#getSignal} answers {@code 15} only when
-         * {@code FACING == side}, so an observer emitting into a host block reported nothing at all -
-         * a repeater or comparator would likewise have been read from its input side, which never
-         * answers. Sources that emit in five or six directions (levers, torches, redstone blocks,
-         * wire) hid the mistake, which is why only the observer report exposed it.
-         *
-         * <h2>The one deliberate difference</h2>
-         * A neighbouring <b>vanilla redstone wire</b> is charged one hop, exactly as vanilla charges a
-         * hop for a neighbouring wire in {@code RedStoneWireBlock#calculateTargetStrength}.
-         *
-         * <p>That charge is what keeps the system solvable. A wire is the one neighbour that can be
-         * powered <em>by</em> the host it powers, and its signal is derived from ours, so passing it
-         * through unattenuated would let the two hold each other up at 15 forever - remove the torch
-         * and the wire would keep the inner redstone alive, which is precisely the "stays active
-         * after the source is gone" report. Charging a hop makes every cycle in the system strictly
-         * decreasing, which leaves exactly one solution: with no source anywhere, everything is 0.
-         *
-         * <p>Inner-redstone output is already suppressed for the duration of the solve, so the weak
-         * power a neighbouring host block would otherwise transmit reads as 0 here and the solver
-         * cannot feed itself through it.
-         */
+        @Override
+        public Node nodeAt(int x, int y, int z) {
+            return SlotNode.of(store.slotAt(new BlockPos(x, y, z)));
+        }
+
         @Override
         public int externalSignal() {
             int best = 0;
             for (Direction direction : Direction.values()) {
-                BlockPos neighbour = queryPos.relative(direction);
-                int signal = level.getSignal(neighbour, direction);
-                if (signal > 0 && level.getBlockState(neighbour).is(Blocks.REDSTONE_WIRE)) {
-                    signal--;
-                }
-                best = Math.max(best, signal);
+                best = Math.max(best, externalSignal(direction));
                 if (best >= PowerSolver.MAX_POWER) {
                     return PowerSolver.MAX_POWER;
                 }
@@ -444,28 +505,29 @@ public final class InnerRedstoneNetwork {
             return best;
         }
 
+        /**
+         * Signal the vanilla world pushes into the host block from one side.
+         *
+         * <p>This is vanilla's own query ({@code Level#getSignal(neighbour, direction)}), with one
+         * deliberate difference: a neighbouring <b>vanilla redstone wire</b> is charged one hop,
+         * exactly as vanilla charges a hop between two wires in
+         * {@code RedStoneWireBlock#calculateTargetStrength}.
+         *
+         * <p>That charge is what keeps the system solvable: a wire is the one neighbour that can be
+         * powered <em>by</em> the host it powers, so passing it through unattenuated would let the two
+         * hold each other up at 15 forever.
+         *
+         * <p>Inner-redstone output is already suppressed for the duration of the solve, so the weak
+         * power a neighbouring host block would otherwise transmit reads as 0 here.
+         */
         @Override
-        public int bestNeighborSignal() {
-            return externalSignal();
-        }
-
-        @Override
-        public WireNode dustAt(int x, int y, int z) {
-            Slot slot = store.slotAt(new BlockPos(x, y, z));
-            if (slot == null || slot.type != ComponentType.DUST) {
-                return null;
+        public int externalSignal(Direction direction) {
+            BlockPos neighbour = queryPos.relative(direction);
+            int signal = level.getSignal(neighbour, direction);
+            if (signal > 0 && level.getBlockState(neighbour).is(Blocks.REDSTONE_WIRE)) {
+                signal--;
             }
-            return new WireNode() {
-                @Override
-                public int power() {
-                    return slot.power;
-                }
-
-                @Override
-                public void setPower(int power) {
-                    slot.power = power;
-                }
-            };
+            return PowerSolver.clamp(signal);
         }
 
         @Override

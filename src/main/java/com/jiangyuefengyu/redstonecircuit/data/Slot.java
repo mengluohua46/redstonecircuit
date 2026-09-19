@@ -164,16 +164,22 @@ public final class Slot {
     /** Human readable summary used by the {@code /rc dump} debug command. */
     public String describe() {
         StringBuilder sb = new StringBuilder(type.name());
-        if (type == ComponentType.DUST) {
-            sb.append(" power=").append(power);
-        } else {
+        sb.append(" out=").append(power);
+        if (type.isManual()) {
+            sb.append(" on=").append(powered);
+        }
+        if (type.isDriven()) {
+            sb.append(" in=").append(facing.getName());
+        } else if (type.isDiode()) {
             sb.append(" facing=").append(facing.getName());
-            if (type == ComponentType.REPEATER) {
-                sb.append(" delay=").append(delay);
-            } else if (type == ComponentType.COMPARATOR) {
-                sb.append(" mode=").append(mode.name());
-            }
-            sb.append(" powered=").append(powered);
+        }
+        if (type == ComponentType.REPEATER) {
+            sb.append(" delay=").append(delay).append(" (").append(type.delayTicks(delay)).append(" ticks)");
+        } else if (type == ComponentType.COMPARATOR) {
+            sb.append(" mode=").append(mode.name());
+        }
+        if (hasInjectedPower()) {
+            sb.append(" injected=").append(injectedPower);
         }
         if (!forcedOn.isEmpty()) {
             sb.append(" forcedOn=").append(names(forcedOn));
