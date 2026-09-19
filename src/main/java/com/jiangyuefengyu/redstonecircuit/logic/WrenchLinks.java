@@ -43,6 +43,10 @@ import net.minecraft.server.level.ServerLevel;
  *   lock B-C   B: locked towards A and towards C, everything else dead
  * </pre>
  *
+ * <p>The other end of a line does not have to hold redstone of its own: a piston, a lamp, a door or a
+ * plain block can be what a line is routed to, and then only the clicked end is pinned - there is
+ * nowhere to write the other override. See {@link #link}.
+ *
  * <p>Cutting a line again is the same gesture stepping to {@code OFF}, which is a real cut the player
  * asked for. A whole block goes back to automatic with {@link #clear}.
  *
@@ -69,8 +73,10 @@ public final class WrenchLinks {
         CLEARED,
         /** The two blocks are not next to each other, so there is no link to speak of. */
         NOT_ADJACENT,
-        /** One of the two blocks holds nothing. */
-        NO_COMPONENT
+        /** The clicked block holds nothing, so there is nothing to route from. */
+        NO_COMPONENT,
+        /** There is no block at all on that side - the player is pointing at thin air. */
+        NOTHING_THERE
     }
 
     private WrenchLinks() {
@@ -89,6 +95,13 @@ public final class WrenchLinks {
     /**
      * Pins the link between two neighbouring components, or moves it on to the next state.
      *
+     * <p>The far end does <b>not</b> have to hold anything: a piston, a lamp, a door or a plain block of
+     * stone can be the thing a line is routed to, and it cannot be pinned back only because there is
+     * nowhere to write the override. Requiring a component on both ends - which is what this used to do
+     * - meant putting redstone inside a piston just to be allowed to point at it.
+     *
+     * <p>The clicked end must hold a component: there is nothing to route otherwise.
+     *
      * @return what happened, for the message the player gets
      */
     public static Result link(ServerLevel level, BlockPos a, BlockPos b) {
@@ -98,20 +111,26 @@ public final class WrenchLinks {
         }
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
         Slot first = store.slotAt(a);
-        Slot second = store.slotAt(b);
-        if (first == null || second == null) {
+        if (first == null) {
             return Result.NO_COMPONENT;
         }
+        if (level.getBlockState(b).isAir()) {
+            return Result.NOTHING_THERE;
+        }
+        Slot second = store.slotAt(b);
 
         Direction direction = towards.get();
         ConnectionState before = stateOf(first, direction);
         ConnectionState after = next(before);
 
         first.setConnection(direction, after);
-        second.setConnection(direction.getOpposite(), after);
-
         innerChanged(level, store, a, first);
-        innerChanged(level, store, b, second);
+        if (second != null) {
+            // A neighbour with a component of its own is pinned back, so neither end can be re-routed
+            // without the other being re-routed too.
+            second.setConnection(direction.getOpposite(), after);
+            innerChanged(level, store, b, second);
+        }
 
         return switch (after) {
             case ON -> Result.LINKED_ON;

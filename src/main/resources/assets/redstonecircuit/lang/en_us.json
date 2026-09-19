@@ -6,7 +6,7 @@
 
   "item.redstonecircuit.redstone_goggles.tip.wear": "Worn on the head: blocks holding redstone become translucent and show what is inside",
   "item.redstonecircuit.redstone_wrench.tip.select": "Right-click redstone to pick it as A",
-  "item.redstonecircuit.redstone_wrench.tip.link": "Shift-right-click a neighbouring component B to lock that line - every other side is cut; repeat to step through lock / cut / auto",
+  "item.redstonecircuit.redstone_wrench.tip.link": "Shift-right-click a neighbour B (a piston, a lamp, any block - it needs no redstone of its own) to lock that line and cut every other side; repeat to step through lock / cut / auto",
   "item.redstonecircuit.redstone_wrench.tip.requires": "Requires the redstone goggles",
 
   "message.redstonecircuit.switch.repeater": "Repeater: delay %s (%s ticks)",
@@ -19,10 +19,12 @@
   "message.redstonecircuit.wrench.cleared": "Cleared every connection override on %s; it decides for itself again",
   "message.redstonecircuit.wrench.no_selection": "Right-click a component first, then shift-right-click the one beside it",
   "message.redstonecircuit.wrench.linked_on": "Locked %s: this is the only line kept, every other side is cut",
+  "message.redstonecircuit.wrench.linked_on_device": "Locked %s (nothing is embedded on that side, so only this end is pinned): every other side is cut",
   "message.redstonecircuit.wrench.linked_off": "Cut %s; use it once more to go back to automatic",
   "message.redstonecircuit.wrench.linked_auto": "%s is back to automatic: the surrounding blocks decide",
-  "message.redstonecircuit.wrench.not_adjacent": "The two components have to share a face to be linked",
-  "message.redstonecircuit.wrench.no_component": "That block holds no redstone",
+  "message.redstonecircuit.wrench.not_adjacent": "The two blocks have to share a face to be linked",
+  "message.redstonecircuit.wrench.no_component": "That block holds no redstone - pick the block with redstone in it",
+  "message.redstonecircuit.wrench.nothing_there": "There is no block on that side to lock to",
   "message.redstonecircuit.wrench.need_goggles": "Wear the redstone goggles to use the redstone wrench",
 
   "redstonecircuit.configuration.title": "Redstone Circuit Configs",

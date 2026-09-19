@@ -62,34 +62,37 @@ public final class InnerRedstoneInteraction {
     // ---------------------------------------------------------------- wrench --
 
     /**
-     * The redstone wrench: pick a component, then pin the link to the one next to it (R7).
+     * The redstone wrench: pick a component, then point the line at a neighbour (R7).
      *
      * <ul>
-     *   <li>{@code right-click} a block holding a component - make it the selected one.</li>
-     *   <li>{@code shift + right-click} a component next to the selected one - step the link between
-     *       the two through connect / cut / automatic. Repeating it on the same pair keeps stepping, and
-     *       using a different neighbour re-routes the connection.</li>
-     *   <li>{@code shift + right-click} the selected block itself - drop every override on it, so it
-     *       goes back to deciding for itself.</li>
+     *   <li>{@code right-click} a block holding a component - make it the selected one. Only a block with
+     *       redstone inside can be the near end: it is the one being routed.</li>
+     *   <li>{@code shift + right-click} a neighbour - step the line between the two through locked / cut /
+     *       automatic. The neighbour may be a piston, a lamp, a door or a plain block: it does not have to
+     *       hold redstone itself, and if it does not, only the selected end is pinned.</li>
+     *   <li>{@code shift + right-click} the selected block itself - drop every override on it, so it goes
+     *       back to deciding for itself.</li>
      * </ul>
      *
-     * @return whether the click was ours to consume; {@code false} lets vanilla have it, which is what
-     *     happens when the block holds nothing
+     * <p>A click that cannot be about the wrench is handed back to vanilla, so a chest still opens and a
+     * door still works: the second half of the gesture is claimed when the clicked block is next to the
+     * selection (or holds a component, so a mistaken far-away click still says why it did nothing).
+     *
+     * @return whether the click was ours to consume
      */
     private boolean useWrench(ServerLevel level, ServerPlayer player, BlockPos pos,
                               @Nullable Direction face) {
         Slot slot = WrenchLinks.slotAt(level, pos);
-        if (slot == null) {
-            // Nothing here: not our click. Right-clicking a chest with the wrench still opens it.
-            return false;
-        }
-        if (RCConfig.wrenchNeedsGoggles() && !wearsGoggles(player)) {
-            message(player, Component.translatable("message.redstonecircuit.wrench.need_goggles")
-                    .withStyle(ChatFormatting.RED));
-            return true;
-        }
+        boolean holdsComponent = slot != null;
 
         if (!player.isSecondaryUseActive()) {
+            if (!holdsComponent) {
+                // Nothing here: not our click. Right-clicking a chest with the wrench still opens it.
+                return false;
+            }
+            if (refuseWithoutGoggles(player)) {
+                return true;
+            }
             WrenchSelection.select(player, pos);
             message(player, Component.translatable("message.redstonecircuit.wrench.selected",
                     Component.literal(pos.toShortString()),
@@ -98,6 +101,16 @@ public final class InnerRedstoneInteraction {
         }
 
         BlockPos selected = WrenchSelection.get(player);
+        boolean adjacent = selected != null
+                && WrenchLinks.directionBetween(selected, pos).isPresent();
+        if (!adjacent && !holdsComponent) {
+            // A shift-click somewhere unrelated: leave it to the block (a door, a chest, a button).
+            return false;
+        }
+        if (refuseWithoutGoggles(player)) {
+            return true;
+        }
+
         if (pos.equals(selected)) {
             if (!RCConfig.wrenchClearOnSameBlock()) {
                 return true;
@@ -114,18 +127,32 @@ public final class InnerRedstoneInteraction {
             return true;
         }
 
+        boolean farEndHoldsComponent = WrenchLinks.slotAt(level, pos) != null;
         WrenchLinks.Result result = WrenchLinks.link(level, selected, pos);
-        message(player, describeLink(result, selected, pos));
+        message(player, describeLink(result, selected, pos, farEndHoldsComponent));
         debug("wrench link {} -> {} : {}", selected.toShortString(), pos.toShortString(), result);
         return true;
     }
 
-    private static Component describeLink(WrenchLinks.Result result, BlockPos a, BlockPos b) {
+    /** True when the wrench must be refused because the goggles are not being worn (and says so). */
+    private static boolean refuseWithoutGoggles(ServerPlayer player) {
+        if (!RCConfig.wrenchNeedsGoggles() || wearsGoggles(player)) {
+            return false;
+        }
+        message(player, Component.translatable("message.redstonecircuit.wrench.need_goggles")
+                .withStyle(ChatFormatting.RED));
+        return true;
+    }
+
+    private static Component describeLink(WrenchLinks.Result result, BlockPos a, BlockPos b,
+                                          boolean farEndHoldsComponent) {
         String direction = WrenchLinks.directionBetween(a, b)
                 .map(Direction::getName)
                 .orElse("?");
         return switch (result) {
-            case LINKED_ON -> Component.translatable("message.redstonecircuit.wrench.linked_on",
+            case LINKED_ON -> Component.translatable(farEndHoldsComponent
+                            ? "message.redstonecircuit.wrench.linked_on"
+                            : "message.redstonecircuit.wrench.linked_on_device",
                     Component.literal(direction)).withStyle(ChatFormatting.GREEN);
             case LINKED_OFF -> Component.translatable("message.redstonecircuit.wrench.linked_off",
                     Component.literal(direction)).withStyle(ChatFormatting.RED);
@@ -135,6 +162,8 @@ public final class InnerRedstoneInteraction {
                     "message.redstonecircuit.wrench.not_adjacent").withStyle(ChatFormatting.RED);
             case NO_COMPONENT -> Component.translatable(
                     "message.redstonecircuit.wrench.no_component").withStyle(ChatFormatting.RED);
+            case NOTHING_THERE -> Component.translatable(
+                    "message.redstonecircuit.wrench.nothing_there").withStyle(ChatFormatting.RED);
             case CLEARED -> Component.translatable("message.redstonecircuit.wrench.cleared",
                     Component.literal(a.toShortString())).withStyle(ChatFormatting.AQUA);
         };

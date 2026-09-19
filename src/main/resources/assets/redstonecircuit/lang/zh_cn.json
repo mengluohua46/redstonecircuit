@@ -6,7 +6,7 @@
 
   "item.redstonecircuit.redstone_goggles.tip.wear": "戴在头上：含红石的方块会变成半透明，并显示里面的红石",
   "item.redstonecircuit.redstone_wrench.tip.select": "右键红石：选中它作为 A",
-  "item.redstonecircuit.redstone_wrench.tip.link": "Shift+右键相邻的红石 B：锁定 A-B 这条线（其余方向全部隔断），重复操作可切换 锁定/断开/自动",
+  "item.redstonecircuit.redstone_wrench.tip.link": "Shift+右键相邻的方块 B（B 可以是活塞、红石灯等没有嵌入红石的方块）：锁定这条线，其余方向全部隔断；重复操作切换 锁定/断开/自动",
   "item.redstonecircuit.redstone_wrench.tip.requires": "需要佩戴红石眼镜",
 
   "message.redstonecircuit.switch.repeater": "中继器：延迟 %s 档（%s tick）",
@@ -19,10 +19,12 @@
   "message.redstonecircuit.wrench.cleared": "已清除 %s 上的全部连接设定，恢复自动连接",
   "message.redstonecircuit.wrench.no_selection": "先用右键选中一个红石，再 Shift+右键它旁边的红石",
   "message.redstonecircuit.wrench.linked_on": "已锁定 %s 方向：只保留这一条线，其余方向全部隔断",
+  "message.redstonecircuit.wrench.linked_on_device": "已锁定 %s 方向（对面没有嵌入红石，只钉住这一侧）：其余方向全部隔断",
   "message.redstonecircuit.wrench.linked_off": "已切断 %s 方向；再操作一次恢复自动",
   "message.redstonecircuit.wrench.linked_auto": "%s 方向恢复自动连接，由周围方块决定",
-  "message.redstonecircuit.wrench.not_adjacent": "两个红石必须紧挨着（共用一个面）才能锁定连接",
-  "message.redstonecircuit.wrench.no_component": "这个方块里没有红石",
+  "message.redstonecircuit.wrench.not_adjacent": "两个方块必须紧挨着（共用一个面）才能锁定连接",
+  "message.redstonecircuit.wrench.no_component": "这个方块里没有红石，先选中含红石的方块再锁定",
+  "message.redstonecircuit.wrench.nothing_there": "那一侧没有方块，没有东西可以锁定",
   "message.redstonecircuit.wrench.need_goggles": "需要先佩戴红石眼镜才能使用红石扳手",
 
   "redstonecircuit.configuration.title": "红石电路 配置",

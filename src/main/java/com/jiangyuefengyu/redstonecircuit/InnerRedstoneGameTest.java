@@ -1242,6 +1242,50 @@ public final class InnerRedstoneGameTest {
                 "and automatic means the network decides again, got " + powerAt(helper, receiver)));
     }
 
+    /**
+     * A line can be routed to a block that holds no redstone of its own - a piston, a lamp, a door.
+     *
+     * <p>Requiring a component on both ends meant putting redstone inside a piston just to be allowed to
+     * point at it, which is both backwards and invisible: the wrench refused the click and said the
+     * block held nothing. Now the far end only has to exist, and only the clicked end is pinned, because
+     * there is nowhere to write the other override.
+     */
+    @GameTest(template = "empty")
+    public void wrenchLocksOntoANeighbourWithoutRedstone(GameTestHelper helper) {
+        // Source host at (1,1,1): a lamp east of it, a wire south of it.
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 1, 1, 2, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 0, 2, Blocks.STONE.defaultBlockState());
+
+        BlockPos source = at(helper, 1, 1, 1);
+        BlockPos lamp = at(helper, 2, 1, 1);
+        BlockPos wire = at(helper, 1, 1, 2);
+        Slot sourceSlot = placeDust(helper, source, 15);
+        placeDust(helper, wire, 0);
+
+        solve(helper, wire);
+        helper.assertValueEqual(lampLit(helper, 2, 1, 1), true,
+                "precondition: the lamp lights on its own, because a host emits to every side");
+        helper.assertTrue(powerAt(helper, wire) == 14,
+                "precondition: the wire couples normally, got " + powerAt(helper, wire));
+
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), source, lamp)
+                        == WrenchLinks.Result.LINKED_ON,
+                "a lamp with nothing inside it can be the far end of a lock");
+        solve(helper, wire);
+
+        helper.assertTrue(sourceSlot.isOpen(Direction.EAST), "the line towards the lamp is pinned");
+        helper.assertTrue(sourceSlot.isClosed(Direction.SOUTH),
+                "and the wire's side is cut, because a lock keeps this line and nothing else");
+        helper.assertTrue(powerAt(helper, wire) == 0,
+                "so the wire goes dark, got " + powerAt(helper, wire));
+
+        afterTicks(helper, 2, () -> helper.succeedWhen(() -> helper.assertTrue(
+                lampLit(helper, 2, 1, 1),
+                "while the lamp, which is the locked line's target, stays lit")));
+    }
+
     /** The wrench refuses a pair that is not adjacent, instead of linking something arbitrary. */
     @GameTest(template = "empty")
     public void wrenchRefusesNonAdjacentPairs(GameTestHelper helper) {
@@ -1256,9 +1300,18 @@ public final class InnerRedstoneGameTest {
         helper.assertTrue(WrenchLinks.link(helper.getLevel(), first, second)
                         == WrenchLinks.Result.NOT_ADJACENT,
                 "two blocks with a gap between them have no shared face to pin");
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), first, at(helper, 1, 1, 3))
+                        == WrenchLinks.Result.NOT_ADJACENT,
+                "and neither has a block two away with nothing in it");
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), first, at(helper, 2, 1, 1))
+                        == WrenchLinks.Result.NOTHING_THERE,
+                "while a neighbouring empty position has nothing to lock to");
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), at(helper, 0, 1, 1), first)
+                        == WrenchLinks.Result.NO_COMPONENT,
+                "and an empty block cannot be the end a line is routed from");
         helper.assertTrue(slotAt(helper, first).forcedOn.isEmpty()
                         && slotAt(helper, second).forcedOn.isEmpty(),
-                "and nothing may be written when the pair is refused");
+                "nothing may be written when a pair is refused");
         helper.succeed();
     }
 
