@@ -18,6 +18,7 @@ import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
 import com.jiangyuefengyu.redstonecircuit.logic.PowerEnvironment;
 import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 import com.jiangyuefengyu.redstonecircuit.logic.SlotNode;
@@ -360,7 +361,13 @@ public final class RCCommand {
         return 1;
     }
 
-    /** {@code toggle [pos]}: works a lever or button stored inside a block, without a player click. */
+    /**
+     * {@code toggle [pos]}: works what is stored inside a block, without a player click.
+     *
+     * <p>Goes through {@link InnerSwitches} - the same path the bare-hand click uses - so a lever, a
+     * button, a repeater's delay and a comparator's mode cannot behave differently depending on how they
+     * were operated.
+     */
     private static int toggle(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
         ServerLevel level = level(ctx);
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
@@ -370,22 +377,17 @@ public final class RCCommand {
             return 0;
         }
         Slot slot = node.slot();
-        if (!slot.type.isManual()) {
-            error(ctx, slot.type + " cannot be toggled; only a lever or button can");
+        if (!InnerSwitches.isWorkable(slot.type)) {
+            error(ctx, slot.type + " has nothing to work; a lever, button, repeater or comparator has");
             return 0;
         }
 
-        slot.powered = !slot.powered;
-        slot.power = slot.powered ? PowerSolver.MAX_POWER : 0;
-        if (slot.powered && slot.type == ComponentType.BUTTON) {
-            InnerRedstoneNetwork.scheduleRelease(level, pos, 20);
-        }
-        store.markDirty();
-        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerSwitches.Result result = InnerSwitches.toggle(level, pos);
         InnerRedstoneNetwork.settle(level);
 
-        feedback(ctx, header((slot.powered ? "engaged " : "released ") + slot.type
+        feedback(ctx, header(result.name().toLowerCase(Locale.ROOT) + " " + slot.type
                 + " at " + pos.toShortString()));
+        feedback(ctx, Component.literal("  " + slot.describe()).withStyle(ChatFormatting.GRAY));
         return 1;
     }
 

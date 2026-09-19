@@ -1048,6 +1048,112 @@ public final class InnerRedstoneGameTest {
     // ---------------------------------------------------------------- wrench --
 
     /**
+     * A bare hand works a repeater's delay and a comparator's mode, as it does on the ground.
+     *
+     * <p>Same gesture, same cycle: right-clicking a repeater steps 1-2-3-4 and back to 1, and
+     * right-clicking a comparator swaps compare and subtract. The block it is buried in has no visible
+     * state of its own, so this is checked through the stored data - which is also what the solver and
+     * the drawing read.
+     */
+    @GameTest(template = "empty")
+    public void bareHandAdjustsDiodeSettings(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos repeater = at(helper, 1, 1, 1);
+        BlockPos comparator = at(helper, 2, 1, 1);
+        Slot repeaterSlot = placeComponent(helper, repeater, ComponentType.REPEATER, 0, Direction.WEST);
+        Slot comparatorSlot =
+                placeComponent(helper, comparator, ComponentType.COMPARATOR, 0, Direction.WEST);
+        helper.assertTrue(repeaterSlot.delay == 1, "a fresh repeater is one redstone tick");
+
+        for (int expected = 2; expected <= 4; expected++) {
+            helper.assertTrue(InnerSwitches.toggle(helper.getLevel(), repeater)
+                            == InnerSwitches.Result.ADJUSTED,
+                    "working a repeater is an adjustment");
+            helper.assertTrue(repeaterSlot.delay == expected,
+                    "the delay must step up to " + expected + ", got " + repeaterSlot.delay);
+        }
+        InnerSwitches.toggle(helper.getLevel(), repeater);
+        helper.assertTrue(repeaterSlot.delay == 1,
+                "and wrap back to one, as vanilla does, got " + repeaterSlot.delay);
+
+        helper.assertTrue(comparatorSlot.mode == ComparatorMode.COMPARE,
+                "a fresh comparator compares");
+        InnerSwitches.toggle(helper.getLevel(), comparator);
+        helper.assertTrue(comparatorSlot.mode == ComparatorMode.SUBTRACT,
+                "one click switches it to subtract, got " + comparatorSlot.mode);
+        InnerSwitches.toggle(helper.getLevel(), comparator);
+        helper.assertTrue(comparatorSlot.mode == ComparatorMode.COMPARE,
+                "and the next one switches it back, got " + comparatorSlot.mode);
+
+        // A wire has no setting, so the click must not be swallowed - vanilla keeps it.
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+        placeDust(helper, at(helper, 3, 1, 1), 0);
+        helper.assertTrue(InnerSwitches.toggle(helper.getLevel(), at(helper, 3, 1, 1))
+                        == InnerSwitches.Result.NONE,
+                "a bare hand on a wire is not our click");
+        helper.succeed();
+    }
+
+    /**
+     * The headline of the wrench: a locked line is the <em>only</em> line.
+     *
+     * <p>Two wires that both couple to a source on their own. Locking one of them must leave it working
+     * and cut the other one dead, which is what "除了这条线，其他线都被隔断" asks for - and it has to be
+     * true in the world, not just in the stored overrides.
+     */
+    @GameTest(template = "empty")
+    public void wrenchLockCutsEveryOtherLine(GameTestHelper helper) {
+        // Source host at (1,1,1) with wires east of it and south of it.
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 2, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 0, 2, Blocks.STONE.defaultBlockState());
+
+        BlockPos source = at(helper, 1, 1, 1);
+        BlockPos east = at(helper, 2, 1, 1);
+        BlockPos south = at(helper, 1, 1, 2);
+        placeDust(helper, source, 15);
+        placeDust(helper, east, 0);
+        placeDust(helper, south, 0);
+
+        solve(helper, east);
+        solve(helper, south);
+        helper.assertTrue(powerAt(helper, east) == 14 && powerAt(helper, south) == 14,
+                "precondition: both wires couple to the source on their own, got "
+                        + powerAt(helper, east) + " and " + powerAt(helper, south));
+
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), source, east)
+                        == WrenchLinks.Result.LINKED_ON,
+                "the first use locks the line");
+        solve(helper, east);
+        solve(helper, south);
+
+        helper.assertTrue(powerAt(helper, east) == 14,
+                "the locked line still carries the signal, got " + powerAt(helper, east));
+        helper.assertTrue(powerAt(helper, south) == 0,
+                "and every other line is cut, got " + powerAt(helper, south));
+        helper.assertTrue(WrenchLinks.stateOf(slotAt(helper, source), Direction.SOUTH)
+                        == ConnectionState.OFF,
+                "which is recorded as a cut on that side, so a later placement cannot reopen it");
+
+        // Addressing the second line must not disturb the first: that side was cut by the lock, so the
+        // next step of the cycle puts it back to automatic, and a route is built without a later lock
+        // quietly undoing the one before it.
+        WrenchLinks.link(helper.getLevel(), source, south);
+        solve(helper, east);
+        solve(helper, south);
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(powerAt(helper, south) == 14,
+                    "the second line is live again, got " + powerAt(helper, south));
+            helper.assertTrue(powerAt(helper, east) == 14,
+                    "and the line locked before it survived, got " + powerAt(helper, east));
+        });
+    }
+
+    /**
      * The wrench's headline: force a connection the component would never make on its own.
      *
      * <p>A repeater drives one side only, which is why it can be used to route a signal - and why

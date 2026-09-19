@@ -78,26 +78,89 @@ class WrenchLinksTest {
     }
 
     /**
-     * The design says a pin must survive a later placement next door, so the link is pinned at both
-     * ends. One-sided pinning would leave the far end free to be re-routed by whatever is put beside
-     * it, which is the exact thing the wrench exists to prevent.
+     * The design says a lock means "this line and nothing else", so entering the connected state cuts
+     * every other side of both components. One-sided cutting would leave the far end free to be
+     * re-routed by whatever is put beside it, which is the exact thing the wrench exists to prevent.
      */
     @Test
-    @DisplayName("a link is pinned at both ends, in opposite directions")
-    void linkingPinsBothEnds() {
+    @DisplayName("locking cuts every other side of both components")
+    void linkingCutsEveryOtherSide() {
         Slot a = dust();
         Slot b = dust();
 
-        // What WrenchLinks.link does to the data, done by hand here so the bookkeeping stays testable
-        // without a ServerLevel.
+        applyLock(a, Direction.EAST, b, Direction.WEST);
+
+        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(a, Direction.EAST),
+                "the locked line is the one kept");
+        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(b, Direction.WEST));
+        for (Direction direction : Direction.values()) {
+            if (direction != Direction.EAST) {
+                assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(a, direction),
+                        direction + " on the clicked block must be cut");
+                assertFalse(a.isConnected(direction), direction + " must carry nothing");
+            }
+            if (direction != Direction.WEST) {
+                assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(b, direction),
+                        direction + " on the neighbour must be cut too");
+            }
+        }
+    }
+
+    /**
+     * Cutting the other sides must not make a route impossible to build: a hop that was locked earlier
+     * survives a later lock, so a chain is a series of locks rather than one lock undoing the next.
+     */
+    @Test
+    @DisplayName("a later lock keeps the hops that were already locked")
+    void chainedLocksCoexist() {
+        Slot a = dust();
+        Slot b = dust();
+        Slot c = dust();
+
+        // A - B : A is west of B. B - C : B is west of C.
+        applyLock(a, Direction.EAST, b, Direction.WEST);
+        applyLock(b, Direction.EAST, c, Direction.WEST);
+
+        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(b, Direction.WEST),
+                "B keeps the line back to A, so A-B is still a route");
+        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(b, Direction.EAST),
+                "and gains the line on to C, so B is a junction");
+        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(c, Direction.WEST));
+        assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(a, Direction.WEST),
+                "while sides nobody pinned stay cut");
+    }
+
+    /** What {@link WrenchLinks#link} does to the data, done by hand so this stays testable. */
+    private static void applyLock(Slot first, Direction towardsSecond, Slot second,
+                                  Direction backTowardsFirst) {
+        first.setConnection(towardsSecond, ConnectionState.ON);
+        second.setConnection(backTowardsFirst, ConnectionState.ON);
+        cutEveryOtherSide(first, towardsSecond);
+        cutEveryOtherSide(second, backTowardsFirst);
+    }
+
+    private static void cutEveryOtherSide(Slot slot, Direction keep) {
+        for (Direction direction : Direction.values()) {
+            if (direction != keep && !slot.forcedOn.contains(direction)) {
+                slot.setConnection(direction, ConnectionState.OFF);
+            }
+        }
+    }
+
+    /** Cutting a line again has to leave the cuts around it alone. */
+    @Test
+    @DisplayName("stepping a locked line to cut keeps the other cuts")
+    void cuttingOneLineKeepsTheRest() {
+        Slot a = dust();
+        Slot b = dust();
+        applyLock(a, Direction.EAST, b, Direction.WEST);
+
         ConnectionState after = WrenchLinks.next(WrenchLinks.stateOf(a, Direction.EAST));
         a.setConnection(Direction.EAST, after);
-        b.setConnection(Direction.WEST, after);
 
-        assertEquals(ConnectionState.ON, after);
-        assertTrue(a.forcedOn.contains(Direction.EAST), "the clicked end emits towards the neighbour");
-        assertTrue(b.forcedOn.contains(Direction.WEST), "and the neighbour emits back");
-        assertTrue(a.isConnected(Direction.EAST) && b.isConnected(Direction.WEST));
+        assertEquals(ConnectionState.OFF, after);
+        assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(a, Direction.NORTH),
+                "the other sides stay cut: the route is still explicit");
     }
 
     @Test

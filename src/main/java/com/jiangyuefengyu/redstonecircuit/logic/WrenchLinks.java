@@ -20,16 +20,29 @@ import net.minecraft.server.level.ServerLevel;
  *
  * <h2>The rule</h2>
  * Pick a component with a plain right-click, then shift-right-click a component next to it. Repeating
- * that pair walks the link through its three states, so one gesture covers "connect these two",
- * "keep these two apart" and "let the network decide again":
+ * that pair walks the link through its three states, so one gesture covers "this is the line",
+ * "keep it cut" and "let the network decide again":
  *
  * <pre>
  *   AUTO --(wrench)--> ON --(wrench)--> OFF --(wrench)--> AUTO
  * </pre>
  *
- * <p>Both ends are pinned, not just the one that was clicked first: a connection is a property of the
- * pair, and pinning one side only would leave the other free to be re-routed by a later placement -
- * which is exactly what the design says must not happen ("在旁边放红石也不会影响连接").
+ * <h2>Locking means "this line and nothing else"</h2>
+ * A lock is not just a promise that the two stay connected - it is a statement about the whole block.
+ * {@code ON} cuts every other side of <em>both</em> components, so a locked block is connected to the
+ * pinned neighbour and to nothing else: laying redstone against any other face afterwards cannot join
+ * it (the design's "在旁边放红石也不会影响连接", taken literally).
+ *
+ * <p>Because only unpinned sides are cut, a route is built up one hop at a time and stays buildable:
+ *
+ * <pre>
+ *   lock A-B   A: on(B), everything else cut    B: on(A), everything else cut
+ *   lock B-C   B: on(A) and on(C) survive        C: on(B), everything else cut
+ * </pre>
+ *
+ * <p>So a chain, and even a junction, is a series of locks rather than one lock that fights the next.
+ * Cutting a line again is the same gesture stepping to {@code OFF}; a whole block goes back to
+ * automatic with {@link #clear}.
  *
  * <h2>Why the state is stored per direction</h2>
  * A host block holds one component, and its neighbours are exactly the six positions around it, so
@@ -95,6 +108,13 @@ public final class WrenchLinks {
         first.setConnection(direction, after);
         second.setConnection(direction.getOpposite(), after);
 
+        if (after == ConnectionState.ON) {
+            // "Except this line, every other line is cut": the pinned side is the only live one. Only
+            // unpinned sides are touched, so a route locked hop by hop keeps every hop it was given.
+            cutEveryOtherSide(first, direction);
+            cutEveryOtherSide(second, direction.getOpposite());
+        }
+
         innerChanged(level, store, a, first);
         innerChanged(level, store, b, second);
 
@@ -103,6 +123,21 @@ public final class WrenchLinks {
             case OFF -> Result.LINKED_OFF;
             case AUTO -> Result.LINKED_AUTO;
         };
+    }
+
+    /**
+     * Cuts every side of a component except the one given and any other pinned side.
+     *
+     * <p>A side that is already cut is left as it is - there is nothing to write - and a side that is
+     * pinned on is the whole point of the exercise and must survive.
+     */
+    private static void cutEveryOtherSide(Slot slot, Direction keep) {
+        for (Direction direction : Direction.values()) {
+            if (direction == keep || slot.forcedOn.contains(direction)) {
+                continue;
+            }
+            slot.setConnection(direction, ConnectionState.OFF);
+        }
     }
 
     /**

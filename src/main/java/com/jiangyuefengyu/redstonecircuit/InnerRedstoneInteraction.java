@@ -188,9 +188,9 @@ public final class InnerRedstoneInteraction {
 
         if (!player.isSecondaryUseActive()) {
             // Plain right-click stays vanilla's, with one exception: an empty hand can work the switch
-            // hidden inside the block. That is safe precisely because vanilla has no empty-hand action
-            // on a full opaque block - every block that does have one (chest, crafting table, bed, ...)
-            // is already excluded from being a host.
+            // or setting hidden inside the block. That is safe precisely because vanilla has no
+            // empty-hand action on a full opaque block - every block that does have one (chest,
+            // crafting table, bed, ...) is already excluded from being a host.
             if (stack.isEmpty() && tryToggle(serverLevel, player, pos)) {
                 event.setCanceled(true);
             }
@@ -275,17 +275,29 @@ public final class InnerRedstoneInteraction {
     // --------------------------------------------------------------- switches --
 
     /**
-     * Works the switch hidden inside a block: toggles a lever, presses a button.
+     * Works whatever is hidden inside a block: toggles a lever, presses a button, steps a repeater's
+     * delay, or swaps a comparator's mode.
      *
      * <p>Only ever reached with a bare hand, so a player holding anything still gets vanilla's
      * behaviour. It is safe to take the bare-hand click because a host block is always a full opaque
      * cube, and vanilla has no bare-hand action on one - every block that does have an interaction
      * (chest, crafting table, bed, ...) is already excluded from holding redstone.
+     *
+     * <p>The setting is reported on the action bar because nothing on the outside of the block changes:
+     * without the goggles on, "the delay is now three" is otherwise invisible.
      */
     private boolean tryToggle(ServerLevel level, ServerPlayer player, BlockPos pos) {
         // The state change itself lives in InnerSwitches so that the player click, the /rc toggle
         // command and the game tests cannot drift apart.
-        return InnerSwitches.toggle(level, pos) != InnerSwitches.Result.NONE;
+        InnerSwitches.Result result = InnerSwitches.toggle(level, pos);
+        if (result == InnerSwitches.Result.NONE) {
+            return false;
+        }
+        Slot slot = WrenchLinks.slotAt(level, pos);
+        if (slot != null) {
+            message(player, InnerSwitches.describe(slot).withStyle(ChatFormatting.YELLOW));
+        }
+        return true;
     }
 
     // ------------------------------------------------------------- retrieval --
