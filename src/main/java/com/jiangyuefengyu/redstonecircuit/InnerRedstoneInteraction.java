@@ -35,9 +35,18 @@ import net.neoforged.neoforge.event.level.BlockEvent;
  */
 public final class InnerRedstoneInteraction {
 
-    /** Tick of the last handled interaction; guards against the main-hand and off-hand passes. */
+    /**
+     * Tick/hand/position of the last processed interaction.
+     *
+     * <p>Right-clicking a block dispatches once for the main hand and once for the off hand, in the
+     * same tick and at the same position. Acting on both would place a component with one hand and
+     * immediately take it back out with the other, so the first hand to be processed "owns" the
+     * click and the second hand is ignored - <em>regardless of whether the first hand succeeded</em>,
+     * because the dispatch order between the two hands is not something we should depend on.
+     */
     private long lastHandledTick = Long.MIN_VALUE;
     private BlockPos lastHandledPos = BlockPos.ZERO;
+    private net.minecraft.world.InteractionHand lastHandledHand = null;
 
     // ------------------------------------------------------------- placement --
 
@@ -59,6 +68,17 @@ public final class InnerRedstoneInteraction {
             return;
         }
 
+        // Second hand for the same click: the first hand already decided what this click means.
+        long tick = serverLevel.getGameTime();
+        if (tick == lastHandledTick && pos.equals(lastHandledPos)
+                && lastHandledHand != null && lastHandledHand != event.getHand()) {
+            debug("skipping {} pass at {}: this click was already handled by {}",
+                    event.getHand(), pos.toShortString(), lastHandledHand);
+            event.setCanceled(true);
+            return;
+        }
+        markHandled(tick, pos, event.getHand());
+
         ItemStack stack = player.getItemInHand(event.getHand());
 
         if (stack.isEmpty()) {
@@ -77,22 +97,32 @@ public final class InnerRedstoneInteraction {
         }
     }
 
+    private void markHandled(long tick, BlockPos pos, net.minecraft.world.InteractionHand hand) {
+        lastHandledTick = tick;
+        lastHandledPos = pos.immutable();
+        lastHandledHand = hand;
+    }
+
     private boolean tryPlace(ServerLevel level, ServerPlayer player, ItemStack stack,
                              BlockPos pos, Direction face, ComponentType type) {
-        if (!claim(player, pos)) {
-            return false;
-        }
         if (RCConfig.validateHosts() && !HostRules.isValidHost(level.getBlockState(pos))) {
+            debug("refused {} on face {} at {}: block is not a valid host",
+                    type, face.getName(), pos.toShortString());
             return false;
         }
 
         var store = com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(level);
         InnerRedstoneNode node = store.get(pos);
+
         if (node != null && node.has(face)) {
             // That face is already occupied - keep vanilla behaviour rather than silently replacing.
+            debug("refused {} on face {} at {}: face already holds {}",
+                    type, face.getName(), pos.toShortString(), node.get(face).type);
             return false;
         }
         if (node != null && node.size() >= RCConfig.maxComponentsPerBlock()) {
+            debug("refused {} on face {} at {}: block already holds {} component(s)",
+                    type, face.getName(), pos.toShortString(), node.size());
             return false;
         }
 
@@ -120,10 +150,6 @@ public final class InnerRedstoneInteraction {
     // ------------------------------------------------------------- retrieval --
 
     private boolean tryRetrieve(ServerLevel level, ServerPlayer player, BlockPos pos, Direction face) {
-        if (!claim(player, pos)) {
-            return false;
-        }
-
         var store = com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(level);
         InnerRedstoneNode node = store.get(pos);
         if (node == null || node.isEmpty()) {
@@ -196,17 +222,6 @@ public final class InnerRedstoneInteraction {
     @Nullable
     private static ServerPlayer serverPlayer(Player player) {
         return player instanceof ServerPlayer serverPlayer ? serverPlayer : null;
-    }
-
-    /** Guards against handling the same interaction twice (main hand + off hand). */
-    private boolean claim(ServerPlayer player, BlockPos pos) {
-        long tick = player.level().getGameTime();
-        if (tick == lastHandledTick && pos.equals(lastHandledPos)) {
-            return false;
-        }
-        lastHandledTick = tick;
-        lastHandledPos = pos.immutable();
-        return true;
     }
 
     private static void debug(String message, Object... args) {

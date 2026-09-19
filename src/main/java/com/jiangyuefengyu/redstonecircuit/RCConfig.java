@@ -20,8 +20,9 @@ public final class RCConfig {
             .define("validateHosts", true);
 
     public static final ModConfigSpec.BooleanValue DEBUG_LOG = BUILDER
-            .comment("Log every placement/retrieval to the game log.")
-            .define("debugLog", false);
+            .comment("Log every placement/retrieval, including refused ones, to the game log.",
+                    "On by default while the mod is in development; set to false once it is stable.")
+            .define("debugLog", true);
 
     public static final ModConfigSpec.IntValue MAX_COMPONENTS_PER_BLOCK = BUILDER
             .comment("Maximum number of redstone components stored in a single block (1-6).")
