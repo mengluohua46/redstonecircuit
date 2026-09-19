@@ -24,8 +24,9 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
  * blocks being redstone conductors or transparent blocks, which cannot be modelled faithfully
  * outside a running game. The headless maths lives in {@code PowerSolverTest}.
  *
- * <p>They use the {@code redstonecircuit:empty} structure template (a 3x3x3 box with a stone floor
- * and a barrier shell) and place whatever else they need with {@code setBlock}.
+ * <p>They use the {@code redstonecircuit:empty} structure template - a 5x3x5 box of pure air, so
+ * every block a test needs (including the floor under a piece of vanilla wire) is placed by the test
+ * itself with {@code setBlock}.
  *
  * <p><b>Careful with coordinates:</b> {@code GameTestHelper#setBlock} takes a position
  * <em>relative to the structure</em>, while the inner-redstone store is keyed by absolute world
@@ -54,29 +55,60 @@ public final class InnerRedstoneGameTest {
 
         Slot slot = new Slot(ComponentType.DUST);
         slot.power = power;
-        // Only a non-zero seed is a power input. A component that is merely a receiver must not be
-        // marked as a source, otherwise it would never drain when its supply is removed.
-        slot.fixedSource = power > 0;
+        // Only a non-zero seed is a supply (the same thing /rc place injects). A component that is
+        // merely a receiver must not be marked as a source, otherwise it would never drain when its
+        // supply is removed.
+        if (power > 0) {
+            slot.injectedPower = power;
+        }
 
         InnerRedstoneNode node = store.getOrCreate(pos);
         node.setSlot(slot);
         store.markDirty();
-        // The same notification the real placement path performs, so vanilla consumers react
-        // exactly as they would in game.
+        // The same scheduling the real placement path performs: the new component's own power has to
+        // be derived (it may be fed by the world around it), and its neighbours may now be fed by it.
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        // ...and tell vanilla consumers to re-check, since no block state changed.
         InnerRedstoneInteraction.notifyNeighbours(level, pos);
         return slot;
     }
 
-    /** Runs propagation synchronously so the assertions do not have to wait for a tick. */
+    /** Removes a component's injected supply, as if the lever feeding it had been taken away. */
+    private static void clearSource(GameTestHelper helper, BlockPos pos) {
+        InnerRedstoneNode node = InnerRedstoneStore.get(helper.getLevel()).get(pos);
+        if (node != null && !node.isEmpty()) {
+            node.slot().injectedPower = -1;
+        }
+    }
+
+    /**
+     * Runs propagation the way the server does.
+     *
+     * <p>Deliberately goes through the queue and {@link InnerRedstoneNetwork#settle} rather than
+     * calling {@code recompute} directly, so the tests exercise the real path - including the
+     * neighbour updates a solve sends back into the world.
+     */
     private static void solve(GameTestHelper helper, BlockPos pos) {
         ServerLevel level = helper.getLevel();
-        InnerRedstoneNetwork.recompute(level, InnerRedstoneStore.get(level), pos);
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.settle(level);
     }
 
     /** Current power of the inner dust at an absolute position, or -1 when there is none. */
     private static int powerAt(GameTestHelper helper, BlockPos pos) {
         InnerRedstoneNode node = InnerRedstoneStore.get(helper.getLevel()).get(pos);
         return node == null || node.isEmpty() ? -1 : node.power();
+    }
+
+    /** Power of the vanilla redstone wire at a structure-relative position, or -1 when there is none. */
+    private static int wirePower(GameTestHelper helper, int x, int y, int z) {
+        BlockState state = helper.getBlockState(new BlockPos(x, y, z));
+        return state.is(Blocks.REDSTONE_WIRE) ? state.getValue(BlockStateProperties.POWER) : -1;
+    }
+
+    /** Whether the vanilla redstone lamp at a structure-relative position is lit. */
+    private static boolean lampLit(GameTestHelper helper, int x, int y, int z) {
+        return helper.getBlockState(new BlockPos(x, y, z)).getValue(BlockStateProperties.LIT);
     }
 
     /**
@@ -486,5 +518,96 @@ public final class InnerRedstoneGameTest {
             }
         }
         helper.succeed();
+    }
+
+    // ------------------------------------- draining back into the world ------
+
+    /**
+     * The reported bug: the inner redstone drained correctly, but the redstone lamp beside the host
+     * stayed lit, and only went out when an unrelated block next to it was broken.
+     *
+     * <p>Nothing was wrong with the solver - the stored power really did fall to 0. The problem was
+     * that a stored value is not a block state: dropping it changed no world data, so nothing ever
+     * notified the lamp, and it kept whatever state it happened to hold. A solve now ends by sending
+     * a vanilla neighbour update for every host whose power changed.
+     */
+    @GameTest(template = "empty")
+    public void lampGoesOutWhenInnerPowerDrains(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 15);
+
+        afterTicks(helper, 2, () -> {
+            helper.assertTrue(lampLit(helper, 2, 1, 1),
+                    "precondition: the lamp should be lit by the powered host");
+
+            clearSource(helper, host);
+            solve(helper, host);
+
+            // The lamp schedules its switch-off for a few ticks later, hence the generous delay.
+            afterTicks(helper, 6, () -> helper.succeedWhen(() -> helper.assertTrue(
+                    !lampLit(helper, 2, 1, 1),
+                    "the lamp must go out once the inner redstone drains, with no block broken")));
+        });
+    }
+
+    /**
+     * The same drain, seen through vanilla redstone wire laid against the host block - the check
+     * that was used to report the bug ("I put redstone next to the block and it was not activated").
+     *
+     * <p>This is also the regression test for the loop the wire creates: the wire is powered by the
+     * host and the host reads the wire, so treating the wire as a full-strength supply let the two
+     * hold each other up at 15 forever. The wire is charged one hop instead, exactly as vanilla
+     * charges a hop between two wires, which leaves the pair no way to stay powered on their own.
+     */
+    @GameTest(template = "empty")
+    public void vanillaWireFollowsInnerPower(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 0, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 15);
+
+        afterTicks(helper, 2, () -> {
+            helper.assertTrue(wirePower(helper, 2, 1, 1) == 15,
+                    "precondition: the wire beside the powered host should carry 15, got "
+                            + wirePower(helper, 2, 1, 1));
+
+            clearSource(helper, host);
+            solve(helper, host);
+
+            afterTicks(helper, 2, () -> helper.succeedWhen(() -> helper.assertTrue(
+                    wirePower(helper, 2, 1, 1) == 0,
+                    "the wire must go dark together with the inner redstone, got "
+                            + wirePower(helper, 2, 1, 1))));
+        });
+    }
+
+    /**
+     * A wire laid against a host block feeds the redstone inside it, one hop down - the price of a
+     * wire always costing a hop, and what makes {@link #vanillaWireFollowsInnerPower} possible.
+     */
+    @GameTest(template = "empty")
+    public void vanillaWireFeedsInnerRedstone(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 0, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 0);
+
+        // The source goes in last, so the wire - and through it this host - is notified of it.
+        setBlock(helper, 3, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(wirePower(helper, 2, 1, 1) == 15,
+                    "the redstone block should hold the wire at 15, got " + wirePower(helper, 2, 1, 1));
+            helper.assertTrue(powerAt(helper, host) == 14,
+                    "a neighbouring wire is charged one hop, so the host should hold 14, got "
+                            + powerAt(helper, host));
+        }));
     }
 }

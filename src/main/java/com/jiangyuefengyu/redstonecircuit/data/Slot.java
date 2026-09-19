@@ -41,14 +41,20 @@ public final class Slot {
     public final Set<Direction> forcedOff = EnumSet.noneOf(Direction.class);
 
     /**
-     * Marks this component as a <em>fixed power source</em> for the network solver: its {@link #power}
-     * is treated as an input rather than something to be derived.
+     * A power supply planted by hand (debug command and game tests), 0-15, or {@code -1} when the
+     * component has none.
      *
-     * <p>Only the debug command sets this, to seed a network for experiments and tests. Power that a
-     * component gained through propagation never sets it, so removing the real supply still drains
-     * the network as it should.
+     * <p>This is an <em>input</em> to the solver, exactly like a lever touching the host block: the
+     * component holds at least this strength no matter what surrounds it. Power a component gained
+     * through propagation never sets it, which is what lets a chain drain once its real supply is
+     * removed. Deliberately not saved - it exists to seed experiments, not to persist in a world.
      */
-    public boolean fixedSource;
+    public int injectedPower = -1;
+
+    /** True when {@link #injectedPower} is an actual supply rather than "none". */
+    public boolean hasInjectedPower() {
+        return injectedPower >= 0;
+    }
 
     public Slot(ComponentType type) {
         this.type = type;
@@ -67,6 +73,7 @@ public final class Slot {
         copy.mode = this.mode;
         copy.forcedOn.addAll(this.forcedOn);
         copy.forcedOff.addAll(this.forcedOff);
+        copy.injectedPower = this.injectedPower;
         return copy;
     }
 

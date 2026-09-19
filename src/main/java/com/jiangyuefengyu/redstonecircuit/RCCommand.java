@@ -204,8 +204,9 @@ public final class RCCommand {
 
         Slot slot = new Slot(type);
         slot.power = Math.max(0, Math.min(15, power));
-        // Seeded by hand, so treat it as an input rather than something to be derived away.
-        slot.fixedSource = true;
+        // Seeded by hand, so it is an input like a lever against the host block - not something the
+        // solver is free to derive away on its next pass.
+        slot.injectedPower = slot.power;
 
         InnerRedstoneNode node = store.getOrCreate(pos);
         node.setSlot(slot);
@@ -220,7 +221,10 @@ public final class RCCommand {
     private static int solve(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
         ServerLevel level = level(ctx);
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
-        InnerRedstoneNetwork.recompute(level, store, pos);
+        // Go through the same queue-and-settle path the tick uses, so a command-driven solve sees
+        // the identical result a player would see (including the feedback from notifying the world).
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        InnerRedstoneNetwork.settle(level);
 
         InnerRedstoneNode node = store.get(pos);
         if (node == null || node.isEmpty()) {
