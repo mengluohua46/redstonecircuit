@@ -63,6 +63,7 @@ public final class RCCommand {
                 .requires(source -> source.hasPermission(2));
 
         root.then(positionSub("dump", RCCommand::dump));
+        root.then(positionSub("probe", RCCommand::probe));
         root.then(positionSub("clear", RCCommand::clear));
         root.then(positionSub("rules", RCCommand::rules));
         root.then(positionSub("solve", RCCommand::solve));
@@ -443,6 +444,38 @@ public final class RCCommand {
         store.markDirty();
 
         feedback(ctx, header("all connection overrides cleared at " + pos.toShortString()));
+        return 1;
+    }
+
+    /**
+     * {@code probe [pos]}: where does this block's supply come from, side by side.
+     *
+     * <p>The one command that answers "something outside is keeping this block powered": it lists the
+     * block on each side, what the vanilla world reports ({@code raw}) and what the solver actually
+     * sees once our own output is suppressed ({@code solver}). A {@code raw} of 15 with a
+     * {@code solver} of 0 means the value was our own signal being read back; a {@code solver} of 15
+     * names a real block next door, and the line then says which one.
+     */
+    private static int probe(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
+        ServerLevel level = level(ctx);
+        InnerRedstoneNode node = InnerRedstoneStore.get(level).get(pos);
+        feedback(ctx, header("solver probe @ " + pos.toShortString()));
+        feedback(ctx, Component.literal(node == null || node.isEmpty()
+                        ? "  (no component here - probing what the world pushes in)"
+                        : "  " + node.slot().describe())
+                .withStyle(ChatFormatting.WHITE));
+
+        for (InnerRedstoneNetwork.ProbeSide side : InnerRedstoneNetwork.probe(level, pos)) {
+            String text = "  " + side.direction().getName() + ": " + side.block().getBlock()
+                    + (side.holdsComponent() ? " [component]" : "")
+                    + "  world=" + side.rawSignal() + " solver=" + side.solverSignal()
+                    + " inner=" + side.innerSignal()
+                    + (side.reads() ? " reads" : "") + (side.emits() ? " emits" : "");
+            ChatFormatting colour = side.solverSignal() > 0 || side.innerSignal() > 0
+                    ? ChatFormatting.GREEN
+                    : ChatFormatting.DARK_GRAY;
+            feedback(ctx, Component.literal(text).withStyle(colour));
+        }
         return 1;
     }
 

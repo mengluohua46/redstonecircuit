@@ -176,10 +176,61 @@ public final class InnerRedstoneNetwork {
         return SUPPRESS_SIGNAL.contains(level.dimension());
     }
 
-    /** Number of driven components waiting for their delayed output, for the debug command. */
+    /**
+     * Number of driven components waiting for their delayed output, for the debug command.
+     */
     public static int pendingCount(ServerLevel level) {
         PendingFlips pending = PENDING.get(level.dimension());
         return pending == null ? 0 : pending.size();
+    }
+
+    // ---------------------------------------------------------------- probe --
+
+    /**
+     * One direction's worth of {@link #probe}: what the solver sees coming into a host block from
+     * that side, and what the vanilla world says without the suppression.
+     *
+     * @param rawSignal what {@code Level#getSignal} answers with our own components reporting normally
+     * @param solverSignal the same query as the solver makes it - with our own signal suppressed, so a
+     *     difference between the two is exactly "this value was our own output coming back"
+     */
+    public record ProbeSide(Direction direction, BlockState block, boolean holdsComponent,
+                            int rawSignal, int solverSignal, int innerSignal,
+                            boolean reads, boolean emits) {
+    }
+
+    /**
+     * Explains where a host block's supply comes from, one side at a time.
+     *
+     * <p>Written for {@code /rc probe} because "something keeps this block powered and I cannot see
+     * what" is otherwise unanswerable from the outside: the difference between {@code rawSignal} and
+     * {@code solverSignal} separates "a real block next door is driving this" from "this is our own
+     * signal being read back", and {@code block} names it outright.
+     */
+    public static List<ProbeSide> probe(ServerLevel level, BlockPos host) {
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        SolverEnvironment env = new SolverEnvironment(level, store);
+        env.setQueryPos(host);
+        PowerEnvironment.Node view = SlotNode.of(store.slotAt(host));
+
+        List<ProbeSide> sides = new ArrayList<>();
+        for (Direction direction : Direction.values()) {
+            BlockPos neighbour = host.relative(direction);
+            BlockState block = level.getBlockState(neighbour);
+            int raw = PowerSolver.clamp(level.getSignal(neighbour, direction));
+            int solver = queryingWorld(level, () -> env.externalSignal(direction));
+            int inner = PowerSolver.innerFrom(env, host, direction, view);
+            sides.add(new ProbeSide(
+                    direction,
+                    block,
+                    store.slotAt(neighbour) != null,
+                    raw,
+                    solver,
+                    inner,
+                    view == null || PowerSolver.readsFrom(view, direction),
+                    view != null && PowerSolver.emitsToward(view, direction)));
+        }
+        return sides;
     }
 
     // ---------------------------------------------------------- propagation --
@@ -373,9 +424,9 @@ public final class InnerRedstoneNetwork {
                 changedPositions.add(pos);
                 env.setQueryPos(pos);
                 RCConfig.LOGGER.info(
-                        "[redstonecircuit] {} at {} power {} -> {} (supply={}, externalSignal={}, injected={})",
+                        "[redstonecircuit] {} at {} power {} -> {} (supply={}, externalSignal={}, injected={}, from={})",
                         slot.type, pos.toShortString(), before, slot.power, supplyOf(env, slot),
-                        env.externalSignal(), slot.injectedPower);
+                        env.externalSignal(), slot.injectedPower, env.describeExternalSource());
             }
         }
         if (!changedPositions.isEmpty()) {
@@ -549,6 +600,29 @@ public final class InnerRedstoneNetwork {
                 signal--;
             }
             return PowerSolver.clamp(signal);
+        }
+
+        /**
+         * Which neighbour is feeding this host from the vanilla world, as text, for the change log.
+         *
+         * <p>Answers "where did that supply come from" without a second round trip: the value found
+         * here is what the solver actually used, so a host pinned on by the block next door names it.
+         */
+        String describeExternalSource() {
+            Direction best = null;
+            int bestSignal = 0;
+            for (Direction direction : Direction.values()) {
+                int signal = externalSignal(direction);
+                if (signal > bestSignal) {
+                    bestSignal = signal;
+                    best = direction;
+                }
+            }
+            if (best == null) {
+                return "none";
+            }
+            BlockPos neighbour = queryPos.relative(best);
+            return best.getName() + " " + level.getBlockState(neighbour).getBlock() + "=" + bestSignal;
         }
 
         @Override
