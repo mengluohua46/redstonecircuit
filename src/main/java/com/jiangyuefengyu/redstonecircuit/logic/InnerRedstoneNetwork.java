@@ -172,13 +172,19 @@ public final class InnerRedstoneNetwork {
                     continue;
                 }
 
-                // A dust component explicitly marked as a fixed source keeps its power (that is how
-                // /rc place seeds a network). Everything else is passive: its power is derived, so
-                // removing the real supply still drains it.
+                // A component's own power is whatever it receives from the vanilla world - a lever or
+                // redstone torch pressed against the host block, a neighbouring torch, a lamp
+                // already lit - falling back to propagated power for anything that is only a
+                // conductor. Dust therefore behaves exactly like vanilla wire, while a torch or
+                // lever inside a block actually produces power.
+                //
+                // `fixedSource` is separate: it keeps the power seeded by /rc place and by the
+                // tests, which have no real block to read a signal from.
                 int floor = slot.fixedSource ? slot.power : 0;
 
                 env.setQueryPos(pos);
-                int target = Math.max(floor, PowerSolver.targetStrength(env, pos));
+                int target = Math.max(floor,
+                        Math.max(env.externalSignal(), PowerSolver.targetStrength(env, pos)));
 
                 if (target != slot.power) {
                     slot.power = target;

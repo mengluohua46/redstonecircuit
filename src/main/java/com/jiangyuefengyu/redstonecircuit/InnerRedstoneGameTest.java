@@ -187,30 +187,102 @@ public final class InnerRedstoneGameTest {
     }
 
     /**
-     * A lever pressed against a host block powers the redstone inside it.
+     * A lever pressed against a host block powers the redstone inside it, through the real
+     * event path - no manual {@code solve} call.
      *
-     * <p>This is the "outside to inside" half of the design. No bridging code is involved: the
-     * inner network simply reads the same neighbour signals vanilla would.
+     * <p>This is the regression test for a bug where levers and torches appeared to do nothing: the
+     * inner network only re-solved when a component was placed or removed by this mod, so an
+     * external block change never triggered a recalculation.
      */
     @GameTest(template = "empty")
     public void externalLeverPowersInnerDust(GameTestHelper helper) {
         setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
-        setBlock(helper, 1, 1, 2, Blocks.LEVER.defaultBlockState());
+        BlockPos host = at(helper, 2, 1, 2);
+        placeDust(helper, host, 0);
 
-        // A lever on the floor pointing east, switched on.
-        // Levers use HORIZONTAL_FACING plus FACE, not the six-way FACING property.
-        BlockState lever = Blocks.LEVER.defaultBlockState()
+        // A lever on the floor pointing east, switched on, touching the host block.
+        setBlock(helper, 1, 1, 2, Blocks.LEVER.defaultBlockState()
+                .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.EAST)
+                .setValue(BlockStateProperties.POWERED, true));
+
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, host) == 15,
+                "a powered lever touching the host should push 15 into it, got " + powerAt(helper, host))));
+    }
+
+    /**
+     * A vanilla redstone block next to a host powers the redstone inside it, and removing it drains
+     * again - both through the real event path.
+     *
+     * <p>Uses a redstone block rather than a torch because it emits a full-strength signal in every
+     * direction, so a failure here points at the event wiring rather than at torch orientation.
+     */
+    @GameTest(template = "empty")
+    public void redstoneBlockPowersAndThenDrainsInnerDust(GameTestHelper helper) {
+        setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
+        BlockPos host = at(helper, 2, 1, 2);
+        placeDust(helper, host, 0);
+
+        setBlock(helper, 1, 1, 2, Blocks.REDSTONE_BLOCK.defaultBlockState());
+
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(powerAt(helper, host) == 15,
+                    "a redstone block beside the host should push 15 in, got " + powerAt(helper, host));
+
+            setBlock(helper, 1, 1, 2, Blocks.AIR.defaultBlockState());
+            afterTicks(helper, 4, () -> helper.succeedWhen(() -> helper.assertTrue(
+                    powerAt(helper, host) == 0,
+                    "removing the redstone block must drain the inner redstone, got "
+                            + powerAt(helper, host))));
+        });
+    }
+
+    /**
+     * A lit redstone torch standing beside a host powers the redstone inside it.
+     *
+     * <p>A standing torch emits 15 downwards ({@code getSignal(..., DOWN)}), which is exactly what
+     * the host's neighbour query asks for. This is the case reported as "torches do nothing".
+     */
+    @GameTest(template = "empty")
+    public void redstoneTorchPowersInnerDust(GameTestHelper helper) {
+        setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
+        BlockPos host = at(helper, 2, 1, 2);
+        placeDust(helper, host, 0);
+
+        // A standing redstone torch on the floor tile next to the host.
+        setBlock(helper, 1, 1, 2, Blocks.REDSTONE_TORCH.defaultBlockState());
+
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, host) == 15,
+                "a lit redstone torch beside the host should push 15 in, got " + powerAt(helper, host))));
+    }
+
+    /**
+     * Removing an external lever must drain the inner redstone again, through the real event path.
+     *
+     * <p>Regression test for power staying latched after the source was removed.
+     */
+    @GameTest(template = "empty")
+    public void removingLeverDrainsInnerDust(GameTestHelper helper) {
+        setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
+        BlockPos host = at(helper, 2, 1, 2);
+        placeDust(helper, host, 0);
+
+        BlockState leverOn = Blocks.LEVER.defaultBlockState()
                 .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.EAST)
                 .setValue(BlockStateProperties.POWERED, true);
-        setBlock(helper, 1, 1, 2, lever);
+        setBlock(helper, 1, 1, 2, leverOn);
 
-        BlockPos innerPos = at(helper, 2, 1, 2);
-        placeDust(helper, innerPos, 0);
-        solve(helper, innerPos);
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(powerAt(helper, host) == 15,
+                    "precondition: the lever should have powered the dust, got " + powerAt(helper, host));
 
-        helper.succeedWhen(() -> helper.assertTrue(
-                powerAt(helper, innerPos) == 15,
-                "a powered lever touching the host should push 15 into it, got " + powerAt(helper, innerPos)));
+            // Take the lever away and give the network time to notice.
+            setBlock(helper, 1, 1, 2, Blocks.AIR.defaultBlockState());
+            afterTicks(helper, 4, () -> helper.succeedWhen(() -> helper.assertTrue(
+                    powerAt(helper, host) == 0,
+                    "removing the lever must drain the inner redstone, got " + powerAt(helper, host))));
+        });
     }
 
     /** Power must fall back to zero once the source component is gone. */

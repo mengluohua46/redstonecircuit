@@ -19,6 +19,17 @@ public interface PowerEnvironment {
     int bestNeighborSignal();
 
     /**
+     * Power this component receives from the vanilla world, which is what makes a lever or redstone
+     * torch placed against the host block drive the redstone inside it.
+     *
+     * <p>Kept separate from {@link #bestNeighborSignal()} so it can be overridden in tests; the
+     * default simply mirrors the neighbour signal.
+     */
+    default int externalSignal() {
+        return bestNeighborSignal();
+    }
+
+    /**
      * The inner redstone dust at {@code pos}, or {@code null} when there is none.
      *
      * <p>Only dust participates in wire-to-wire propagation, matching vanilla where
