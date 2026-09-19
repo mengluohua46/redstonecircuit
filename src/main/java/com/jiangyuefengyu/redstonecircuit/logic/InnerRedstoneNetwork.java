@@ -394,9 +394,27 @@ public final class InnerRedstoneNetwork {
         /**
          * Strongest signal the world pushes into the host block at {@link #queryPos}.
          *
-         * <p>Mirrors vanilla {@code Level#getBestNeighborSignal}, with one deliberate difference:
-         * a neighbouring <b>vanilla redstone wire</b> is charged one hop, exactly as vanilla charges
-         * a hop for a neighbouring wire in {@code RedStoneWireBlock#calculateTargetStrength}.
+         * <p>This is literally vanilla {@code Level#getBestNeighborSignal}: the same six queries, with
+         * the same direction and the same weak-power handling, so a lever, torch, redstone block,
+         * repeater, comparator, observer or strongly powered block feeds the inner redstone exactly as
+         * it would feed a piece of vanilla wire.
+         *
+         * <h2>Which direction to ask</h2>
+         * {@code getSignal(neighbour, direction)} expects the direction <em>from the queried block to
+         * the neighbour</em>; the signal methods themselves then read the other way round (which is why
+         * {@code RedstoneTorchBlock} carries a note saying the directions are backwards). Vanilla
+         * therefore passes {@code direction} here - not its opposite.
+         *
+         * <p>Asking with the opposite direction was a real bug, and it hit every <b>directional</b>
+         * source: {@code ObserverBlock#getSignal} answers {@code 15} only when
+         * {@code FACING == side}, so an observer emitting into a host block reported nothing at all -
+         * a repeater or comparator would likewise have been read from its input side, which never
+         * answers. Sources that emit in five or six directions (levers, torches, redstone blocks,
+         * wire) hid the mistake, which is why only the observer report exposed it.
+         *
+         * <h2>The one deliberate difference</h2>
+         * A neighbouring <b>vanilla redstone wire</b> is charged one hop, exactly as vanilla charges a
+         * hop for a neighbouring wire in {@code RedStoneWireBlock#calculateTargetStrength}.
          *
          * <p>That charge is what keeps the system solvable. A wire is the one neighbour that can be
          * powered <em>by</em> the host it powers, and its signal is derived from ours, so passing it
@@ -405,17 +423,17 @@ public final class InnerRedstoneNetwork {
          * after the source is gone" report. Charging a hop makes every cycle in the system strictly
          * decreasing, which leaves exactly one solution: with no source anywhere, everything is 0.
          *
-         * <p>Inner-redstone output is already suppressed for the duration of the solve, so this sees
-         * only real blocks.
+         * <p>Inner-redstone output is already suppressed for the duration of the solve, so the weak
+         * power a neighbouring host block would otherwise transmit reads as 0 here and the solver
+         * cannot feed itself through it.
          */
         @Override
         public int externalSignal() {
             int best = 0;
             for (Direction direction : Direction.values()) {
                 BlockPos neighbour = queryPos.relative(direction);
-                BlockState state = level.getBlockState(neighbour);
-                int signal = state.getSignal(level, neighbour, direction.getOpposite());
-                if (signal > 0 && state.is(Blocks.REDSTONE_WIRE)) {
+                int signal = level.getSignal(neighbour, direction);
+                if (signal > 0 && level.getBlockState(neighbour).is(Blocks.REDSTONE_WIRE)) {
                     signal--;
                 }
                 best = Math.max(best, signal);

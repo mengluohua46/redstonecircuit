@@ -46,17 +46,31 @@ public final class InnerRedstoneTickHandler {
             return;
         }
 
+        // The block whose output changed may itself hold a component. A diode (repeater, comparator)
+        // and an observer notify the block they output INTO - `neighborChanged(output)` plus
+        // `updateNeighborsAtExceptFromFacing(output, ...)` - so when a host block sits on the output
+        // side, the notify event arrives with the host as its position, not as a notified neighbour.
+        // Only looking at the notified sides missed every one of them.
+        BlockPos pos = event.getPos();
+        if (store.slotAt(pos) != null) {
+            if (RCConfig.debugLog()) {
+                RCConfig.LOGGER.info(
+                        "[redstonecircuit] output change at host {} -> re-solving", pos.toShortString());
+            }
+            InnerRedstoneNetwork.markDirty(level, pos);
+        }
+
         // The block at event.getPos() is the one that CHANGED. Its neighbours are the ones being
         // notified, so a host block is the *neighbour* here, not the source. Checking getPos()
         // instead would miss every case where the source disappeared: when a lever is broken, the
         // position it used to occupy is air by the time this event fires.
         for (Direction direction : event.getNotifiedSides()) {
-            BlockPos neighbour = event.getPos().relative(direction);
+            BlockPos neighbour = pos.relative(direction);
             if (store.slotAt(neighbour) != null) {
                 if (RCConfig.debugLog()) {
                     RCConfig.LOGGER.info(
                             "[redstonecircuit] world change at {} notified host {} -> re-solving",
-                            event.getPos().toShortString(), neighbour.toShortString());
+                            pos.toShortString(), neighbour.toShortString());
                 }
                 InnerRedstoneNetwork.markDirty(level, neighbour);
             }

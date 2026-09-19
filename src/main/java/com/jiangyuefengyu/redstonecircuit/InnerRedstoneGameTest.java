@@ -123,7 +123,7 @@ public final class InnerRedstoneGameTest {
             action.run();
             return;
         }
-        helper.runAfterDelay(ticks, () -> afterTicks(helper, ticks - 1, action));
+        helper.runAfterDelay(ticks, action);
     }
 
     // --------------------------------------------------------------- tests --
@@ -609,5 +609,94 @@ public final class InnerRedstoneGameTest {
                     "a neighbouring wire is charged one hop, so the host should hold 14, got "
                             + powerAt(helper, host));
         }));
+    }
+
+    // ------------------------------------------- directional sources ---------
+
+    /**
+     * A repeater pointing into a host block powers the redstone inside it.
+     *
+     * <p>Regression test for a real bug: the neighbour query was made with the direction reversed.
+     * Sources that emit in five or six directions - levers, torches, redstone blocks, wire - hid it,
+     * because the wrong side still answers 15. A repeater answers only for the side it points at, so
+     * with the reversed query it reported nothing at all.
+     */
+    @GameTest(template = "empty")
+    public void repeaterOutputPowersInnerRedstone(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 0, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 0);
+
+        // FACING points at a repeater's *input*, so this one reads east and outputs west, into the
+        // host. The redstone block behind it switches it on.
+        setBlock(helper, 2, 1, 1, Blocks.REPEATER.defaultBlockState()
+                .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.EAST));
+        setBlock(helper, 3, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+
+        afterTicks(helper, 8, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, host) == 15,
+                "a repeater pointing into the host should push 15, got " + powerAt(helper, host))));
+    }
+
+    /**
+     * The reported case: an observer pressed against a host block, emitting into it, powers the
+     * redstone inside - no vanilla wire needed in between.
+     *
+     * <p>{@code ObserverBlock#getSignal} answers 15 only for the side it emits from, so the reversed
+     * query made it report nothing while a wire laid against the host worked (a wire emits in five
+     * directions). That is exactly the "the observer against the block does nothing, it needs a piece
+     * of redstone in between" report.
+     */
+    @GameTest(template = "empty")
+    public void observerEmittingIntoHostPowersInnerRedstone(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 0);
+
+        // FACING points at what an observer watches, so this one watches east and emits west, into
+        // the host: the observer against the block, output facing it.
+        setBlock(helper, 2, 1, 1, Blocks.OBSERVER.defaultBlockState()
+                .setValue(BlockStateProperties.FACING, Direction.EAST));
+
+        // Arm the check *before* triggering the pulse: an observer only stays powered for two ticks,
+        // so a delayed assertion could miss it entirely.
+        helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, host) > 0,
+                "an observer emitting into the host must power the inner redstone, got "
+                        + powerAt(helper, host)));
+
+        // Changing the block it watches is what makes it pulse.
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+    }
+
+    /**
+     * A block that a repeater strongly powers feeds the redstone inside the host beside it.
+     *
+     * <p>Vanilla's {@code getBestNeighborSignal} looks at more than what a neighbour emits: for a
+     * full block it also adds the strong power that block <em>receives</em>. The solver now asks
+     * through {@code Level#getSignal}, exactly like vanilla, so "repeater into a block, redstone off
+     * that block" works with inner redstone too.
+     */
+    @GameTest(template = "empty")
+    public void stronglyPoweredBlockFeedsInnerRedstone(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 3, 0, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 0);
+
+        // The repeater reads east and outputs west, into the plain stone block at 2,1,1.
+        setBlock(helper, 3, 1, 1, Blocks.REPEATER.defaultBlockState()
+                .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.EAST));
+        setBlock(helper, 4, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+
+        afterTicks(helper, 8, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, host) == 15,
+                "a block strongly powered by the repeater should feed the host, got "
+                        + powerAt(helper, host))));
     }
 }
