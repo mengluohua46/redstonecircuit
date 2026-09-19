@@ -40,6 +40,16 @@ public final class Slot {
     /** Directions the wrench forced OFF. */
     public final Set<Direction> forcedOff = EnumSet.noneOf(Direction.class);
 
+    /**
+     * Marks this component as a <em>fixed power source</em> for the network solver: its {@link #power}
+     * is treated as an input rather than something to be derived.
+     *
+     * <p>Only the debug command sets this, to seed a network for experiments and tests. Power that a
+     * component gained through propagation never sets it, so removing the real supply still drains
+     * the network as it should.
+     */
+    public boolean fixedSource;
+
     public Slot(ComponentType type) {
         this.type = type;
         this.facing = Direction.NORTH;

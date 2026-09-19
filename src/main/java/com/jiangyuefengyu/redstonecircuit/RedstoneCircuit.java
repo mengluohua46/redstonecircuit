@@ -25,8 +25,9 @@ public final class RedstoneCircuit {
         // Everything below is server-authoritative: placement, retrieval and (later) the
         // per-player visibility sets. Game events therefore go on the NeoForge bus.
         NeoForge.EVENT_BUS.register(new InnerRedstoneInteraction());
+        NeoForge.EVENT_BUS.register(new com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneTickHandler());
 
-        // Debug/ops command: /rc dump|place|clear|list
+        // Debug/ops command: /rc dump|place|connect|solve|clear|list|rules
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
 
         modContainer.registerConfig(ModConfig.Type.COMMON, RCConfig.SPEC);

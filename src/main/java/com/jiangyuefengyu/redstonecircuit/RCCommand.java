@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Locale;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.ArgumentBuilder;
@@ -17,6 +16,7 @@ import com.jiangyuefengyu.redstonecircuit.data.ConnectionState;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -57,6 +57,7 @@ public final class RCCommand {
         root.then(positionSub("dump", RCCommand::dump));
         root.then(positionSub("clear", RCCommand::clear));
         root.then(positionSub("rules", RCCommand::rules));
+        root.then(positionSub("solve", RCCommand::solve));
         root.then(connectSub());
         root.then(positionSub("disconnect", RCCommand::disconnect));
         root.then(Commands.literal("list").executes(RCCommand::list));
@@ -110,19 +111,11 @@ public final class RCCommand {
         return literal;
     }
 
-    /** {@code place <type> [yaw] [power]}. */
+    /** {@code place <type> [power]}. */
     private static LiteralArgumentBuilder<CommandSourceStack> placeSub() {
-        // power
         ArgumentBuilder<CommandSourceStack, ?> power = Commands.argument("power", IntegerArgumentType.integer(0, 15));
-        power.executes(ctx -> place(ctx, FloatArgumentType.getFloat(ctx, "yaw"),
-                IntegerArgumentType.getInteger(ctx, "power")));
+        power.executes(ctx -> place(ctx, IntegerArgumentType.getInteger(ctx, "power")));
 
-        // yaw
-        ArgumentBuilder<CommandSourceStack, ?> yaw = Commands.argument("yaw", FloatArgumentType.floatArg());
-        yaw.executes(ctx -> place(ctx, FloatArgumentType.getFloat(ctx, "yaw"), 15));
-        yaw.then(power);
-
-        // type
         RequiredArgumentBuilder<CommandSourceStack, String> type =
                 Commands.argument("type", StringArgumentType.word());
         type.suggests((ctx, builder) -> {
@@ -131,8 +124,8 @@ public final class RCCommand {
             }
             return builder.buildFuture();
         });
-        type.executes(ctx -> place(ctx, 0.0F, 15));
-        type.then(yaw);
+        type.executes(ctx -> place(ctx, 15));
+        type.then(power);
 
         LiteralArgumentBuilder<CommandSourceStack> place = Commands.literal("place");
         place.then(type);
@@ -197,7 +190,7 @@ public final class RCCommand {
         return 1;
     }
 
-    private static int place(CommandContext<CommandSourceStack> ctx, float yaw, int power) {
+    private static int place(CommandContext<CommandSourceStack> ctx, int power) {
         String typeName = StringArgumentType.getString(ctx, "type");
         ComponentType type = ComponentType.byName(typeName, null);
         if (type == null) {
@@ -206,18 +199,36 @@ public final class RCCommand {
         }
 
         BlockPos pos = ownPos(ctx);
-        InnerRedstoneStore store = InnerRedstoneStore.get(level(ctx));
+        ServerLevel level = level(ctx);
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
 
         Slot slot = new Slot(type);
-        slot.facing = Direction.fromYRot(yaw);
         slot.power = Math.max(0, Math.min(15, power));
+        // Seeded by hand, so treat it as an input rather than something to be derived away.
+        slot.fixedSource = true;
 
         InnerRedstoneNode node = store.getOrCreate(pos);
         node.setSlot(slot);
         store.markDirty();
+        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
 
-        feedback(ctx, header("placed " + type + " at " + pos.toShortString()));
+        feedback(ctx, header("placed " + type + " (power " + slot.power + ") at " + pos.toShortString()));
         return 1;
+    }
+
+    /** Forces an immediate recomputation of the local network, for debugging. */
+    private static int solve(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
+        ServerLevel level = level(ctx);
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        InnerRedstoneNetwork.recompute(level, store, pos);
+
+        InnerRedstoneNode node = store.get(pos);
+        if (node == null || node.isEmpty()) {
+            error(ctx, "no inner redstone at " + pos.toShortString());
+            return 0;
+        }
+        feedback(ctx, header("solved " + pos.toShortString() + " -> power " + node.power()));
+        return node.power();
     }
 
     private static int connect(CommandContext<CommandSourceStack> ctx, BlockPos pos,

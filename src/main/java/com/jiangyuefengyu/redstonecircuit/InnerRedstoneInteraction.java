@@ -124,6 +124,9 @@ public final class InnerRedstoneInteraction {
         node.setSlot(new com.jiangyuefengyu.redstonecircuit.data.Slot(type));
         store.markDirty();
 
+        // Adding a component changes the surrounding network, so queue a propagation pass.
+        com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
         }
@@ -151,6 +154,9 @@ public final class InnerRedstoneInteraction {
         if (removed == null || removed.isEmpty()) {
             return false;
         }
+
+        // Removing a component can cut power to its neighbours, so re-derive the local network.
+        com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
 
         if (!player.getAbilities().instabuild) {
             ItemStack back = HostRules.itemFor(removed.type());
@@ -189,6 +195,8 @@ public final class InnerRedstoneInteraction {
         if (node == null || node.isEmpty()) {
             return;
         }
+        // The host is going away, so whatever coupled to it must re-derive its power.
+        com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         Block.popResource(level, pos, HostRules.itemFor(node.type()));
         debug("dropped {} from broken host {}", node.type(), pos.toShortString());
     }
