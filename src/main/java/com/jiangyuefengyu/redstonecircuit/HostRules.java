@@ -3,6 +3,8 @@ package com.jiangyuefengyu.redstonecircuit;
 import org.jetbrains.annotations.Nullable;
 
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -127,6 +129,54 @@ public final class HostRules {
         public int getMinBuildHeight() {
             return 0;
         }
+    }
+
+    /**
+     * Whether a right-click on this block is the mod's to handle rather than vanilla's.
+     *
+     * <h2>Why this is a separate, shared question</h2>
+     * The client predicts a block placement before the server has had its say: {@code MultiPlayerGameMode}
+     * runs {@code ItemStack#useOn} locally, so an item that is about to be stored <em>inside</em> a block
+     * is drawn as a freshly placed block for one round trip and then taken away again - the flash of
+     * redstone on the ground that a placement used to produce. The only way to stop that is for the
+     * client to know the click is ours, which means the same question has to be answered on both sides.
+     *
+     * <p>So it is answered here, from inputs both sides have: the block's state, the component the
+     * client or server already knows about ({@code null} when the client has not been told, or when the
+     * block holds nothing), the held stack, and whether the player is sneaking. The server additionally
+     * checks that this is a valid host and whether replacing is allowed - both of which are config reads,
+     * and both of which this does too.
+     *
+     * <p>The wrench is deliberately not answered as "ours": it is not a block item, so it never predicts
+     * a placement, and claiming the click here would risk swallowing a legitimate vanilla use.
+     *
+     * @param state the block being clicked
+     * @param existing the component stored in it, or {@code null}
+     * @param stack what the player is holding in the hand that clicked
+     * @param sneaking whether the player is using the secondary (sneak) action
+     */
+    public static boolean claimsClick(BlockState state, @Nullable Slot existing, ItemStack stack,
+                                      boolean sneaking) {
+        if (sneaking) {
+            if (stack.isEmpty()) {
+                // Take the component back out.
+                return existing != null;
+            }
+            if (componentFor(stack) == null) {
+                return false;
+            }
+            if (RCConfig.validateHosts() && !isValidHost(state)) {
+                // Not a block that may hold redstone: vanilla places the item as a block, as it would
+                // without the mod installed.
+                return false;
+            }
+            // One component per block: a second placement falls through to vanilla unless replacing is
+            // switched on.
+            return existing == null || RCConfig.allowReplace();
+        }
+        // Plain right-click stays vanilla's, except for a bare hand on something with a setting or a
+        // switch in it.
+        return stack.isEmpty() && existing != null && InnerSwitches.isWorkable(existing.type);
     }
 
     /**

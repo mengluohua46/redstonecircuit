@@ -180,6 +180,14 @@ public final class InnerRedstoneInteraction {
 
     // ------------------------------------------------------------- placement --
 
+    /**
+     * Handles the clicks the mod owns.
+     *
+     * <p>The same question - "is this click ours?" - is answered by {@link HostRules#claimsClick} and by
+     * {@code ClientPlacementGuard}, which uses it to stop the client predicting a block placement for a
+     * click that will not place one. That gate is applied here too, so the two sides cannot drift: a
+     * click the client decided against is a click the server leaves to vanilla, and vice versa.
+     */
     @SubscribeEvent
     public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         ServerPlayer player = serverPlayer(event.getEntity());
@@ -191,6 +199,16 @@ public final class InnerRedstoneInteraction {
         BlockPos pos = event.getPos();
         Direction face = event.getFace();
         if (face == null) {
+            return;
+        }
+        ItemStack stack = player.getItemInHand(event.getHand());
+
+        // The wrench takes the whole click, both halves of it, before anything else looks at it. It is
+        // not part of the gate above because it is not a block item: nothing is ever predicted for it.
+        boolean wrench = RCRegistry.isWrench(stack);
+        Slot existing = wrench ? null : WrenchLinks.slotAt(serverLevel, pos);
+        if (!wrench && !HostRules.claimsClick(serverLevel.getBlockState(pos), existing, stack,
+                player.isSecondaryUseActive())) {
             return;
         }
 
@@ -205,10 +223,8 @@ public final class InnerRedstoneInteraction {
         }
         markHandled(tick, pos, event.getHand());
 
-        ItemStack stack = player.getItemInHand(event.getHand());
-
         // The wrench takes the whole click, both halves of it, before anything else looks at it.
-        if (RCRegistry.isWrench(stack)) {
+        if (wrench) {
             if (useWrench(serverLevel, player, pos, event.getFace())) {
                 event.setCanceled(true);
             }
