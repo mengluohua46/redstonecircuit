@@ -40,7 +40,7 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
  * network uses, so a block is not a better signal source than the device inside it:
  *
  * <pre>
- *   dust                      every side except upwards (vanilla wire's own quirk)
+ *   dust                      every side
  *   torch                     every side except the one it hangs on
  *   repeater / comparator     only the side it points at
  *   lever / button / plate    every side
@@ -137,10 +137,9 @@ public abstract class BlockStateSignalMixin {
                     slot.forcedOn.contains(emitted), forcedOff)) {
                 return 0;
             }
-            // Dust keeps vanilla wire's quirk of not powering the block above it.
-            if (slot.type == ComponentType.DUST && emitted == Direction.UP) {
-                return 0;
-            }
+            // No extra "not upwards" rule here, even though vanilla wire has one: a host block is a
+            // signal source, and every direction has to behave the same way or a component inside a
+            // block would be the only one in the game that cannot drive the block above it.
         }
         return store.getSignal(pos);
     }

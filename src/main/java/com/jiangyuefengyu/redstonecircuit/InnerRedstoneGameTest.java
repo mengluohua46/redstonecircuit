@@ -500,9 +500,9 @@ public final class InnerRedstoneGameTest {
     /**
      * A host block lights a lamp on each of the four horizontal sides.
      *
-     * <p>A lamp <em>above</em> the host is deliberately not included: it queries its neighbour below
-     * with direction {@code DOWN}, which hosts do not signal (mirroring vanilla wire). That asymmetry
-     * is verified by {@link #innerRedstoneSignalsEveryDirectionExceptDown}.
+     * <p>A lamp above or below the host is not included here either - those are covered by
+     * {@link #hostLightsTheLampAboveIt}, since a host emits in every direction
+     * ({@link #innerRedstoneSignalsEveryDirection}).
      */
     @GameTest(template = "empty")
     public void innerRedstoneLightsLampsOnAllSides(GameTestHelper helper) {
@@ -532,10 +532,14 @@ public final class InnerRedstoneGameTest {
     }
 
     /**
-     * A host block powers every side except the one below it, mirroring vanilla wire.
+     * A host block powers every side, including the one above and the one below it.
+     *
+     * <p>Vanilla wire does not power the block above it, but that rule belongs to the wire block, not
+     * to the block a component is embedded in: the host is acting as a signal source, so all six
+     * sides are driven.
      */
     @GameTest(template = "empty")
-    public void innerRedstoneSignalsEveryDirectionExceptDown(GameTestHelper helper) {
+    public void innerRedstoneSignalsEveryDirection(GameTestHelper helper) {
         setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
 
         BlockPos host = at(helper, 1, 1, 1);
@@ -546,15 +550,32 @@ public final class InnerRedstoneGameTest {
 
         for (Direction direction : Direction.values()) {
             int signal = hostState.getSignal(level, host, direction);
-            if (direction == Direction.DOWN) {
-                helper.assertTrue(signal == 0,
-                        "a host block must not signal downwards, got " + signal);
-            } else {
-                helper.assertTrue(signal == 15,
-                        "direction " + direction + " should emit 15, got " + signal);
-            }
+            helper.assertTrue(signal == 15,
+                    "direction " + direction + " should emit 15, got " + signal);
         }
         helper.succeed();
+    }
+
+    /**
+     * The direction that used to be missing: a block above a host is driven like any other side.
+     *
+     * <p>Reported as "everything works except upwards". The host used to keep vanilla wire's quirk of
+     * not powering the block above it, which is fine for a wire lying on the ground but wrong for a
+     * block that is acting as a signal source - a lamp on top of it stayed dark while the same lamp
+     * below it lit.
+     */
+    @GameTest(template = "empty")
+    public void hostLightsTheLampAboveIt(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 2, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 1, 0, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        placeDust(helper, at(helper, 1, 1, 1), 15);
+
+        afterTicks(helper, 2, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(lampLit(helper, 1, 2, 1), "the lamp above the host should be lit");
+            helper.assertTrue(lampLit(helper, 1, 0, 1), "and so should the one below it");
+        }));
     }
 
     // ------------------------------------- draining back into the world ------
