@@ -10,103 +10,81 @@ import java.util.zip.GZIPOutputStream;
  * <p>Pure JDK on purpose: the file must be byte-exact NBT, and pulling Minecraft's own NBT writer
  * in would drag the whole game classpath along.
  *
- * <p>Layout: a 3x3x3 box with a stone floor, air interior on the middle layer, and a barrier shell
- * on the top layer plus the four sides of the middle layer. Tests overwrite whatever they need.
+ * <p>Layout: a completely empty 5x3x5 box of air. Tests place every block they need themselves.
+ *
+ * <p>The template is deliberately empty rather than pre-filled with floor or walls. Two earlier
+ * versions were not, and both produced false failures:
+ * <ul>
+ *   <li>a barrier shell around the test area made vanilla pistons refuse to extend, because
+ *       {@code PistonStructureResolver} rejects a move that would shove the piston itself;</li>
+ *   <li>a stone floor did the same, because the stone a piston wanted to push had the floor behind
+ *       it and the push chain could not resolve.</li>
+ * </ul>
+ * Both looked exactly like "inner redstone does not power pistons". A control test using a vanilla
+ * redstone block is included in the suite to catch this class of mistake in future.
  *
  * <p>Run: java MakeTemplate.java &lt;output.nbt&gt;
  */
 public final class MakeTemplate {
 
+    private static final int WIDTH = 5;
+    private static final int HEIGHT = 3;
+
     private static final String[] PALETTE = {
-            "minecraft:air",
-            "minecraft:stone",
-            "minecraft:barrier"
+            "minecraft:air"
     };
 
     public static void main(String[] args) throws Exception {
         Path out = Path.of(args[0]);
 
-        // Collect the non-air blocks: stone floor, barrier shell around the middle layer.
-        List<int[]> blocks = new ArrayList<>(); // x, y, z, state
-        for (int x = 0; x < 3; x++) {
-            for (int y = 0; y < 3; y++) {
-                for (int z = 0; z < 3; z++) {
-                    int state;
-                    if (y == 0) {
-                        state = 1; // stone floor
-                    } else if (y == 2 || x == 0 || x == 2 || z == 0 || z == 2) {
-                        state = 2; // barrier shell
-                    } else {
-                        state = 0; // air interior
-                    }
-                    if (state != 0) {
-                        blocks.add(new int[] { x, y, z, state });
-                    }
-                }
-            }
-        }
+        // No blocks at all: a pure air volume.
+        List<int[]> blocks = new ArrayList<>();
 
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
-        try (DataOutputStream out2 = new DataOutputStream(raw)) {
-            out2.writeByte(0x0A);          // TAG_Compound
-            writeName(out2, "");           // root name
+        try (DataOutputStream data = new DataOutputStream(raw)) {
+            data.writeByte(0x0A);          // TAG_Compound
+            writeName(data, "");           // root name
 
             // TAG_List("size") of TAG_Int, length 3
-            out2.writeByte(0x09);
-            writeName(out2, "size");
-            out2.writeByte(0x03);
-            out2.writeInt(3);
-            out2.writeInt(3);
-            out2.writeInt(3);
-            out2.writeInt(3);
+            data.writeByte(0x09);
+            writeName(data, "size");
+            data.writeByte(0x03);
+            data.writeInt(3);
+            data.writeInt(WIDTH);
+            data.writeInt(HEIGHT);
+            data.writeInt(WIDTH);
 
             // TAG_List("entities") of TAG_Compound, empty
-            out2.writeByte(0x09);
-            writeName(out2, "entities");
-            out2.writeByte(0x0A);
-            out2.writeInt(0);
+            data.writeByte(0x09);
+            writeName(data, "entities");
+            data.writeByte(0x0A);
+            data.writeInt(0);
 
             // TAG_List("blocks") of TAG_Compound
-            out2.writeByte(0x09);
-            writeName(out2, "blocks");
-            out2.writeByte(0x0A);
-            out2.writeInt(blocks.size());
-            for (int[] b : blocks) {
-                // TAG_List("pos") of TAG_Int, length 3
-                out2.writeByte(0x09);
-                writeName(out2, "pos");
-                out2.writeByte(0x03);
-                out2.writeInt(3);
-                out2.writeInt(b[0]);
-                out2.writeInt(b[1]);
-                out2.writeInt(b[2]);
+            data.writeByte(0x09);
+            writeName(data, "blocks");
+            data.writeByte(0x0A);
+            data.writeInt(blocks.size());
 
-                // TAG_Int("state")
-                out2.writeByte(0x03);
-                writeName(out2, "state");
-                out2.writeInt(b[3]);
-
-                out2.writeByte(0x00); // end of this block compound
-            }
-
-            // TAG_List("palette") of TAG_Compound
-            out2.writeByte(0x09);
-            writeName(out2, "palette");
-            out2.writeByte(0x0A);
-            out2.writeInt(PALETTE.length);
+            // TAG_List("palette") of TAG_Compound: a structure with no blocks still needs the air
+            // entry to be considered valid.
+            data.writeByte(0x09);
+            writeName(data, "palette");
+            data.writeByte(0x0A);
+            data.writeInt(PALETTE.length);
             for (String name : PALETTE) {
-                out2.writeByte(0x08); // TAG_String
-                writeName(out2, "Name");
-                writeName(out2, name);
-                out2.writeByte(0x00);
+                data.writeByte(0x08); // TAG_String
+                writeName(data, "Name");
+                writeName(data, name);
+                data.writeByte(0x00);
             }
 
             // TAG_Int("DataVersion") for 1.21.1
-            out2.writeByte(0x03);
-            writeName(out2, "DataVersion");
-            out2.writeInt(3953);
+            data.writeByte(0x03);
+            writeName(data, "DataVersion");
+            data.writeInt(3953);
 
-            out2.writeByte(0x00); // end of root compound
+            data.writeByte(0x00); // end of root compound
         }
 
         byte[] bytes = raw.toByteArray();
@@ -116,6 +94,7 @@ public final class MakeTemplate {
             gz.write(bytes);
         }
 
+        System.out.println("size    = " + WIDTH + "x" + HEIGHT + "x" + WIDTH);
         System.out.println("blocks  = " + blocks.size());
         System.out.println("raw     = " + bytes.length + " bytes");
         System.out.println("gzipped = " + Files.size(out) + " bytes");

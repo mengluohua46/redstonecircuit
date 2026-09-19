@@ -61,6 +61,9 @@ public final class InnerRedstoneGameTest {
         InnerRedstoneNode node = store.getOrCreate(pos);
         node.setSlot(slot);
         store.markDirty();
+        // The same notification the real placement path performs, so vanilla consumers react
+        // exactly as they would in game.
+        InnerRedstoneInteraction.notifyNeighbours(level, pos);
         return slot;
     }
 
@@ -74,6 +77,21 @@ public final class InnerRedstoneGameTest {
     private static int powerAt(GameTestHelper helper, BlockPos pos) {
         InnerRedstoneNode node = InnerRedstoneStore.get(helper.getLevel()).get(pos);
         return node == null || node.isEmpty() ? -1 : node.power();
+    }
+
+    /**
+     * Runs {@code action} once the world has actually ticked.
+     *
+     * <p>Succeeding from the very first tick is unreliable here: a lamp or piston only re-evaluates
+     * its neighbours when a block update reaches it, and that happens during the tick following the
+     * change. Waiting one tick also exercises the real code path players will hit.
+     */
+    private static void afterTicks(GameTestHelper helper, int ticks, Runnable action) {
+        if (ticks <= 0) {
+            action.run();
+            return;
+        }
+        helper.runAfterDelay(ticks, () -> afterTicks(helper, ticks - 1, action));
     }
 
     // --------------------------------------------------------------- tests --
@@ -220,5 +238,142 @@ public final class InnerRedstoneGameTest {
         helper.succeedWhen(() -> helper.assertTrue(
                 powerAt(helper, lower) == 0,
                 "power must fall back to 0 once the source is gone, got " + powerAt(helper, lower)));
+    }
+
+    // ---------------------------------------------------- inner -> outer ------
+
+    /**
+     * The headline of this stage: an inner component lights a vanilla redstone lamp beside its host
+     * block. This is what {@code BlockStateSignalMixin} exists for - no other NeoForge hook lets an
+     * untouched vanilla block emit a signal.
+     *
+     * <p>The signal itself is asserted first, because if that fails the cause is the mixin, whereas
+     * if only the lamp stays dark the cause is update propagation and needs a tick.
+     */
+    @GameTest(template = "empty")
+    public void innerRedstoneLightsAdjacentLamp(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 15);
+
+        ServerLevel level = helper.getLevel();
+        BlockState hostState = level.getBlockState(host);
+        int emitted = hostState.getSignal(level, host, Direction.EAST);
+        int direct = hostState.getDirectSignal(level, host, Direction.EAST);
+
+        if (emitted != 15 || direct != 15) {
+            helper.fail("the host block should emit 15 in both signal queries,"
+                    + " but getSignal=" + emitted + " getDirectSignal=" + direct);
+            return;
+        }
+
+        afterTicks(helper, 2, () -> helper.succeedWhen(() -> helper.assertTrue(
+                helper.getBlockState(new BlockPos(2, 1, 1)).getValue(BlockStateProperties.LIT),
+                "the lamp beside a powered host block should be lit")));
+    }
+
+    /** Control: a host with no component must leave the neighbouring lamp alone. */
+    @GameTest(template = "empty")
+    public void emptyHostDoesNotLightLamp(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        placeDust(helper, at(helper, 1, 1, 1), 0);
+
+        helper.succeedWhen(() -> helper.assertTrue(
+                !helper.getBlockState(new BlockPos(2, 1, 1)).getValue(BlockStateProperties.LIT),
+                "an unpowered component must not light the lamp"));
+    }
+
+    /** A component in the block above must power an adjacent lamp the same way. */
+    @GameTest(template = "empty")
+    public void innerRedstoneAboveLightsLamp(GameTestHelper helper) {
+        setBlock(helper, 1, 2, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 2, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 2, 1);
+        placeDust(helper, host, 15);
+
+        ServerLevel level = helper.getLevel();
+        BlockState hostState = level.getBlockState(host);
+        StringBuilder diag = new StringBuilder("host=" + host
+                + " hostBlock=" + hostState.getBlock()
+                + " storeSignal=" + InnerRedstoneStore.get(level).getSignal(host)
+                + " storedNode=" + (InnerRedstoneStore.get(level).get(host) != null)
+                + " storeEmpty=" + InnerRedstoneStore.get(level).isEmpty()
+                + " suppressed=" + InnerRedstoneNetwork.isSignalSuppressed(level)
+                + " signals:");
+        for (Direction d : Direction.values()) {
+            diag.append(' ').append(d).append('=').append(hostState.getSignal(level, host, d));
+        }
+        diag.append("  lampBlock=").append(level.getBlockState(at(helper, 2, 2, 1)).getBlock());
+        diag.append("  lampLit=")
+            .append(level.getBlockState(at(helper, 2, 2, 1)).getValue(BlockStateProperties.LIT));
+
+        afterTicks(helper, 2, () -> helper.succeedWhen(() -> helper.assertTrue(
+                helper.getBlockState(new BlockPos(2, 2, 1)).getValue(BlockStateProperties.LIT),
+                "the lamp beside the upper host block should be lit. " + diag)));
+    }
+
+    /**
+     * A host block lights a lamp on each of the four horizontal sides.
+     *
+     * <p>A lamp <em>above</em> the host is deliberately not included: it queries its neighbour below
+     * with direction {@code DOWN}, which hosts do not signal (mirroring vanilla wire). That asymmetry
+     * is verified by {@link #innerRedstoneSignalsEveryDirectionExceptDown}.
+     */
+    @GameTest(template = "empty")
+    public void innerRedstoneLightsLampsOnAllSides(GameTestHelper helper) {
+        setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
+
+        setBlock(helper, 3, 1, 2, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 1, 1, 2, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 2, 1, 3, Blocks.REDSTONE_LAMP.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_LAMP.defaultBlockState());
+
+        placeDust(helper, at(helper, 2, 1, 2), 15);
+
+        BlockPos[] lamps = {
+                new BlockPos(3, 1, 2),
+                new BlockPos(1, 1, 2),
+                new BlockPos(2, 1, 3),
+                new BlockPos(2, 1, 1)
+        };
+
+        afterTicks(helper, 2, () -> helper.succeedWhen(() -> {
+            for (BlockPos lamp : lamps) {
+                helper.assertTrue(
+                        helper.getBlockState(lamp).getValue(BlockStateProperties.LIT),
+                        "lamp at " + lamp + " should be lit");
+            }
+        }));
+    }
+
+    /**
+     * A host block powers every side except the one below it, mirroring vanilla wire.
+     */
+    @GameTest(template = "empty")
+    public void innerRedstoneSignalsEveryDirectionExceptDown(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        placeDust(helper, host, 15);
+
+        ServerLevel level = helper.getLevel();
+        BlockState hostState = level.getBlockState(host);
+
+        for (Direction direction : Direction.values()) {
+            int signal = hostState.getSignal(level, host, direction);
+            if (direction == Direction.DOWN) {
+                helper.assertTrue(signal == 0,
+                        "a host block must not signal downwards, got " + signal);
+            } else {
+                helper.assertTrue(signal == 15,
+                        "direction " + direction + " should emit 15, got " + signal);
+            }
+        }
+        helper.succeed();
     }
 }

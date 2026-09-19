@@ -126,6 +126,8 @@ public final class InnerRedstoneInteraction {
 
         // Adding a component changes the surrounding network, so queue a propagation pass.
         com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        // ...and tell vanilla consumers to re-check, since no block state changed.
+        notifyNeighbours(level, pos);
 
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
@@ -157,6 +159,7 @@ public final class InnerRedstoneInteraction {
 
         // Removing a component can cut power to its neighbours, so re-derive the local network.
         com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        notifyNeighbours(level, pos);
 
         if (!player.getAbilities().instabuild) {
             ItemStack back = HostRules.itemFor(removed.type());
@@ -197,11 +200,28 @@ public final class InnerRedstoneInteraction {
         }
         // The host is going away, so whatever coupled to it must re-derive its power.
         com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        notifyNeighbours(level, pos);
         Block.popResource(level, pos, HostRules.itemFor(node.type()));
         debug("dropped {} from broken host {}", node.type(), pos.toShortString());
     }
 
     // ----------------------------------------------------------------- utils --
+
+    /** Tells the surrounding blocks that this position's redstone output may have changed. */
+    public static void notifyNeighbours(ServerLevel level, BlockPos pos) {
+        BlockState hostState = level.getBlockState(pos);
+        Block hostBlock = hostState.getBlock();
+        // Two calls on purpose: updateNeighborsAt covers the vanilla notification path, and the
+        // explicit neighbourChanged loop makes sure each neighbour's own handler runs even when the
+        // world is mid-setup (as it is inside a game test, where the host block may have been placed
+        // in the same tick).
+        level.updateNeighborsAt(pos, hostBlock);
+        for (Direction direction : Direction.values()) {
+            BlockPos neighbour = pos.relative(direction);
+            level.getBlockState(neighbour)
+                    .handleNeighborChanged(level, neighbour, hostBlock, pos, false);
+        }
+    }
 
     @Nullable
     private static ServerPlayer serverPlayer(Player player) {

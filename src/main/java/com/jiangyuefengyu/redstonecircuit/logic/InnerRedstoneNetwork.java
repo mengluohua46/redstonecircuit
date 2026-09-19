@@ -120,6 +120,26 @@ public final class InnerRedstoneNetwork {
             return;
         }
 
+        // Suppress inner-redstone signal output for the WHOLE solve.
+        //
+        // While the solver is deciding what each component should hold, the values it reads are
+        // intermediate: reporting them to the world would let a component charge itself from its own
+        // half-computed value. The flag is therefore scoped to this method rather than to individual
+        // signal queries, which is both easier to reason about and impossible to leak (it is cleared
+        // in a finally block even if a solve blows up).
+        boolean alreadySuppressed = !SUPPRESS_SIGNAL.add(level.dimension());
+        try {
+            relax(level, store, seed, component);
+        } finally {
+            if (!alreadySuppressed) {
+                SUPPRESS_SIGNAL.remove(level.dimension());
+            }
+        }
+    }
+
+    /** The relaxation loop: repeated passes until the component's values stop changing. */
+    private static void relax(ServerLevel level, InnerRedstoneStore store, BlockPos seed,
+                              List<BlockPos> component) {
         SolverEnvironment env = new SolverEnvironment(level, store);
 
         // Relax the whole component until nothing changes.
@@ -249,23 +269,18 @@ public final class InnerRedstoneNetwork {
         @Override
         public int bestNeighborSignal() {
             // Mirrors vanilla Level#getBestNeighborSignal: the strongest signal neighbours push in.
-            boolean previous = SUPPRESS_SIGNAL.add(level.dimension());
-            try {
-                int best = 0;
-                for (Direction direction : Direction.values()) {
-                    BlockPos neighbour = queryPos.relative(direction);
-                    BlockState state = level.getBlockState(neighbour);
-                    best = Math.max(best, state.getSignal(level, neighbour, direction.getOpposite()));
-                    if (best >= PowerSolver.MAX_POWER) {
-                        return PowerSolver.MAX_POWER;
-                    }
-                }
-                return best;
-            } finally {
-                if (!previous) {
-                    SUPPRESS_SIGNAL.remove(level.dimension());
+            // Inner-redstone output is already suppressed for the duration of the solve, so this sees
+            // only real blocks.
+            int best = 0;
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbour = queryPos.relative(direction);
+                BlockState state = level.getBlockState(neighbour);
+                best = Math.max(best, state.getSignal(level, neighbour, direction.getOpposite()));
+                if (best >= PowerSolver.MAX_POWER) {
+                    return PowerSolver.MAX_POWER;
                 }
             }
+            return best;
         }
 
         @Override
