@@ -183,6 +183,29 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
 }
 
+// --- unit tests ---------------------------------------------------------------------------
+// Pure-logic tests for the data layer (NBT round-trips, placement ordering, host rules...).
+// These run on the JVM without launching Minecraft, so they are fast and catch the kind of
+// regressions that are tedious to find in-game.
+//
+// ModDevGradle puts Minecraft on the MAIN source set's classpath only, so the test source set
+// has to inherit it explicitly - otherwise the tests cannot even see net.minecraft.* classes.
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+    }
+}
+
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.
 idea {
     module {
