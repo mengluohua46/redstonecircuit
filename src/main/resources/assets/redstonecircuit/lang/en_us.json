@@ -1,0 +1,10 @@
+{
+  "itemGroup.redstonecircuit": "Redstone Circuit",
+
+  "redstonecircuit.configuration.title": "Redstone Circuit Configs",
+  "redstonecircuit.configuration.section.redstonecircuit.common.toml": "Common Settings",
+  "redstonecircuit.configuration.section.redstonecircuit.common.toml.title": "Redstone Circuit - Common Settings",
+  "redstonecircuit.configuration.validateHosts": "Validate host blocks",
+  "redstonecircuit.configuration.debugLog": "Debug logging",
+  "redstonecircuit.configuration.maxComponentsPerBlock": "Max components per block"
+}

@@ -1,0 +1,10 @@
+{
+  "itemGroup.redstonecircuit": "红石电路",
+
+  "redstonecircuit.configuration.title": "红石电路 配置",
+  "redstonecircuit.configuration.section.redstonecircuit.common.toml": "通用设置",
+  "redstonecircuit.configuration.section.redstonecircuit.common.toml.title": "红石电路 - 通用设置",
+  "redstonecircuit.configuration.validateHosts": "校验宿主方块",
+  "redstonecircuit.configuration.debugLog": "调试日志",
+  "redstonecircuit.configuration.maxComponentsPerBlock": "单方块最大元件数"
+}
