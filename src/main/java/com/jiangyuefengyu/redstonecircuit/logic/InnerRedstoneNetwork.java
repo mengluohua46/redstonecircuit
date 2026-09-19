@@ -116,6 +116,10 @@ public final class InnerRedstoneNetwork {
      */
     public static void recompute(ServerLevel level, InnerRedstoneStore store, BlockPos seed) {
         List<BlockPos> component = collectComponent(level, store, seed);
+        if (RCConfig.debugLog()) {
+            RCConfig.LOGGER.info("[redstonecircuit] recompute seed={} component={}",
+                    seed.toShortString(), component);
+        }
         if (component.isEmpty()) {
             return;
         }
@@ -172,21 +176,25 @@ public final class InnerRedstoneNetwork {
                     continue;
                 }
 
-                // A component's own power is whatever it receives from the vanilla world - a lever or
-                // redstone torch pressed against the host block, a neighbouring torch, a lamp
-                // already lit - falling back to propagated power for anything that is only a
-                // conductor. Dust therefore behaves exactly like vanilla wire, while a torch or
-                // lever inside a block actually produces power.
-                //
-                // `fixedSource` is separate: it keeps the power seeded by /rc place and by the
-                // tests, which have no real block to read a signal from.
-                int floor = slot.fixedSource ? slot.power : 0;
-
+                // The component's own supply: the signal it receives from the vanilla world (a lever,
+                // torch or redstone block touching the host block, or a neighbouring lit lamp), or a
+                // value injected by /rc place. This is what the network propagates outwards; the
+                // components' settled values are never treated as supplies, which is what keeps a
+                // pair or chain from draining itself to zero.
                 env.setQueryPos(pos);
-                int target = Math.max(floor,
-                        Math.max(env.externalSignal(), PowerSolver.targetStrength(env, pos)));
+                int external = env.externalSignal();
+                int supply = Math.max(external, slot.fixedSource ? slot.power : 0);
+                int target = PowerSolver.targetStrength(env, pos, supply);
 
                 if (target != slot.power) {
+                    // Logged at INFO whenever the value actually changes, which is the only reliable
+                    // way to diagnose "the lever/torch does nothing" reports: the log otherwise
+                    // records placement but nothing about the power that resulted from it.
+                    RCConfig.LOGGER.info(
+                            "[redstonecircuit] {} at {} power {} -> {} (supply={}, externalSignal={}, fixedSource={})",
+                            slot.type, pos.toShortString(), slot.power, target, supply, external,
+                            slot.fixedSource);
+
                     slot.power = target;
                     store.markDirty();
                     changed = true;

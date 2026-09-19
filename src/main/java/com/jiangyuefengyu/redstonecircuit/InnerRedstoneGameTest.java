@@ -238,6 +238,45 @@ public final class InnerRedstoneGameTest {
     }
 
     /**
+     * Two adjacent hosts in a chain must hold their values and then drain together when the source
+     * goes away.
+     *
+     * <p>Regression test for two separate reports: a chain of components decaying towards zero while
+     * the source was still present, and power staying latched after the source was removed. Both had
+     * the same cause - a component treating its neighbour's <em>settled value</em> as a supply, so a
+     * pair fed off each other. The rule is now stated in terms of each component's own supply.
+     */
+    @GameTest(template = "empty")
+    public void chainHoldsValuesThenDrainsWhenSourceRemoved(GameTestHelper helper) {
+        setBlock(helper, 2, 1, 2, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 3, Blocks.STONE.defaultBlockState());
+
+        BlockPos near = at(helper, 2, 1, 2);
+        BlockPos far = at(helper, 2, 1, 3);
+        placeDust(helper, near, 0);
+        placeDust(helper, far, 0);
+
+        // A lit torch against the near host.
+        setBlock(helper, 1, 1, 2, Blocks.REDSTONE_TORCH.defaultBlockState());
+
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(powerAt(helper, near) == 15,
+                    "the near component should be 15 from the torch, got " + powerAt(helper, near));
+            helper.assertTrue(powerAt(helper, far) == 14,
+                    "the far component should be 14 (one hop), got " + powerAt(helper, far));
+
+            // Remove the source; BOTH must fall back to zero, with no decay carousel in between.
+            setBlock(helper, 1, 1, 2, Blocks.AIR.defaultBlockState());
+            afterTicks(helper, 6, () -> helper.succeedWhen(() -> {
+                helper.assertTrue(powerAt(helper, near) == 0,
+                        "the near component must drain to 0, got " + powerAt(helper, near));
+                helper.assertTrue(powerAt(helper, far) == 0,
+                        "the far component must drain to 0, got " + powerAt(helper, far));
+            }));
+        });
+    }
+
+    /**
      * A lit redstone torch standing beside a host powers the redstone inside it.
      *
      * <p>A standing torch emits 15 downwards ({@code getSignal(..., DOWN)}), which is exactly what

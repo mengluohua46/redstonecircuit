@@ -6,31 +6,30 @@ import net.minecraft.core.Direction;
 /**
  * The power algorithm for inner redstone dust.
  *
- * <p>The rule matches vanilla redstone wire: outside power passes through unattenuated, while every
- * wire-to-wire hop costs exactly one. That is the whole of vanilla's
- * {@code RedStoneWireBlock#calculateTargetStrength} reduced to its signal-carrying behaviour.
+ * <p>A component's value is its own supply (the signal it receives from the vanilla world, or a
+ * value injected by the debug command) or one less than the strongest neighbour's own supply:
  *
  * <pre>
- * private int calculateTargetStrength(Level level, BlockPos pos) {
- *     this.shouldSignal = false;
- *     int i = level.getBestNeighborSignal(pos);   // outside power, not attenuated
- *     this.shouldSignal = true;
- *     ...
- *     return Math.max(i, j - 1);                  // wire hops cost 1
- * }
+ *   value(x) = max(source(x), max over neighbours n of (source(n) - distance(x, n)))
  * </pre>
  *
- * <h2>Where this deliberately differs from vanilla</h2>
- * Vanilla only couples wires through the four <em>horizontal</em> directions, and reaches a
- * neighbouring wire vertically via "climb" (a wire on top of an opaque neighbour) and "step down"
- * (a wire under a transparent neighbour). Those rules exist because a vanilla wire is a block
- * sitting <em>on</em> the terrain, so it must be told what it may step onto.
+ * <p>Note what that does <b>not</b> say: the neighbours' <em>settled values</em> are not treated as
+ * supplies. They are also computed from {@code source}, so a chain resolves to
+ * {@code source - distance} no matter what order the network is evaluated in. Computing from
+ * settled values instead makes a pair of components feed off each other and decay towards zero,
+ * which is exactly the bug this rule exists to prevent.
  *
- * <p>Inner redstone is stored <em>inside</em> the host block, so there is no terrain between two
- * components to reason about: a component in the block above is simply adjacent. This solver
- * therefore couples all six directions directly. Copying vanilla's climb rule here was an actual
- * bug - the "wire above the opaque neighbour" position is a plain stone block in this mod, so
- * vertical neighbours never coupled at all.
+ * <h2>Relationship to vanilla</h2>
+ * Vanilla's {@code RedStoneWireBlock#calculateTargetStrength} is the same rule stated
+ * procedurally: outside power ({@code getBestNeighborSignal}) passes through unattenuated, and each
+ * wire hop costs one. Vanilla gets away with reading neighbour <em>values</em> only because it
+ * updates one wire at a time and immediately notifies, so a wire never re-reads a value that was
+ * derived from itself. This implementation relaxes a whole component at once, so it has to state the
+ * rule in terms of sources to stay order-independent.
+ *
+ * <p>Another difference: vanilla couples wires only horizontally and reaches them vertically through
+ * terrain-aware "climb" and "step down" rules. Inner redstone is stored <em>inside</em> its host
+ * block, so there is no terrain between two components: every adjacent block is a direct neighbour.
  */
 public final class PowerSolver {
 
@@ -47,20 +46,31 @@ public final class PowerSolver {
      * @param pos the dust position
      * @return 0-15
      */
-    public static int targetStrength(PowerEnvironment env, BlockPos pos) {
-        int outside = clamp(env.bestNeighborSignal());
+    /**
+     * The strongest supply available to the dust at {@code pos}, before attenuation.
+     *
+     * <p>This is {@code max(source(pos), max over neighbours n of (value(n) - 1))}, where a
+     * neighbour's {@code value} is itself derived from <em>its</em> supply. Because a neighbour's
+     * value may not have been settled yet when this runs, the caller repeats the calculation until
+     * the component stops changing; see {@code InnerRedstoneNetwork#relax}. The result is
+     * order-independent because every node ends up at {@code supply - distance}.
+     *
+     * @param env     the world view (adjacent dust, external signals)
+     * @param pos     the dust position
+     * @param supply  the power this component receives from outside the wire network - the signal of
+     *                a lever, torch or redstone block touching the host block, or 0
+     * @return 0-15
+     */
+    public static int targetStrength(PowerEnvironment env, BlockPos pos, int supply) {
+        int best = clamp(supply);
 
-        int fromWires = 0;
-        if (outside < MAX_POWER) {
-            // Direct 6-way coupling: inner redstone lives *inside* the host block, so a component
-            // in the block above/below is the direct analogue of a neighbouring wire.
-            for (Direction direction : Direction.values()) {
-                fromWires = Math.max(fromWires, wireSignalAt(env, pos.relative(direction)));
-            }
+        // Direct 6-way coupling: inner redstone lives *inside* the host block, so a component in the
+        // block above/below is the direct analogue of a neighbouring wire.
+        for (Direction direction : Direction.values()) {
+            best = Math.max(best, wireSignalAt(env, pos.relative(direction)) - 1);
         }
 
-        // Outside power passes through unchanged; every wire-to-wire hop costs exactly one.
-        return Math.max(outside, fromWires - 1);
+        return Math.max(0, best);
     }
 
     /** Mirrors vanilla {@code getWireSignal}: only dust carries a wire signal, everything else is 0. */

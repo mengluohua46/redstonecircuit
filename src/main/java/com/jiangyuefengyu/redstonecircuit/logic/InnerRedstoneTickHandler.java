@@ -53,6 +53,11 @@ public final class InnerRedstoneTickHandler {
         for (Direction direction : event.getNotifiedSides()) {
             BlockPos neighbour = event.getPos().relative(direction);
             if (store.slotAt(neighbour) != null) {
+                if (RCConfig.debugLog()) {
+                    RCConfig.LOGGER.info(
+                            "[redstonecircuit] world change at {} notified host {} -> re-solving",
+                            event.getPos().toShortString(), neighbour.toShortString());
+                }
                 InnerRedstoneNetwork.markDirty(level, neighbour);
             }
         }

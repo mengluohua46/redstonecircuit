@@ -11,14 +11,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies the inner-redstone power algorithm against the signal behaviour of vanilla redstone wire.
+ * Verifies the inner-redstone power algorithm.
  *
- * <p>Vanilla's rule, taken from {@code RedStoneWireBlock#calculateTargetStrength}, is: outside power
- * passes through unattenuated while every wire-to-wire hop costs exactly one. These tests pin that
- * down so a future refactor cannot silently change the signal maths.
- *
- * <p>Coupling is checked in all six directions here, which is where this differs from vanilla - see
- * the class comment on {@link PowerSolver} for why.
+ * <p>The rule is {@code value(x) = max(supply(x), max over neighbours (value(n) - 1))}, where
+ * {@code supply} is what the component receives from outside the wire network. These tests pin that
+ * down, and in particular the property that a chain resolves to {@code supply - distance} regardless
+ * of evaluation order - the absence of which once made pairs of components drain each other to zero.
  */
 class PowerSolverTest {
 
@@ -68,52 +66,63 @@ class PowerSolverTest {
 
         @Override
         public boolean isRedstoneConductor(int x, int y, int z) {
-            // Coupling no longer depends on the surrounding terrain, so this is unused by the
-            // solver. Implemented as "false" to keep the fake honest about that.
+            // Coupling does not depend on the surrounding terrain, so this is unused by the solver.
             return false;
         }
     }
 
     @Test
-    @DisplayName("outside power passes through without attenuation")
-    void outsidePowerIsNotAttenuated() {
-        FakeEnv env = new FakeEnv().outside(12);
-        assertEquals(12, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)),
-                "a lever next to the block should give its full strength");
+    @DisplayName("supply passes through without attenuation")
+    void supplyIsNotAttenuated() {
+        FakeEnv env = new FakeEnv();
+        assertEquals(12, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 12),
+                "a lever next to the host should give its full strength");
     }
 
     @Test
     @DisplayName("a single wire hop costs exactly one")
     void wireHopCostsOne() {
         FakeEnv env = new FakeEnv().wire(1, 0, 0, 15);
-        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)),
-                "15 - 1 from the neighbouring wire, with no outside power");
+        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 0),
+                "15 - 1 from the neighbouring wire, with no supply of its own");
     }
 
     @Test
     @DisplayName("the block above couples just like a horizontal neighbour")
     void verticalNeighbourCouples() {
-        FakeEnv env = new FakeEnv().wire(0, 1, 0, 15);
-        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)),
+        FakeEnv above = new FakeEnv().wire(0, 1, 0, 15);
+        assertEquals(14, PowerSolver.targetStrength(above, new BlockPos(0, 0, 0), 0),
                 "inner redstone in the block above is a direct neighbour");
 
         FakeEnv below = new FakeEnv().wire(0, -1, 0, 15);
-        assertEquals(14, PowerSolver.targetStrength(below, new BlockPos(0, 0, 0)),
+        assertEquals(14, PowerSolver.targetStrength(below, new BlockPos(0, 0, 0), 0),
                 "inner redstone in the block below is a direct neighbour too");
     }
 
     @Test
-    @DisplayName("wire power decays by one per hop along a straight line")
-    void linearDecay() {
-        // Source wire (power 15) at x=3, decaying away from it towards x=0.
+    @DisplayName("a chain resolves to supply minus distance at every node")
+    void chainResolvesFromSupply() {
+        // Source at x=3 with 15; the settled values at x=2 and x=1 must not be mistaken for supplies.
         FakeEnv env = new FakeEnv();
         env.wire(3, 0, 0, 15);
         env.wire(2, 0, 0, 14);
         env.wire(1, 0, 0, 13);
 
-        assertEquals(12, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)), "three hops from 15");
-        assertEquals(13, PowerSolver.targetStrength(env, new BlockPos(1, 0, 0)), "two hops from 15");
-        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(2, 0, 0)), "one hop from 15");
+        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(2, 0, 0), 0), "one hop from 15");
+        assertEquals(13, PowerSolver.targetStrength(env, new BlockPos(1, 0, 0), 0), "two hops from 15");
+        assertEquals(12, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 0), "three hops from 15");
+    }
+
+    @Test
+    @DisplayName("a component with no supply keeps its neighbour's value at arm's length")
+    void noSupplyMeansNeighbourMinusOneOnly() {
+        // Regression test for the decay bug: a neighbour holding a value is worth value-1, and that
+        // is all. It is not a supply that can lift this node above supply-1.
+        FakeEnv env = new FakeEnv().wire(1, 0, 0, 15);
+        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 0));
+
+        // And with no neighbour at all, no supply means nothing.
+        assertEquals(0, PowerSolver.targetStrength(new FakeEnv(), new BlockPos(0, 0, 0), 0));
     }
 
     @Test
@@ -125,31 +134,29 @@ class PowerSolverTest {
         env.wire(0, 0, 1, 3);
         env.wire(0, 0, -1, 2);
 
-        assertEquals(8, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)),
+        assertEquals(8, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 0),
                 "the strongest neighbouring wire (9) minus one hop");
     }
 
     @Test
-    @DisplayName("outside power beats a weaker wire but caps at 15")
-    void outsidePowerWins() {
-        FakeEnv env = new FakeEnv().wire(1, 0, 0, 6).outside(15);
-        assertEquals(15, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)));
+    @DisplayName("own supply beats a weaker neighbour")
+    void supplyWinsOverWeakerNeighbour() {
+        FakeEnv env = new FakeEnv().wire(1, 0, 0, 6);
+        assertEquals(12, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 12),
+                "a stronger supply is not dragged down by a weak neighbour");
     }
 
     @Test
-    @DisplayName("an isolated wire with no source holds nothing")
+    @DisplayName("a supply of 15 is not reduced by neighbours")
+    void fullSupplyIsNotReduced() {
+        FakeEnv env = new FakeEnv().wire(1, 0, 0, 15);
+        assertEquals(15, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 15));
+    }
+
+    @Test
+    @DisplayName("an isolated wire with no supply holds nothing")
     void isolatedWireStaysUnpowered() {
-        FakeEnv env = new FakeEnv();
-        assertEquals(0, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)),
-                "vanilla computes max(0, 0 - 1), which is 0, not -1");
-    }
-
-    @Test
-    @DisplayName("a full-strength outside source is not also charged through wires")
-    void outsidePowerSkipsWireScan() {
-        // With outside == 15 the wire scan is skipped entirely, matching vanilla's `if (i < 15)`.
-        FakeEnv env = new FakeEnv().outside(15).wire(1, 0, 0, 15);
-        assertEquals(15, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)));
+        assertEquals(0, PowerSolver.targetStrength(new FakeEnv(), new BlockPos(0, 0, 0), 0));
     }
 
     @Test
@@ -161,9 +168,8 @@ class PowerSolverTest {
         assertEquals(15, PowerSolver.clamp(99));
 
         // Out-of-range stored data is read as 15, so the target is 15 minus the one wire hop.
-        // The point here is that 999 must not leak through as a raw value.
         FakeEnv env = new FakeEnv().wire(1, 0, 0, 999);
-        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0)),
+        assertEquals(14, PowerSolver.targetStrength(env, new BlockPos(0, 0, 0), 0),
                 "999 is clamped to 15, then attenuated by one wire hop");
     }
 }
