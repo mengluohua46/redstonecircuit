@@ -22,8 +22,12 @@ public final class RedstoneCircuit {
     public RedstoneCircuit(IEventBus modEventBus, ModContainer modContainer) {
         RCRegistry.register(modEventBus);
 
-        // Everything below is server-authoritative: placement, retrieval and (later) the
-        // per-player visibility sets. Game events therefore go on the NeoForge bus.
+        // Hosts have to be known on the client to be drawn differently, and the store is
+        // server-authoritative, so two clientbound payloads keep the two sides in step.
+        modEventBus.addListener(com.jiangyuefengyu.redstonecircuit.network.RCNetwork::register);
+
+        // Everything below is server-authoritative: placement, retrieval and the host sync.
+        // Game events therefore go on the NeoForge bus.
         NeoForge.EVENT_BUS.register(new InnerRedstoneInteraction());
         NeoForge.EVENT_BUS.register(new com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneTickHandler());
 

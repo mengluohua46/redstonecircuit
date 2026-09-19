@@ -5,6 +5,7 @@ import org.jetbrains.annotations.Nullable;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -126,8 +127,10 @@ public final class InnerRedstoneInteraction {
 
         // Adding a component changes the surrounding network, so queue a propagation pass.
         com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
-        // ...and tell vanilla consumers to re-check, since no block state changed.
+        // ...tell vanilla consumers to re-check, since no block state changed...
         notifyNeighbours(level, pos);
+        // ...and tell clients, whose renderer draws this block differently from now on.
+        HostSync.broadcastChange(level, pos, true);
 
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
@@ -160,6 +163,7 @@ public final class InnerRedstoneInteraction {
         // Removing a component can cut power to its neighbours, so re-derive the local network.
         com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
+        HostSync.broadcastChange(level, pos, false);
 
         if (!player.getAbilities().instabuild) {
             ItemStack back = HostRules.itemFor(removed.type());
@@ -201,6 +205,7 @@ public final class InnerRedstoneInteraction {
         // The host is going away, so whatever coupled to it must re-derive its power.
         com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
+        HostSync.broadcastChange(level, pos, false);
         Block.popResource(level, pos, HostRules.itemFor(node.type()));
         debug("dropped {} from broken host {}", node.type(), pos.toShortString());
     }

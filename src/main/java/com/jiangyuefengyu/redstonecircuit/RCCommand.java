@@ -17,6 +17,7 @@ import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -212,6 +213,7 @@ public final class RCCommand {
         node.setSlot(slot);
         store.markDirty();
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
+        HostSync.broadcastChange(level, pos, true);
 
         feedback(ctx, header("placed " + type + " (power " + slot.power + ") at " + pos.toShortString()));
         return 1;
@@ -280,6 +282,9 @@ public final class RCCommand {
         InnerRedstoneStore store = InnerRedstoneStore.get(level(ctx));
         InnerRedstoneNode removed = store.remove(pos);
         boolean had = removed != null && !removed.isEmpty();
+        if (had) {
+            HostSync.broadcastChange(level(ctx), pos, false);
+        }
         feedback(ctx, header((had ? "cleared " + removed.type() : "nothing to clear")
                 + " at " + pos.toShortString()));
         return had ? 1 : 0;

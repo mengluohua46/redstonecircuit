@@ -42,3 +42,7 @@ repo/
 # build log written by the dev shell
 .gradle-build.log
 
+
+# dev-run client/server logs
+logs/
+.gradle-client.log
