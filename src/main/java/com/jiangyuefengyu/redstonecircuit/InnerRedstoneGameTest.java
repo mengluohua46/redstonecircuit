@@ -1097,11 +1097,13 @@ public final class InnerRedstoneGameTest {
     }
 
     /**
-     * The headline of the wrench: a locked line is the <em>only</em> line.
+     * The headline of the wrench: a locked line is the <em>only</em> line, and there can be several.
      *
      * <p>Two wires that both couple to a source on their own. Locking one of them must leave it working
      * and cut the other one dead, which is what "除了这条线，其他线都被隔断" asks for - and it has to be
-     * true in the world, not just in the stored overrides.
+     * true in the world, not just in the stored overrides. Locking the second one afterwards must take a
+     * single wrench use, because the cut that killed it was implied by the first lock rather than
+     * chosen by the player.
      */
     @GameTest(template = "empty")
     public void wrenchLockCutsEveryOtherLine(GameTestHelper helper) {
@@ -1114,7 +1116,7 @@ public final class InnerRedstoneGameTest {
         BlockPos source = at(helper, 1, 1, 1);
         BlockPos east = at(helper, 2, 1, 1);
         BlockPos south = at(helper, 1, 1, 2);
-        placeDust(helper, source, 15);
+        Slot sourceSlot = placeDust(helper, source, 15);
         placeDust(helper, east, 0);
         placeDust(helper, south, 0);
 
@@ -1134,22 +1136,26 @@ public final class InnerRedstoneGameTest {
                 "the locked line still carries the signal, got " + powerAt(helper, east));
         helper.assertTrue(powerAt(helper, south) == 0,
                 "and every other line is cut, got " + powerAt(helper, south));
-        helper.assertTrue(WrenchLinks.stateOf(slotAt(helper, source), Direction.SOUTH)
-                        == ConnectionState.OFF,
-                "which is recorded as a cut on that side, so a later placement cannot reopen it");
+        helper.assertTrue(sourceSlot.isClosed(Direction.SOUTH),
+                "the south side is dead, so a later placement there cannot join either");
+        helper.assertTrue(sourceSlot.forcedOff.isEmpty(),
+                "not because it was written down as a cut: the lock implies it");
 
-        // Addressing the second line must not disturb the first: that side was cut by the lock, so the
-        // next step of the cycle puts it back to automatic, and a route is built without a later lock
-        // quietly undoing the one before it.
-        WrenchLinks.link(helper.getLevel(), source, south);
+        // The second line takes one more use, and the first one survives it.
+        helper.assertTrue(WrenchLinks.link(helper.getLevel(), source, south)
+                        == WrenchLinks.Result.LINKED_ON,
+                "one click locks the second line as well");
         solve(helper, east);
         solve(helper, south);
 
         helper.succeedWhen(() -> {
+            helper.assertTrue(sourceSlot.isOpen(Direction.EAST)
+                            && sourceSlot.isOpen(Direction.SOUTH),
+                    "both lines are locked now");
             helper.assertTrue(powerAt(helper, south) == 14,
-                    "the second line is live again, got " + powerAt(helper, south));
+                    "the second line carries the signal, got " + powerAt(helper, south));
             helper.assertTrue(powerAt(helper, east) == 14,
-                    "and the line locked before it survived, got " + powerAt(helper, east));
+                    "and the first one still does, got " + powerAt(helper, east));
         });
     }
 

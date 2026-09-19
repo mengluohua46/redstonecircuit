@@ -77,20 +77,51 @@ class InnerRedstoneDataTest {
         for (Direction direction : Direction.values()) {
             assertFalse(slot.isLocked(direction), direction + " should start unlocked");
         }
+        assertFalse(slot.isRoutingLocked(), "nothing is locked yet");
         assertTrue(slot.isConnected(Direction.UP));
 
         slot.setConnection(Direction.UP, ConnectionState.OFF);
         assertTrue(slot.isLocked(Direction.UP));
-        assertFalse(slot.isConnected(Direction.UP), "forced OFF must win");
+        assertFalse(slot.isConnected(Direction.UP), "an explicit cut must win");
+        assertTrue(slot.isConnected(Direction.DOWN),
+                "and cutting one side must not freeze the others");
 
         slot.setConnection(Direction.UP, ConnectionState.ON);
-        assertTrue(slot.isConnected(Direction.UP), "forced ON must win");
+        assertTrue(slot.isConnected(Direction.UP), "a locked side is open");
+        assertFalse(slot.isConnected(Direction.DOWN),
+                "locking one side makes the routing explicit, so the others are dead at once");
+        assertTrue(slot.isRoutingLocked());
 
         // Setting back to AUTO clears the override rather than leaving a stale entry.
         slot.setConnection(Direction.UP, ConnectionState.AUTO);
         assertFalse(slot.isLocked(Direction.UP));
         assertTrue(slot.isConnected(Direction.UP));
         assertTrue(slot.forcedOn.isEmpty() && slot.forcedOff.isEmpty());
+    }
+
+    /**
+     * The rule the wrench is built on: a locked component is connected to its locked neighbours and to
+     * nothing else, and the sides that are dead are never written down - they are inferred, which is
+     * what lets a second direction be locked with one more click.
+     */
+    @Test
+    @DisplayName("locking a side cuts every side that was not locked, without storing anything")
+    void lockingInfersTheOtherCuts() {
+        Slot slot = new Slot(ComponentType.DUST);
+        slot.setConnection(Direction.UP, ConnectionState.ON);
+
+        assertTrue(slot.isConnected(Direction.UP));
+        for (Direction direction : Direction.values()) {
+            if (direction != Direction.UP) {
+                assertFalse(slot.isConnected(direction),
+                        direction + " was left out of the lock, so it is dead");
+                assertFalse(slot.isExplicitlyCut(direction),
+                        direction + " must not be stored as a cut");
+                assertFalse(slot.isLocked(direction),
+                        direction + " has no override, so the wrench still reads it as automatic"
+                                + " and one click locks it");
+            }
+        }
     }
 
     @Test

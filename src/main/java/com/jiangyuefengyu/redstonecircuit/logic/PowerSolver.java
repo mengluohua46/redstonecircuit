@@ -2,6 +2,7 @@ package com.jiangyuefengyu.redstonecircuit.logic;
 
 import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -33,8 +34,10 @@ import net.minecraft.core.Direction;
  * one less than its value, and everything else is worth its value.
  *
  * <h2>The wrench</h2>
- * {@code forcedOff(direction)} cuts a direction outright and {@code forcedOn(direction)} opens it,
- * both taking precedence over the rules above. See {@code Slot#setConnection}.
+ * The wrench overrides the rules above. A side it <b>locked</b> is open, a side it <b>cut</b> is dead,
+ * and - the part that matters - once any side is locked the component's routing is <em>explicit</em>:
+ * every side that was not locked is dead too. So a lock says "this is the line", not merely "these two
+ * are joined", and redstone laid against any other face cannot sneak in. See {@link #Locks}.
  */
 public final class PowerSolver {
 
@@ -45,6 +48,41 @@ public final class PowerSolver {
     }
 
     // ------------------------------------------------------- connection rules --
+
+    /**
+     * One component's connection overrides, as the rules need them.
+     *
+     * <p>Three booleans per side rather than one state, because "the wrench cut this" and "this was left
+     * out of a lock" have to be told apart: an explicit cut stops a component reading that side, while
+     * being left out of a lock only stops it talking to neighbours - a diode must still read its own
+     * input, or locking anything on it would switch the component off.
+     *
+     * @param open the wrench locked this side: the signal goes out here whatever the neighbours say
+     * @param explicitlyCut the wrench cut this side by hand: nothing goes in or out
+     * @param routingLocked the component has at least one locked side, so its routing is explicit
+     */
+    public record Locks(boolean open, boolean explicitlyCut, boolean routingLocked) {
+
+        /** Reads the overrides of a stored component. */
+        public static Locks of(Slot slot, Direction direction) {
+            return new Locks(slot.isOpen(direction), slot.isExplicitlyCut(direction),
+                    slot.isRoutingLocked());
+        }
+
+        /** Reads the overrides of a component view. */
+        public static Locks of(PowerEnvironment.Node node, Direction direction) {
+            return new Locks(node.open(direction), node.explicitlyCut(direction),
+                    node.routingLocked());
+        }
+
+        /** No overrides at all: the ordinary case, and the one the rules assume by default. */
+        public static final Locks NONE = new Locks(false, false, false);
+
+        /** True when this side carries nothing at all, whether or not the neighbours could. */
+        public boolean closed() {
+            return explicitlyCut || (routingLocked && !open);
+        }
+    }
 
     /**
      * Whether the component's output also counts as <b>strong</b> power towards the side a query came
@@ -67,8 +105,8 @@ public final class PowerSolver {
      *     before calling in, so every rule in this class speaks one frame.
      */
     public static boolean directSignalToward(ComponentType type, Direction facing, Direction direction,
-                                             boolean forcedOff) {
-        if (forcedOff) {
+                                             Locks locks) {
+        if (locks.closed()) {
             return false;
         }
         if (type == ComponentType.REPEATER || type == ComponentType.COMPARATOR) {
@@ -83,19 +121,25 @@ public final class PowerSolver {
         return false;
     }
 
+    /** Convenience for the mixin and for tests: the same rule with no overrides at all. */
+    public static boolean directSignalToward(ComponentType type, Direction facing, Direction direction,
+                                             boolean explicitlyCut) {
+        return directSignalToward(type, facing, direction, new Locks(false, explicitlyCut, false));
+    }
+
     /**
-     * Primitive overload of {@link #emitsToward(PowerEnvironment.Node, Direction)}.
+     * Whether this component's output leaves it towards {@code direction}.
      *
-     * <p>Exists because the host block's own signal query runs on Minecraft's hottest path
-     * ({@code BlockState#getSignal} is asked by every redstone update in the world), and it must not
-     * allocate a node view for a one-line rule.
+     * <p>Note what a lock does <em>not</em> do here: it stops the signal leaving along unpinned sides,
+     * but it never changes where the component would have emitted anyway. Forcing a side open is the
+     * other half, and is what makes "route a repeater sideways" possible.
      */
     public static boolean emitsToward(ComponentType type, Direction facing, Direction direction,
-                                      boolean forcedOn, boolean forcedOff) {
-        if (forcedOff) {
+                                      Locks locks) {
+        if (locks.closed()) {
             return false;
         }
-        if (forcedOn) {
+        if (locks.open()) {
             return true;
         }
         switch (type) {
@@ -113,25 +157,42 @@ public final class PowerSolver {
     }
 
     /** True when this component's output leaves it towards {@code direction}. */
+    public static boolean emitsToward(ComponentType type, Direction facing, Direction direction,
+                                      boolean open, boolean explicitlyCut, boolean routingLocked) {
+        return emitsToward(type, facing, direction, new Locks(open, explicitlyCut, routingLocked));
+    }
+
+    /** True when this component's output leaves it towards {@code direction}. */
     public static boolean emitsToward(PowerEnvironment.Node node, Direction direction) {
-        return emitsToward(node.type(), node.facing(), direction,
-                node.forcedOn(direction), node.forcedOff(direction));
+        return emitsToward(node.type(), node.facing(), direction, Locks.of(node, direction));
+    }
+
+    /** True when this component's output leaves it towards {@code direction}, overrides included. */
+    public static boolean emitsToward(Slot slot, Direction direction) {
+        return emitsToward(slot.type, slot.facing, direction, Locks.of(slot, direction));
     }
 
     /**
-     * Primitive overload of {@link #readsFrom(PowerEnvironment.Node, Direction)}.
+     * Whether this component takes its input from {@code direction}.
      *
-     * <p>Exists for the same reason as the emit one: the client draws a component's input side, and
-     * asking the rules directly is the only way for the drawing and the solver to agree by
-     * construction rather than by being kept in step by hand.
+     * <p>A lock does not stop a driven component reading its own input side: locking a repeater's
+     * output sideways must not switch the repeater off. An explicit cut <em>does</em> stop it, which is
+     * what makes {@code /rc connect ... off} a way to disable one input of a comparator.
      */
     public static boolean readsToward(ComponentType type, Direction facing, Direction direction,
-                                      boolean forcedOn, boolean forcedOff) {
-        if (forcedOff) {
+                                      Locks locks) {
+        if (locks.explicitlyCut()) {
             return false;
         }
-        if (forcedOn) {
+        if (locks.open()) {
             return true;
+        }
+        if (locks.routingLocked() && isInputSide(type, facing, direction)) {
+            // The component's own feed is its own business, not one of the lines the wrench routes.
+            return true;
+        }
+        if (locks.closed()) {
+            return false;
         }
         switch (type) {
             case TORCH:
@@ -147,9 +208,29 @@ public final class PowerSolver {
     }
 
     /** True when this component takes its input from {@code direction}. */
+    public static boolean readsToward(ComponentType type, Direction facing, Direction direction,
+                                      boolean open, boolean explicitlyCut, boolean routingLocked) {
+        return readsToward(type, facing, direction, new Locks(open, explicitlyCut, routingLocked));
+    }
+
+    /** True when this component takes its input from {@code direction}. */
     public static boolean readsFrom(PowerEnvironment.Node node, Direction direction) {
-        return readsToward(node.type(), node.facing(), direction,
-                node.forcedOn(direction), node.forcedOff(direction));
+        return readsToward(node.type(), node.facing(), direction, Locks.of(node, direction));
+    }
+
+    /** True when this component takes its input from {@code direction}, overrides included. */
+    public static boolean readsFrom(Slot slot, Direction direction) {
+        return readsToward(slot.type, slot.facing, direction, Locks.of(slot, direction));
+    }
+
+    /**
+     * True when a driven component would read this side with no overrides in play.
+     *
+     * <p>Only the back input counts: a comparator's two sides are read as well, but they are not
+     * {@code facing}, and a lock on one of them is a lock the player asked for.
+     */
+    private static boolean isInputSide(ComponentType type, Direction facing, Direction direction) {
+        return type.isDriven() && direction == facing;
     }
 
     // ------------------------------------------------------------ propagation --
@@ -221,12 +302,13 @@ public final class PowerSolver {
      * A comparator's side input.
      *
      * <p>Unlike the back input this is not gated by {@link #readsFrom}: a comparator reads its two
-     * sides by design, which is the whole difference between compare and subtract. The wrench can
-     * still cut a side with {@code forcedOff}.
+     * sides by design, which is the whole difference between compare and subtract. The wrench can still
+     * cut a side outright with {@code forcedOff} - and a lock does not, because the sides are part of
+     * how the comparator works rather than lines it is routing.
      */
     public static int sideInputFrom(PowerEnvironment env, BlockPos pos, Direction direction,
                                     PowerEnvironment.Node self) {
-        if (self != null && self.forcedOff(direction)) {
+        if (self != null && self.explicitlyCut(direction)) {
             return 0;
         }
         return Math.max(neighbourValue(env, pos, direction), clamp(env.externalSignal(direction)));

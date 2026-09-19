@@ -29,26 +29,28 @@ import net.minecraft.server.level.ServerLevel;
  *
  * <h2>Locking means "this line and nothing else"</h2>
  * A lock is not just a promise that the two stay connected - it is a statement about the whole block.
- * {@code ON} cuts every other side of <em>both</em> components, so a locked block is connected to the
- * pinned neighbour and to nothing else: laying redstone against any other face afterwards cannot join
+ * Once a component has any locked side, every side that is not locked is cut, so it is connected to the
+ * locked neighbours and to nothing else: laying redstone against any other face afterwards cannot join
  * it (the design's "在旁边放红石也不会影响连接", taken literally).
  *
- * <p>Because only unpinned sides are cut, a route is built up one hop at a time and stays buildable:
+ * <p>Several sides can be locked, and locking one more takes a single click, because the cuts the lock
+ * implies are <em>derived</em> rather than stored ({@code Slot#isClosed}). A route is therefore built
+ * one hop at a time:
  *
  * <pre>
- *   lock A-B   A: on(B), everything else cut    B: on(A), everything else cut
- *   lock B-C   B: on(A) and on(C) survive        C: on(B), everything else cut
+ *   lock A-B   A: locked towards B, everything else dead
+ *              B: locked towards A, everything else dead
+ *   lock B-C   B: locked towards A and towards C, everything else dead
  * </pre>
  *
- * <p>So a chain, and even a junction, is a series of locks rather than one lock that fights the next.
- * Cutting a line again is the same gesture stepping to {@code OFF}; a whole block goes back to
- * automatic with {@link #clear}.
+ * <p>Cutting a line again is the same gesture stepping to {@code OFF}, which is a real cut the player
+ * asked for. A whole block goes back to automatic with {@link #clear}.
  *
  * <h2>Why the state is stored per direction</h2>
  * A host block holds one component, and its neighbours are exactly the six positions around it, so
  * "which components talk to each other" reduces to a per-direction override. {@code PowerSolver} reads
- * those overrides for both emitting and reading, and {@code forcedOff} also cuts a comparator's side
- * input, so the three states mean the same thing everywhere.
+ * those overrides for both emitting and reading, and an explicit cut also stops a comparator's side
+ * input, so the states mean the same thing everywhere.
  *
  * <p>Deliberately free of any player, item or packet: the wrench item, the interaction handler, the
  * {@code /rc connect} command and the game tests all go through this, so none of them can drift.
@@ -108,13 +110,6 @@ public final class WrenchLinks {
         first.setConnection(direction, after);
         second.setConnection(direction.getOpposite(), after);
 
-        if (after == ConnectionState.ON) {
-            // "Except this line, every other line is cut": the pinned side is the only live one. Only
-            // unpinned sides are touched, so a route locked hop by hop keeps every hop it was given.
-            cutEveryOtherSide(first, direction);
-            cutEveryOtherSide(second, direction.getOpposite());
-        }
-
         innerChanged(level, store, a, first);
         innerChanged(level, store, b, second);
 
@@ -123,21 +118,6 @@ public final class WrenchLinks {
             case OFF -> Result.LINKED_OFF;
             case AUTO -> Result.LINKED_AUTO;
         };
-    }
-
-    /**
-     * Cuts every side of a component except the one given and any other pinned side.
-     *
-     * <p>A side that is already cut is left as it is - there is nothing to write - and a side that is
-     * pinned on is the whole point of the exercise and must survive.
-     */
-    private static void cutEveryOtherSide(Slot slot, Direction keep) {
-        for (Direction direction : Direction.values()) {
-            if (direction == keep || slot.forcedOn.contains(direction)) {
-                continue;
-            }
-            slot.setConnection(direction, ConnectionState.OFF);
-        }
     }
 
     /**
@@ -169,7 +149,13 @@ public final class WrenchLinks {
         return Result.CLEARED;
     }
 
-    /** The state of one direction of one component, as the wrench sees it. */
+    /**
+     * The stored state of one direction, which is what the wrench's cycle steps through.
+     *
+     * <p>Deliberately the <em>stored</em> state and not {@code Slot#isConnected}: a side that a lock cut
+     * by implication has no override of its own, so it reads as automatic and one click locks it. That
+     * is what makes several locked directions possible.
+     */
     public static ConnectionState stateOf(Slot slot, Direction direction) {
         if (slot.forcedOn.contains(direction)) {
             return ConnectionState.ON;

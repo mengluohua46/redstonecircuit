@@ -78,89 +78,107 @@ class WrenchLinksTest {
     }
 
     /**
-     * The design says a lock means "this line and nothing else", so entering the connected state cuts
-     * every other side of both components. One-sided cutting would leave the far end free to be
-     * re-routed by whatever is put beside it, which is the exact thing the wrench exists to prevent.
+     * The design says a lock means "this line and nothing else", so once a side is locked every other
+     * side is cut. One-sided cutting would leave the far end free to be re-routed by whatever is put
+     * beside it, which is the exact thing the wrench exists to prevent.
      */
     @Test
-    @DisplayName("locking cuts every other side of both components")
-    void linkingCutsEveryOtherSide() {
-        Slot a = dust();
-        Slot b = dust();
+    @DisplayName("locking leaves only the locked line alive")
+    void lockingCutsEveryOtherSide() {
+        Slot slot = dust();
+        slot.setConnection(Direction.EAST, ConnectionState.ON);
 
-        applyLock(a, Direction.EAST, b, Direction.WEST);
-
-        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(a, Direction.EAST),
-                "the locked line is the one kept");
-        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(b, Direction.WEST));
+        assertTrue(slot.isRoutingLocked(), "the component is now routed by hand");
+        assertTrue(slot.isOpen(Direction.EAST), "the locked side is the line");
+        assertFalse(slot.isClosed(Direction.EAST), "and it is not cut");
         for (Direction direction : Direction.values()) {
             if (direction != Direction.EAST) {
-                assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(a, direction),
-                        direction + " on the clicked block must be cut");
-                assertFalse(a.isConnected(direction), direction + " must carry nothing");
-            }
-            if (direction != Direction.WEST) {
-                assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(b, direction),
-                        direction + " on the neighbour must be cut too");
+                assertTrue(slot.isClosed(direction), direction + " is left out of the lock, so it is cut");
+                assertFalse(slot.isConnected(direction), direction + " must carry nothing");
             }
         }
     }
 
     /**
-     * Cutting the other sides must not make a route impossible to build: a hop that was locked earlier
-     * survives a later lock, so a chain is a series of locks rather than one lock undoing the next.
+     * The point of deriving those cuts: a second locked direction must be one click away.
+     *
+     * <p>This is what a materialised lock gets wrong - writing the cuts down makes the next lock start
+     * from "cut" and take three clicks to become a lock, which reads as "I can only ever have one
+     * locked direction".
      */
     @Test
-    @DisplayName("a later lock keeps the hops that were already locked")
-    void chainedLocksCoexist() {
-        Slot a = dust();
-        Slot b = dust();
-        Slot c = dust();
+    @DisplayName("a second direction locks in one step, because the first lock's cuts are derived")
+    void severalDirectionsCanBeLocked() {
+        Slot slot = dust();
+        // The wrench's own cycle, applied to two different neighbours of the same component.
+        slot.setConnection(Direction.EAST, WrenchLinks.next(stateOf(slot, Direction.EAST)));
+        assertEquals(ConnectionState.ON, stateOf(slot, Direction.EAST), "the first line is locked");
 
-        // A - B : A is west of B. B - C : B is west of C.
-        applyLock(a, Direction.EAST, b, Direction.WEST);
-        applyLock(b, Direction.EAST, c, Direction.WEST);
+        assertEquals(ConnectionState.AUTO, WrenchLinks.stateOf(slot, Direction.SOUTH),
+                "a side cut by the lock still reads as automatic, so one click locks it");
+        slot.setConnection(Direction.SOUTH, WrenchLinks.next(stateOf(slot, Direction.SOUTH)));
 
-        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(b, Direction.WEST),
-                "B keeps the line back to A, so A-B is still a route");
-        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(b, Direction.EAST),
-                "and gains the line on to C, so B is a junction");
-        assertEquals(ConnectionState.ON, WrenchLinks.stateOf(c, Direction.WEST));
-        assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(a, Direction.WEST),
-                "while sides nobody pinned stay cut");
+        assertTrue(slot.isOpen(Direction.EAST) && slot.isOpen(Direction.SOUTH),
+                "both lines are locked");
+        assertFalse(slot.isClosed(Direction.EAST) || slot.isClosed(Direction.SOUTH),
+                "and neither of them is cut");
+        assertTrue(slot.isClosed(Direction.NORTH), "while everything else stays cut");
     }
 
-    /** What {@link WrenchLinks#link} does to the data, done by hand so this stays testable. */
-    private static void applyLock(Slot first, Direction towardsSecond, Slot second,
-                                  Direction backTowardsFirst) {
-        first.setConnection(towardsSecond, ConnectionState.ON);
-        second.setConnection(backTowardsFirst, ConnectionState.ON);
-        cutEveryOtherSide(first, towardsSecond);
-        cutEveryOtherSide(second, backTowardsFirst);
-    }
-
-    private static void cutEveryOtherSide(Slot slot, Direction keep) {
-        for (Direction direction : Direction.values()) {
-            if (direction != keep && !slot.forcedOn.contains(direction)) {
-                slot.setConnection(direction, ConnectionState.OFF);
-            }
-        }
-    }
-
-    /** Cutting a line again has to leave the cuts around it alone. */
+    /** An explicit cut is a different thing from a side a lock merely left out. */
     @Test
-    @DisplayName("stepping a locked line to cut keeps the other cuts")
-    void cuttingOneLineKeepsTheRest() {
-        Slot a = dust();
-        Slot b = dust();
-        applyLock(a, Direction.EAST, b, Direction.WEST);
+    @DisplayName("an explicit cut freezes one side without freezing the whole component")
+    void explicitCutIsNotALock() {
+        Slot slot = dust();
+        slot.setConnection(Direction.NORTH, ConnectionState.OFF);
 
-        ConnectionState after = WrenchLinks.next(WrenchLinks.stateOf(a, Direction.EAST));
-        a.setConnection(Direction.EAST, after);
+        assertFalse(slot.isRoutingLocked(), "cutting one side is not locking the component");
+        assertTrue(slot.isClosed(Direction.NORTH), "that side is dead");
+        assertFalse(slot.isClosed(Direction.SOUTH), "while the others keep deciding for themselves");
+        assertTrue(slot.isConnected(Direction.SOUTH));
+    }
 
-        assertEquals(ConnectionState.OFF, after);
-        assertEquals(ConnectionState.OFF, WrenchLinks.stateOf(a, Direction.NORTH),
-                "the other sides stay cut: the route is still explicit");
+    /** What {@link WrenchLinks#stateOf} reports for a direction with no override at all. */
+    private static ConnectionState stateOf(Slot slot, Direction direction) {
+        return WrenchLinks.stateOf(slot, direction);
+    }
+
+    /**
+     * A lock must not stop a driven component reading its own input, or locking anything on a repeater
+     * would switch the repeater off - which is not what "route this line" means.
+     */
+    @Test
+    @DisplayName("a lock keeps a diode's input alive but cuts everything else")
+    void aLockDoesNotStarveADiode() {
+        Slot repeater = new Slot(ComponentType.REPEATER);
+        repeater.facing = Direction.WEST;
+        repeater.setConnection(Direction.SOUTH, ConnectionState.ON);
+
+        assertTrue(PowerSolver.readsFrom(repeater, Direction.WEST),
+                "the input side is the component's own feed, not one of the routed lines");
+        assertFalse(PowerSolver.readsFrom(repeater, Direction.NORTH),
+                "every other side is cut, so nothing else can feed it");
+        assertTrue(PowerSolver.emitsToward(repeater, Direction.SOUTH),
+                "and the output goes where it was locked to");
+        assertFalse(PowerSolver.emitsToward(repeater, Direction.EAST),
+                "not out of the side it would have used on its own");
+    }
+
+    /** Clearing puts everything back, including the sides a lock had cut. */
+    @Test
+    @DisplayName("clearing a locked component restores automatic behaviour everywhere")
+    void clearingUndoesTheWholeLock() {
+        Slot slot = dust();
+        slot.setConnection(Direction.EAST, ConnectionState.ON);
+        assertTrue(slot.isClosed(Direction.NORTH));
+
+        slot.clearConnections();
+
+        assertFalse(slot.isRoutingLocked());
+        for (Direction direction : Direction.values()) {
+            assertEquals(ConnectionState.AUTO, WrenchLinks.stateOf(slot, direction));
+            assertFalse(slot.isClosed(direction), direction + " is free again");
+        }
     }
 
     @Test

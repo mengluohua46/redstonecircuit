@@ -90,13 +90,18 @@ class PowerSolverTest {
         }
 
         @Override
-        public boolean forcedOn(Direction direction) {
+        public boolean open(Direction direction) {
             return forcedOn.contains(direction);
         }
 
         @Override
-        public boolean forcedOff(Direction direction) {
+        public boolean explicitlyCut(Direction direction) {
             return forcedOff.contains(direction);
+        }
+
+        @Override
+        public boolean routingLocked() {
+            return !forcedOn.isEmpty();
         }
     }
 
@@ -436,15 +441,15 @@ class PowerSolverTest {
         Direction input = facing;
 
         for (ComponentType type : new ComponentType[] { ComponentType.REPEATER, ComponentType.COMPARATOR }) {
-            assertTrue(PowerSolver.emitsToward(type, facing, output, false, false),
+            assertTrue(PowerSolver.emitsToward(type, facing, output, false, false, false),
                     type + " emits weakly towards the block in front");
             assertTrue(PowerSolver.directSignalToward(type, facing, output, false),
                     type + " also charges that block, which is what carries the signal onwards");
-            assertFalse(PowerSolver.emitsToward(type, facing, input, false, false),
+            assertFalse(PowerSolver.emitsToward(type, facing, input, false, false, false),
                     type + " must not emit towards its own input");
             assertFalse(PowerSolver.directSignalToward(type, facing, input, false),
                     type + " must not charge the block behind it either");
-            assertFalse(PowerSolver.emitsToward(type, facing, Direction.UP, false, false),
+            assertFalse(PowerSolver.emitsToward(type, facing, Direction.UP, false, false, false),
                     "nor sideways");
         }
     }

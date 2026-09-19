@@ -51,12 +51,17 @@ public final class SlotNode implements PowerEnvironment.Node {
     }
 
     @Override
-    public boolean forcedOn(Direction direction) {
-        return slot.forcedOn.contains(direction);
+    public boolean open(Direction direction) {
+        return slot.isOpen(direction);
     }
 
     @Override
-    public boolean forcedOff(Direction direction) {
-        return slot.forcedOff.contains(direction);
+    public boolean explicitlyCut(Direction direction) {
+        return slot.isExplicitlyCut(direction);
+    }
+
+    @Override
+    public boolean routingLocked() {
+        return slot.isRoutingLocked();
     }
 }

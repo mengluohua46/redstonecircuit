@@ -14,11 +14,26 @@ import net.minecraft.nbt.CompoundTag;
  * around it and can be overridden per direction with the redstone wrench.
  *
  * <pre>
- *   forcedOn  - directions the wrench explicitly connected
- *   forcedOff - directions the wrench explicitly disconnected
+ *   forcedOn  - directions the wrench locked
+ *   forcedOff - directions the wrench explicitly cut
  *   neither   - automatic: connect if the neighbour holds inner redstone, or if a piece of
  *               vanilla redstone wire sits against this block on that side
  * </pre>
+ *
+ * <h2>Locking is not the same as cutting</h2>
+ * Once a component has <em>any</em> locked direction, its routing is explicit: every side that is not
+ * locked is treated as cut ({@link #isClosed}). That is what makes a lock mean "this line and nothing
+ * else", and it is deliberately <b>derived rather than stored</b>:
+ *
+ * <ul>
+ *   <li>Locking a second direction takes one click, because a side that was cut by a lock still reads
+ *       as automatic ({@code AUTO -> ON} rather than {@code OFF -> AUTO -> ON}). Wires keep their
+ *       connections as a set of locked lines, so a route is built one click per hop.</li>
+ *   <li>A block with only an explicit cut ({@code forcedOff}) and no lock keeps deciding for itself on
+ *       every other side, so cutting one side does not silently freeze the whole block.</li>
+ *   <li>Nothing can drift: the rule is applied in one place, the solver, so the drawing and the signal
+ *       queries cannot disagree with it.</li>
+ * </ul>
  */
 public final class Slot {
 
@@ -35,9 +50,9 @@ public final class Slot {
     /** Comparator output mode. */
     public ComparatorMode mode = ComparatorMode.COMPARE;
 
-    /** Directions the wrench forced ON. */
+    /** Directions the wrench locked. */
     public final Set<Direction> forcedOn = EnumSet.noneOf(Direction.class);
-    /** Directions the wrench forced OFF. */
+    /** Directions the wrench explicitly cut. */
     public final Set<Direction> forcedOff = EnumSet.noneOf(Direction.class);
 
     /**
@@ -79,15 +94,44 @@ public final class Slot {
 
     // ---------------------------------------------------------- connectivity --
 
-    /** True when this component may connect towards {@code direction}. */
-    public boolean isConnected(Direction direction) {
-        if (forcedOn.contains(direction)) {
+    /**
+     * Whether the wrench has locked this component anywhere.
+     *
+     * <p>When it has, the component's routing is explicit: see {@link #isClosed}.
+     */
+    public boolean isRoutingLocked() {
+        return !forcedOn.isEmpty();
+    }
+
+    /** True when this side was locked: the signal goes out here, whatever the neighbours say. */
+    public boolean isOpen(Direction direction) {
+        return forcedOn.contains(direction);
+    }
+
+    /**
+     * True when this side is cut: the wrench cut it, or it was left out of the lock.
+     *
+     * <p>The derived half is what makes a lock mean "this line and nothing else" - and because it is
+     * derived, locking several directions is a matter of locking each of them.
+     */
+    public boolean isClosed(Direction direction) {
+        if (forcedOff.contains(direction)) {
             return true;
         }
-        if (forcedOff.contains(direction)) {
-            return false;
-        }
-        return true; // AUTO: whether it actually links up is decided by the network solver.
+        return isRoutingLocked() && !isOpen(direction);
+    }
+
+    /** True when this side was cut by hand, as opposed to being left out of a lock. */
+    public boolean isExplicitlyCut(Direction direction) {
+        return forcedOff.contains(direction);
+    }
+
+    /**
+     * True when signal may pass across this side: locked sides, and automatic sides of a component
+     * that has not been locked anywhere.
+     */
+    public boolean isConnected(Direction direction) {
+        return !isClosed(direction);
     }
 
     /** True when the wrench has pinned this direction either way. */
@@ -181,11 +225,11 @@ public final class Slot {
         if (hasInjectedPower()) {
             sb.append(" injected=").append(injectedPower);
         }
-        if (!forcedOn.isEmpty()) {
-            sb.append(" forcedOn=").append(names(forcedOn));
+        if (isRoutingLocked()) {
+            sb.append(" locked=").append(names(forcedOn)).append(" (every other side cut)");
         }
         if (!forcedOff.isEmpty()) {
-            sb.append(" forcedOff=").append(names(forcedOff));
+            sb.append(" cut=").append(names(forcedOff));
         }
         return sb.toString();
     }

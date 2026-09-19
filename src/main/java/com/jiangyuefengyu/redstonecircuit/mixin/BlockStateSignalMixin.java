@@ -135,14 +135,13 @@ public abstract class BlockStateSignalMixin {
         // signal this answers travels towards its opposite. Everything in PowerSolver is written in
         // terms of that emission direction, so it is converted once, here.
         Direction emitted = direction.getOpposite();
-        boolean forcedOff = slot.forcedOff.contains(emitted);
         if (strong) {
-            if (!PowerSolver.directSignalToward(slot.type, slot.facing, emitted, forcedOff)) {
+            if (!PowerSolver.directSignalToward(slot.type, slot.facing, emitted,
+                    PowerSolver.Locks.of(slot, emitted))) {
                 return 0;
             }
         } else {
-            if (!PowerSolver.emitsToward(slot.type, slot.facing, emitted,
-                    slot.forcedOn.contains(emitted), forcedOff)) {
+            if (!PowerSolver.emitsToward(slot, emitted)) {
                 return 0;
             }
             // No extra "not upwards" rule here, even though vanilla wire has one: a host block is a

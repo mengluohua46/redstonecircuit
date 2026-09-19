@@ -47,16 +47,18 @@ final class ConnectionBars {
 
     static void bars(Slot slot, Neighbours neighbours, List<Box> out) {
         for (Direction direction : Direction.values()) {
-            boolean cut = slot.forcedOff.contains(direction);
-            boolean pinned = slot.forcedOn.contains(direction);
+            boolean open = slot.isOpen(direction);
+            boolean cut = slot.isClosed(direction);
             if (cut) {
+                // This covers both an explicit cut and a side that was left out of a lock: either way the
+                // signal cannot pass, and the player needs to see that.
                 out.add(bar(slot, direction, CUT_REACH, CUT_COLOR));
                 continue;
             }
-            boolean emits = PowerSolver.emitsToward(slot.type, slot.facing, direction, pinned, false);
-            if (pinned) {
-                // Pinned sides are shown whatever is there: the pin is the feature, and a bar that
-                // only appeared once a neighbour existed would make "I pinned this" unverifiable.
+            boolean emits = PowerSolver.emitsToward(slot, direction);
+            if (open) {
+                // A locked side is shown whatever is there: the lock is the feature, and a bar that only
+                // appeared once a neighbour existed would make "I locked this" unverifiable.
                 out.add(bar(slot, direction, REACH, PIN_COLOR));
             } else if (emits && neighbours.holdsComponent(direction)) {
                 out.add(bar(slot, direction, REACH, wireColor(slot)));

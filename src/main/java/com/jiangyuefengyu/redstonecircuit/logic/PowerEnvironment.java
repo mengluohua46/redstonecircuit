@@ -55,10 +55,18 @@ public interface PowerEnvironment {
         /** Comparator output mode. */
         ComparatorMode mode();
 
-        /** True when the wrench pinned this direction ON. */
-        boolean forcedOn(Direction direction);
+        /** True when this direction was locked by the wrench. */
+        boolean open(Direction direction);
 
-        /** True when the wrench pinned this direction OFF. */
-        boolean forcedOff(Direction direction);
+        /** True when this direction was cut by hand, as opposed to being left out of a lock. */
+        boolean explicitlyCut(Direction direction);
+
+        /**
+         * True when the wrench has locked at least one direction of this component.
+         *
+         * <p>See {@code Slot#isRoutingLocked}: a locked component's routing is explicit, so the rules
+         * treat every side that was not locked as cut.
+         */
+        boolean routingLocked();
     }
 }
