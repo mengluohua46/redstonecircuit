@@ -1,52 +1,32 @@
-Copyright (c) 2026 江月风雨. All rights reserved.
+MIT License
 
-# 红石电路 (Redstone Circuit) — 保留所有权利
+Copyright (c) 2026 江月风雨
 
-本模组（以下简称"本作品"）的源代码、贴图、模型与其他资源，版权归作者 江月风雨 所有。
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-## 允许
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-* 在**未修改**本作品的前提下，免费下载、安装并游玩本作品。
-* 在**未修改**本作品的前提下，将其原封不动地包含在整合包（modpack）中并分发，
-  条件是保留本文件与作者署名，且不以此直接收费。
-* 出于个人学习目的阅读源代码。
-* 在视频、直播、截图与文章中展示本作品。
-
-## 需要事先取得书面许可
-
-* 以任何形式重新分发修改过的版本，或分发本作品的源代码及其衍生作品。
-* 将本作品或其任何部分用于商业用途（包括付费整合包、付费下载、以本作品作为付费服务器的主要卖点等）。
-* 将本作品的贴图、模型或其他资源提取出来用于其他项目。
-
-## 免责
-
-本作品按"现状"提供，不附带任何明示或暗示的担保。作者不对使用本作品造成的任何损失负责。
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
-# Redstone Circuit — All Rights Reserved
+说明（不构成授权条款的补充，仅为澄清范围）：
 
-Copyright (c) 2026 江月风雨. All rights reserved.
+本模组采用 MIT 许可证。上面的英文条款为准；作者原创的代码、贴图与模型都在 MIT 授权范围内，
+你可以自由使用、修改、再分发（保留版权声明即可）。
 
-The source code, textures, models and other assets of this mod (the "Work") are the property of the
-author, 江月风雨.
-
-## Permitted
-
-* Downloading, installing and playing the Work, unmodified.
-* Including the Work, unmodified, in a modpack and distributing that modpack, provided this file and
-  the author's credit are kept and the modpack is not sold on its own.
-* Reading the source code for personal study.
-* Showing the Work in videos, streams, screenshots and articles.
-
-## Requires prior written permission
-
-* Redistributing a modified version of the Work, or distributing its source code or a derivative.
-* Any commercial use, including paid modpacks, paid downloads, or running it as the main selling point
-  of a paid server.
-* Reusing the Work's textures, models or other assets in another project.
-
-## Disclaimer
-
-The Work is provided "as is", without warranty of any kind. The author is not liable for any damage
-caused by its use.
+Minecraft 本身及其原始素材的版权归 Mojang Studios，不在本许可证的授权范围内：
+模组中有几张贴图是对原版贴图的改色（详见 README 的"说明"一节），它们之所以能出现在这里，
+依据的是 Minecraft 的 EULA 与 Usage Guidelines 对模组这一形态的允许，而不是 MIT。

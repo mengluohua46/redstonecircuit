@@ -75,11 +75,12 @@ the redstone goggles let you see the wiring, facing, delay and connections insid
 
 ## 版权 / License
 
-**All Rights Reserved**，详见 [LICENSE](LICENSE)。整合包可以原样收录并署名；
-修改后再分发或商业使用需要事先许可。
+**MIT**，详见 [LICENSE](LICENSE)。可以自由使用、修改、再分发（保留版权声明即可）。
 
-**All Rights Reserved** - see [LICENSE](LICENSE). Modpacks may include it unmodified with credit;
-redistributing modified copies or using it commercially needs permission first.
+**MIT** - see [LICENSE](LICENSE). Use it, change it, ship it; keep the copyright notice.
+
+Minecraft 本身及其原始素材的版权归 Mojang Studios；模组中有几张贴图是对原版贴图的改色
+（见下方"说明"），它们不在本项目的 MIT 授权范围内。
 
 `TEMPLATE_LICENSE.txt` 是 NeoForged MDK 模板文件自身的 MIT 许可，与本模组的授权无关。
 
