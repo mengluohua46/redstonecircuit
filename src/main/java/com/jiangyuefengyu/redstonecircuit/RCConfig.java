@@ -56,6 +56,15 @@ public final class RCConfig {
             .comment("Border colour as RRGGBB hex (a leading '#' is allowed).")
             .define("hostOverlayFrameColor", "E03020");
 
+    public static final ModConfigSpec.BooleanValue HOST_ACCEPTS_STRONG_POWER = BUILDER
+            .comment("Whether a host block also accepts the strong power a neighbouring SOLID block carries.",
+                    "On (vanilla semantics): a repeater or torch pushing into a stone block makes redstone next",
+                    "to that block live, exactly as it does in vanilla - and a stone block that a wire, torch",
+                    "or repeater elsewhere has charged will therefore light the redstone inside the block",
+                    "beside it. Turn this OFF to have inner redstone react only to blocks that emit a signal",
+                    "themselves, which is friendlier when vanilla wiring runs alongside your host blocks.")
+            .define("hostAcceptsStrongPower", true);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     private RCConfig() {
@@ -73,6 +82,16 @@ public final class RCConfig {
 
     public static boolean validateHosts() {
         return boolOr(VALIDATE_HOSTS, true);
+    }
+
+    /**
+     * Whether inner redstone also accepts the strong power a neighbouring solid block carries.
+     *
+     * <p>See the config comment: this is vanilla behaviour, and turning it off narrows what can feed a
+     * host block down to the blocks that emit a signal themselves.
+     */
+    public static boolean hostAcceptsStrongPower() {
+        return boolOr(HOST_ACCEPTS_STRONG_POWER, true);
     }
 
     /** Shell colour as ARGB, or 0 when the shell is switched off or fully transparent. */

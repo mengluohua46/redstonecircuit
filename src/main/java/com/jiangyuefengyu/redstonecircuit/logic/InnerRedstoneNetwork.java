@@ -203,9 +203,11 @@ public final class InnerRedstoneNetwork {
      * Explains where a host block's supply comes from, one side at a time.
      *
      * <p>Written for {@code /rc probe} because "something keeps this block powered and I cannot see
-     * what" is otherwise unanswerable from the outside: the difference between {@code rawSignal} and
-     * {@code solverSignal} separates "a real block next door is driving this" from "this is our own
-     * signal being read back", and {@code block} names it outright.
+     * what" is otherwise unanswerable from the outside. {@code rawSignal} is always vanilla's own
+     * answer for that side, while {@code solverSignal} is what the solver actually used; the two
+     * differ when the value was our own output coming back (suppressed), or when
+     * {@code hostAcceptsStrongPower} is off and the neighbour only <em>carries</em> power rather than
+     * emitting it. Either way the line names the block, which is the part that matters.
      */
     public static List<ProbeSide> probe(ServerLevel level, BlockPos host) {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
@@ -580,23 +582,30 @@ public final class InnerRedstoneNetwork {
         /**
          * Signal the vanilla world pushes into the host block from one side.
          *
-         * <p>This is vanilla's own query ({@code Level#getSignal(neighbour, direction)}), with one
-         * deliberate difference: a neighbouring <b>vanilla redstone wire</b> is charged one hop,
-         * exactly as vanilla charges a hop between two wires in
-         * {@code RedStoneWireBlock#calculateTargetStrength}.
+         * <p>By default this is vanilla's own query ({@code Level#getSignal(neighbour, direction)}),
+         * which for a SOLID neighbour also adds the strong power that neighbour <em>carries</em> - the
+         * reason a repeater pushed into a stone block lights the redstone beside it, and also the
+         * reason a stone block charged by wiring elsewhere will light the redstone inside the block
+         * next to it. {@code hostAcceptsStrongPower = false} drops that half and reads only what the
+         * neighbour emits itself.
          *
-         * <p>That charge is what keeps the system solvable: a wire is the one neighbour that can be
-         * powered <em>by</em> the host it powers, so passing it through unattenuated would let the two
-         * hold each other up at 15 forever.
+         * <p>On top of either, a neighbouring <b>vanilla redstone wire</b> is charged one hop, exactly
+         * as vanilla charges a hop between two wires in {@code RedStoneWireBlock#calculateTargetStrength}.
+         * That charge keeps the system solvable: a wire is the one neighbour that can be powered
+         * <em>by</em> the host it powers, so passing it through unattenuated would let the two hold each
+         * other up at 15 forever.
          *
-         * <p>Inner-redstone output is already suppressed for the duration of the solve, so the weak
-         * power a neighbouring host block would otherwise transmit reads as 0 here.
+         * <p>Inner-redstone output is suppressed for the duration of the solve, so the weak power a
+         * neighbouring host block would otherwise transmit reads as 0 here.
          */
         @Override
         public int externalSignal(Direction direction) {
             BlockPos neighbour = queryPos.relative(direction);
-            int signal = level.getSignal(neighbour, direction);
-            if (signal > 0 && level.getBlockState(neighbour).is(Blocks.REDSTONE_WIRE)) {
+            BlockState state = level.getBlockState(neighbour);
+            int signal = RCConfig.hostAcceptsStrongPower()
+                    ? level.getSignal(neighbour, direction)
+                    : state.getSignal(level, neighbour, direction);
+            if (signal > 0 && state.is(Blocks.REDSTONE_WIRE)) {
                 signal--;
             }
             return PowerSolver.clamp(signal);
