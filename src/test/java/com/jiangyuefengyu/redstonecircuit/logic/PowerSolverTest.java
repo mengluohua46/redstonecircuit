@@ -558,6 +558,60 @@ class PowerSolverTest {
         }
     }
 
+    /**
+     * The reported crash: a comparator mounted on a block's top or bottom face.
+     *
+     * <p>Its input axis is then vertical, and {@code Direction#getClockWise} throws for up and down -
+     * which took the whole server down the moment the component was ticked. A vertical comparator reads
+     * all four horizontal sides instead, so this checks both that it does not throw and that those sides
+     * really are read.
+     */
+    @Test
+    @DisplayName("a comparator mounted on a vertical face does not throw, and reads every side")
+    void verticalComparatorReadsHorizontalSides() {
+        for (Direction facing : new Direction[] { Direction.UP, Direction.DOWN }) {
+            FakeEnv env = new FakeEnv();
+            FakeNode comparator = env.node(HERE, ComponentType.COMPARATOR, 0).at(0, 0, 0);
+            comparator.facing(facing);
+
+            // Back input of 8 from the side it faces, and a side input of 6 from one horizontal side.
+            env.node(facing.getStepX(), facing.getStepY(), facing.getStepZ(), ComponentType.DUST, 8);
+            env.node(0, 0, 1, ComponentType.DUST, 6);
+
+            assertEquals(8, PowerSolver.desiredOutput(env, HERE, comparator),
+                    "facing " + facing + ": compare passes a back signal of 8 while the sides are 6");
+
+            // A stronger side silences it, wherever that side is: a vertical comparator has four of them.
+            env.node(1, 0, 0, ComponentType.DUST, 12);
+            assertEquals(0, PowerSolver.desiredOutput(env, HERE, comparator),
+                    "facing " + facing + ": a side of 12 beats the back signal of 8");
+
+            comparator.mode(ComparatorMode.SUBTRACT);
+            assertEquals(0, PowerSolver.desiredOutput(env, HERE, comparator),
+                    "facing " + facing + ": subtract gives what is left of 8 after 12");
+        }
+    }
+
+    /** The same question for a comparator on the ground, which is vanilla's case and must not change. */
+    @Test
+    @DisplayName("a horizontal comparator still reads only the two sides either side of its input")
+    void horizontalComparatorReadsItsTwoSides() {
+        FakeEnv env = new FakeEnv();
+        FakeNode comparator = env.node(HERE, ComponentType.COMPARATOR, 0).at(0, 0, 0);
+        comparator.facing(Direction.NORTH);
+
+        env.node(0, 0, -1, ComponentType.DUST, 8);
+        env.node(1, 0, 0, ComponentType.DUST, 6);
+        assertEquals(8, PowerSolver.desiredOutput(env, HERE, comparator),
+                "a side of 6 does not beat a back signal of 8");
+
+        // A signal directly above is not a side input for a comparator on the ground, exactly as in
+        // vanilla - which is the difference between the two cases.
+        env.node(0, 1, 0, ComponentType.LEVER, 15);
+        assertEquals(8, PowerSolver.desiredOutput(env, HERE, comparator),
+                "a lever above it is not one of its sides");
+    }
+
     // ---------------------------------------------------------------- delays --
 
     @Test

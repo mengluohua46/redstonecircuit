@@ -1307,6 +1307,42 @@ public final class InnerRedstoneGameTest {
         helper.succeed();
     }
 
+    /**
+     * The reported crash, in the world: a comparator placed on a block's top face inside a block.
+     *
+     * <p>{@code Direction#getClockWise} throws for up and down, and the comparator asked for its sides
+     * that way as soon as it was ticked - taking the server down. This test only has to place one and let
+     * the tick handler run: if the throw comes back, the test fails.
+     */
+    @GameTest(template = "empty")
+    public void verticalComparatorDoesNotCrashTheServer(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 2, Blocks.STONE.defaultBlockState());
+
+        // Facing UP: placed on the top face, so it reads from above and drives downwards.
+        placeComponent(helper, at(helper, 1, 1, 1), ComponentType.COMPARATOR, 0, Direction.UP);
+        // A back input of 8 from above, and two horizontal sides to compare against.
+        placeDust(helper, at(helper, 1, 2, 1), 8);
+        placeDust(helper, at(helper, 1, 1, 2), 6);
+        placeDust(helper, at(helper, 2, 1, 1), 3);
+
+        // The crash happened while the network settled, which is what this does - and then again on the
+        // scheduled tick, which is why it is ticked a few times.
+        solve(helper, at(helper, 1, 1, 1));
+        tick(helper);
+        tick(helper);
+        tick(helper);
+
+        Slot comparator = slotAt(helper, at(helper, 1, 1, 1));
+        helper.assertTrue(comparator != null,
+                "the comparator must still be there after being ticked");
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, at(helper, 1, 1, 1)) == 8,
+                "and it should pass its back input of 8 through, having read both sides, got "
+                        + powerAt(helper, at(helper, 1, 1, 1)))));
+    }
+
     // ---------------------------------------------------------------- wrench --
 
     /**

@@ -359,9 +359,7 @@ public final class PowerSolver {
                 // Any input at all comes out at full strength, which is the whole point of a repeater.
                 return signal > 0 ? MAX_POWER : 0;
             case COMPARATOR:
-                int side = Math.max(
-                        sideInputFrom(env, pos, input.getClockWise(), self),
-                        sideInputFrom(env, pos, input.getCounterClockWise(), self));
+                int side = sideInput(env, pos, input, self);
                 if (self.mode() == ComparatorMode.SUBTRACT) {
                     return Math.max(0, signal - side);
                 }
@@ -370,6 +368,30 @@ public final class PowerSolver {
             default:
                 return clamp(self.power());
         }
+    }
+
+    /**
+     * The strongest of a comparator's side inputs.
+     *
+     * <p>A comparator on the ground reads the two sides either side of its back input, which is what
+     * vanilla does and what {@code getClockWise} names. A comparator <em>inside</em> a block can also be
+     * mounted on the top or bottom face (R5), and then its input axis is vertical - at which point there
+     * is no "clock-wise" side at all, and asking for one throws: that is the crash this method exists to
+     * prevent. A vertical comparator reads all four horizontal sides instead, which is the same idea
+     * (everything perpendicular to the back input) with the plane it is missing filled in.
+     */
+    public static int sideInput(PowerEnvironment env, BlockPos pos, Direction facing,
+                                PowerEnvironment.Node self) {
+        if (facing.getAxis() == Direction.Axis.Y) {
+            int best = 0;
+            for (Direction direction : Direction.Plane.HORIZONTAL) {
+                best = Math.max(best, sideInputFrom(env, pos, direction, self));
+            }
+            return best;
+        }
+        return Math.max(
+                sideInputFrom(env, pos, facing.getClockWise(), self),
+                sideInputFrom(env, pos, facing.getCounterClockWise(), self));
     }
 
     /** Vanilla keeps signals in 0-15; clamp defensively so corrupt data cannot break propagation. */
