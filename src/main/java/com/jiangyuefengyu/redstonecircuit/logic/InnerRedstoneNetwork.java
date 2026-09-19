@@ -199,15 +199,7 @@ public final class InnerRedstoneNetwork {
                     seed.toShortString(), component);
         }
 
-        List<BlockPos> changed;
-        boolean alreadySuppressed = !SUPPRESS_SIGNAL.add(level.dimension());
-        try {
-            changed = relax(level, store, component);
-        } finally {
-            if (!alreadySuppressed) {
-                SUPPRESS_SIGNAL.remove(level.dimension());
-            }
-        }
+        List<BlockPos> changed = queryingWorld(level, () -> relax(level, store, component));
 
         // Outwards - and only now. While the solve above was running every inner component reported 0
         // to the world (that is what stops a component charging itself from its own value), so a
@@ -216,6 +208,30 @@ public final class InnerRedstoneNetwork {
             notifyOutputChanged(level, pos);
         }
         return component;
+    }
+
+    /**
+     * Runs a query with inner-redstone output suppressed for this level.
+     *
+     * <p><b>Every</b> signal query the solver makes has to go through here. It is not only about a
+     * component charging itself from its own half-computed value: a neighbouring solid block reports
+     * the strong power it <em>receives</em>, and a host block is a signal source, so without the
+     * suppression a component reads its own output straight back off the stone next door.
+     *
+     * <p>That is exactly how a repeater used to pin itself on. Its input side faced a solid block, so
+     * asking for the signal there returned {@code max(what the block emits, the repeater's own 15
+     * transmitted through it)} - a value that never drops, so its input never dropped and the
+     * scheduled switch-off was discarded as "computes to the same value".
+     */
+    private static <T> T queryingWorld(ServerLevel level, java.util.function.Supplier<T> query) {
+        boolean alreadySuppressed = !SUPPRESS_SIGNAL.add(level.dimension());
+        try {
+            return query.get();
+        } finally {
+            if (!alreadySuppressed) {
+                SUPPRESS_SIGNAL.remove(level.dimension());
+            }
+        }
     }
 
     /**
@@ -264,7 +280,10 @@ public final class InnerRedstoneNetwork {
             }
 
             env.setQueryPos(pos);
-            int desired = PowerSolver.desiredOutput(env, pos, SlotNode.of(slot));
+            // Under the same suppression as the solve itself: this query is the solver looking at the
+            // world, so it must not see this component's own output coming back at it.
+            int desired = queryingWorld(level, () ->
+                    PowerSolver.desiredOutput(env, pos, SlotNode.of(slot)));
             if (desired == slot.power) {
                 continue;
             }
@@ -382,6 +401,8 @@ public final class InnerRedstoneNetwork {
                 continue;
             }
             env.setQueryPos(pos);
+            // Already inside {@link #queryingWorld} - this runs from relax() - so the query is
+            // suppressed here just like everywhere else the solver looks at the world.
             int desired = PowerSolver.desiredOutput(env, pos, SlotNode.of(slot));
             if (desired == slot.power) {
                 continue;

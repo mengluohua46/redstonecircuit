@@ -915,10 +915,59 @@ public final class InnerRedstoneGameTest {
                 "a button must release itself, but the dust is still lit: " + powerAt(helper, dust))));
     }
 
+    /**
+     * A repeater switches off again when its input stops - even with a solid block on its input side.
+     *
+     * <p>Regression test for a reported bug: the repeater stayed on forever. The cause was not the
+     * delay but the query that decides the switch-off. A neighbouring solid block reports the strong
+     * power it receives, a host block is a signal source, and the query that ran at the scheduled tick
+     * was the one place that did <em>not</em> suppress our own output - so the repeater's input side
+     * read its own 15 back through the stone next door, its input never dropped, and the pending
+     * switch-off was discarded as "computes to the same value".
+     *
+     * <p>The layout matters: the input side has to be a solid host block for the strong-power path to
+     * exist. The earlier repeater test only ever switched the input on, where reading your own output
+     * back happens to give the same answer the input already had.
+     */
+    @GameTest(template = "empty")
+    public void repeaterTurnsOffWhenItsInputStops(GameTestHelper helper) {
+        setBlock(helper, 0, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
+
+        BlockPos lever = at(helper, 0, 1, 1);
+        BlockPos repeater = at(helper, 1, 1, 1);
+        BlockPos output = at(helper, 2, 1, 1);
+        placeComponent(helper, lever, ComponentType.LEVER, 0, Direction.NORTH);
+        placeComponent(helper, repeater, ComponentType.REPEATER, 0, Direction.WEST);
+        placeDust(helper, output, 0);
+
+        tick(helper);
+        InnerSwitches.toggle(helper.getLevel(), lever);
+        tick(helper);
+
+        afterTicks(helper, 6, () -> {
+            helper.assertTrue(powerAt(helper, repeater) == 15,
+                    "precondition: the repeater followed its input up, got " + powerAt(helper, repeater));
+            helper.assertTrue(powerAt(helper, output) == 15,
+                    "precondition: and drove the wire beside it, got " + powerAt(helper, output));
+
+            InnerSwitches.toggle(helper.getLevel(), lever);
+
+            afterTicks(helper, 8, () -> helper.succeedWhen(() -> {
+                helper.assertTrue(powerAt(helper, repeater) == 0,
+                        "a repeater must switch off once its input stops, got "
+                                + powerAt(helper, repeater));
+                helper.assertTrue(powerAt(helper, output) == 0,
+                        "and the wire on its output side must go dark with it, got "
+                                + powerAt(helper, output));
+            }));
+        });
+    }
+
     /** The wrench's "disconnect" override really cuts a wire in the world, not only in the data. */
     @GameTest(template = "empty")
     public void forcedOffCutsAWire(GameTestHelper helper) {
-        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
         setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
 
         BlockPos source = at(helper, 1, 1, 1);
