@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "L": { "item": "minecraft:lightning_rod" },
+    "Q": { "item": "minecraft:quartz" },
+    "K": { "item": "minecraft:sculk_sensor" },
+    "S": { "item": "minecraft:stone" }
+  },
+  "pattern": [ " L ", "QKQ", "SSS" ],
+  "result": { "count": 1, "id": "redstonecircuit:weather_detector" }
+}

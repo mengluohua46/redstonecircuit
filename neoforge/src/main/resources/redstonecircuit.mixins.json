@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "com.jiangyuefengyu.redstonecircuit.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "BlockStateSignalMixin",
+    "RedStoneWireBlockMixin"
+  ],
+  "client": [
+    "BlockRenderDispatcherMixin"
+  ],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "minVersion": "0.8"
+}

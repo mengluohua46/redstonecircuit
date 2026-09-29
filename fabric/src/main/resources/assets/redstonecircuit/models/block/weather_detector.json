@@ -1,0 +1,46 @@
+{
+  "parent": "minecraft:block/thin_block",
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "particle": "redstonecircuit:block/weather_detector_top",
+    "side": "redstonecircuit:block/weather_detector_side",
+    "top": "redstonecircuit:block/weather_detector_top",
+    "bottom": "redstonecircuit:block/weather_detector_bottom",
+    "post": "minecraft:block/lightning_rod"
+  },
+  "elements": [
+    {   "from": [ 0, 0, 0 ],
+        "to": [ 16, 6, 16 ],
+        "faces": {
+            "down":  { "uv": [ 0,  0, 16, 16 ], "texture": "#bottom", "cullface": "down" },
+            "up":    { "uv": [ 0,  0, 16, 16 ], "texture": "#top" },
+            "north": { "uv": [ 0, 10, 16, 16 ], "texture": "#side", "cullface": "north" },
+            "south": { "uv": [ 0, 10, 16, 16 ], "texture": "#side", "cullface": "south" },
+            "west":  { "uv": [ 0, 10, 16, 16 ], "texture": "#side", "cullface": "west" },
+            "east":  { "uv": [ 0, 10, 16, 16 ], "texture": "#side", "cullface": "east" }
+        }
+    },
+    {   "from": [ 7, 6, 7 ],
+        "to": [ 9, 12, 9 ],
+        "faces": {
+            "down":  { "uv": [ 0, 4, 2, 6 ], "texture": "#post" },
+            "up":    { "uv": [ 0, 4, 2, 6 ], "texture": "#post" },
+            "north": { "uv": [ 0, 4, 2, 10 ], "texture": "#post" },
+            "south": { "uv": [ 0, 4, 2, 10 ], "texture": "#post" },
+            "west":  { "uv": [ 0, 4, 2, 10 ], "texture": "#post" },
+            "east":  { "uv": [ 0, 4, 2, 10 ], "texture": "#post" }
+        }
+    },
+    {   "from": [ 6, 12, 6 ],
+        "to": [ 10, 16, 10 ],
+        "faces": {
+            "down":  { "uv": [ 0, 0, 4, 4 ], "texture": "#post" },
+            "up":    { "uv": [ 4, 4, 0, 0 ], "texture": "#post" },
+            "north": { "uv": [ 0, 0, 4, 4 ], "texture": "#post" },
+            "south": { "uv": [ 0, 0, 4, 4 ], "texture": "#post" },
+            "west":  { "uv": [ 0, 0, 4, 4 ], "texture": "#post" },
+            "east":  { "uv": [ 0, 0, 4, 4 ], "texture": "#post" }
+        }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "package": "com.jiangyuefengyu.redstonecircuit.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "com.jiangyuefengyu.redstonecircuit.mixin.SodiumMixinPlugin",
+  "client": [
+    "SodiumBlockRendererMixin",
+    "SodiumMesherProbeMixin"
+  ],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "minVersion": "0.8"
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "redstonecircuit",
+  "version": "${version}",
+  "name": "红石电路",
+  "description": "Put redstone components inside blocks, then see them with the redstone goggles. / 把红石元件放进方块内部，并用红石眼镜看见它们。",
+  "authors": [
+    "江月风雨"
+  ],
+  "contact": {
+    "sources": "https://github.com/jiangyuefengyu/redstonecircuit"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.jiangyuefengyu.redstonecircuit.RedstoneCircuit"
+    ],
+    "client": [
+      "com.jiangyuefengyu.redstonecircuit.client.RedstoneCircuitClient"
+    ],
+    "jade": [
+      "com.jiangyuefengyu.redstonecircuit.compat.jade.RedstoneCircuitJadePlugin"
+    ],
+    "fabric-gametest": [
+      "com.jiangyuefengyu.redstonecircuit.InnerRedstoneGameTest",
+      "com.jiangyuefengyu.redstonecircuit.HostRulesGameTest",
+      "com.jiangyuefengyu.redstonecircuit.RCRecipeGameTest",
+      "com.jiangyuefengyu.redstonecircuit.WireStaircaseGameTest"
+    ]
+  },
+  "mixins": [
+    "redstonecircuit.mixins.json",
+    "redstonecircuit.sodium.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "jade": "*"
+  }
+}

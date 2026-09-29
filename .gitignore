@@ -1,0 +1,80 @@
+### Gradle ###
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/**/out/
+
+.run/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.eclipse/
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/**/bin/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### Minecraft Modding ###
+run/
+!**/src/**/run/
+**/src/generated/**/.cache/
+repo/
+!**/src/**/repo/
+
+# build/run logs written by the dev shell (any loader, any round)
+.gradle-*.log
+
+# Third-party *nested* jars that used to be committed under neoforge/libs/.
+# They are Sable's companion jar and Create's ponder (catnip) jar, taken out of the corresponding
+# mod jars. They are redistributions of someone else's code, so they are not part of this
+# repository any more: `gradlew` extracts them from the locally installed mods instead
+# (`physicsModsDir` in neoforge/gradle.properties, default D:/MC mod/红石电路/模组). Anything left
+# here by hand is ignored; neoforge/libs/README.md explains where they come from.
+neoforge/libs/*.jar
+libs/*.jar
+
+
+# dev-run client/server logs
+logs/
+
+# release output: the jars that get uploaded to Modrinth / CurseForge.
+# They are built from build/libs, so there is no reason to commit them.
+dist/
+
+# Internal development records: the rounds' diagnostic logs, the port TODO and the publishing
+# notes. They record how each defect was found, in Chinese, for the author - useful locally,
+# not part of the public repository, so they live in the 红石电路 folder next to the jars and
+# are ignored here so a stray copy cannot be committed back by accident.
+交付说明-*.md
+上架材料-*.md
+开发记录/
+COMPAT-*.md
+PORT-TODO.md
+
+
+# scratch file the delegated build rounds write their commit message into
+build_msg.tmp
+build/_msg.tmp
+
+
+# dev GameTest run directory (a world, an eula and per-run configs are not source)
+run-gametest/
+**/run-gametest/

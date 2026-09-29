@@ -1,0 +1,290 @@
+plugins {
+    // This project's own Gradle wrapper is 9.2.1 (the NeoForge build has an independent wrapper and is
+    // not touched by anything here), which is what lets Loom move to 1.16.3. Loom matters for two
+    // reasons beyond bug fixes: it can load a mod jar built by a newer Loom, which is what Sodium
+    // 0.8.13 and Jade 15.10.6 are, and its mixin handling is the one that has to remap the Sodium hook.
+    //
+    // The version this build replaced pinned Loom to 1.11.8 and kept both optional compatibility
+    // targets off the classpath entirely, because 1.11.8 refuses those jars. That is no longer needed.
+    id 'fabric-loom' version '1.16.3'
+    id 'java-library'
+    id 'maven-publish'
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Fabric build of 红石电路.
+//
+// The sources are the NeoForge ones with the loader-specific parts swapped out. Two decisions keep
+// this affordable:
+//
+//   1. Mojang's official mappings (loom.officialMojangMappings) instead of Yarn. The vanilla-facing
+//      code - which is the overwhelming majority of this mod, ~9800 lines - then needs no renaming at
+//      all.
+//   2. The options that were a ModConfigSpec on NeoForge become a plain JSON file here, so the mod
+//      still has no required dependencies beyond the Fabric API.
+// ---------------------------------------------------------------------------------------------
+
+ext {
+    // 1.21.1 line. Bump together with the NeoForge build.
+    // The loader is pinned to the OLDEST one that supports 1.21.1 (0.15.11 - the 1.21.1-era line) rather
+    // than to whatever is current, for the same reason the NeoForge build pins its own floor: what
+    // fabric.mod.json claims is then verified by every build and every GameTest run instead of being a
+    // number nobody ever loaded. The mod's whole loader surface is ModInitializer /
+    // ClientModInitializer / @Environment / FabricLoader#isModLoaded - all of them older than 0.15.
+    fabric_loader = '0.15.11'
+    fabric_api = '0.102.0+1.21.1'
+    // Optional compatibility targets, kept off the required-dependency list. The names are the exact
+    // Modrinth maven coordinates for this Minecraft version.
+    jade_version = '15.10.6+fabric'
+    sodium_version = 'mc1.21.1-0.8.13-fabric'
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = "${mod_id}-fabric"
+}
+
+// The PUBLISHED file name carries the version AND the loader, the way 1.0.0 shipped
+// (`redstonecircuit-1.0.0-neoforge-1.21.1.jar`). Loom derives the name of `remapJar` - the artifact
+// that is actually uploaded - from `base`, which would give `redstonecircuit-fabric-1.0.0.jar`: no
+// Minecraft line, and the loader buried inside the base name. The whole name is written out instead.
+// Only the file name changes: fabric.mod.json still takes its version from `mod_version`
+// (see `versionValue` in processResources below).
+tasks.named('remapJar') {
+    archiveFileName = "${mod_id}-${mod_version}-fabric-${minecraft_version}.jar"
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+loom {
+    // The NeoForge build never needed an access transformer, so no access widener here either.
+    runs {
+        client {
+            client()
+            name = 'Fabric Client'
+            runDir 'run'
+        }
+        server {
+            server()
+            name = 'Fabric Server'
+            runDir 'run-server'
+        }
+        gameTest {
+            server()
+            name = 'Fabric Game Test'
+            runDir 'run-gametest'
+            // This is how the Fabric API's game test entrypoint is switched on.
+            vmArg '-Dfabric-api.gametest'
+            vmArg "-Dfabric-api.gametest.report-file=${project.buildDir}/gametest.xml"
+        }
+    }
+
+    mixin {
+        // The legacy Mixin annotation processor is ON, and this is half of the change that put Sodium on
+        // the compile classpath above. The other half is `verifySodiumHookMapping` at the bottom of this
+        // file, which is what turns the processor's findings into a failed build.
+        //
+        // It used to be off, because the processor insists on resolving every @Mixin target against the
+        // compile classpath and Sodium was deliberately absent. What that bought was a build that could
+        // not tell a wrong descriptor from a right one, and a jar that carried no refmap - and the refmap
+        // is what translates this mod's Mojang-named method specs into the intermediary names the game
+        // actually runs with. Without it the Sodium hook's `@Inject(method = "...")` matched nothing,
+        // `require = 0` made that silent, and the only symptom was a block that stayed in the chunk mesh.
+        //
+        // With the processor on, the build resolves `targets = "net.caffeinemc...BlockRenderer"` and
+        // checks every `method = "name(descriptor)V"` against the real class, generates the refmap, and
+        // lets Loom name that refmap in both mixin configs.
+        useLegacyMixinAp = true
+    }
+}
+
+repositories {
+    // Jade and Sodium are optional compatibility targets. Their APIs are only ever compiled against,
+    // and nothing of either is bundled.
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api}"
+
+    // Jade (玉): an optional client-side overlay, compiled against its Fabric API and never bundled.
+    // Fabric registers Jade plugins through the "jade" entrypoint, which fabric.mod.json names; the
+    // plugin class lives in the ordinary source tree at compat/jade/RedstoneCircuitJadePlugin.
+    modCompileOnly "maven.modrinth:jade:${jade_version}"
+    modLocalRuntime "maven.modrinth:jade:${jade_version}"
+
+    // Sodium: optional, and the reason this build needs it at compile time at all is diagnosability.
+    //
+    // The mesh hook names its target as a string and makes only vanilla-typed calls, so it never needed
+    // Sodium to compile - and that was the problem. With the jar off the compile classpath, the build
+    // had no way to check that the hook's method descriptor matches the method Sodium actually calls,
+    // and the failure mode of a mismatch is invisible: Mixin finds no candidate, `require = 0` swallows
+    // it, and the only symptom is a block that stays in the chunk mesh. Putting Sodium on the compile
+    // classpath lets Loom's Mixin annotation processor resolve the target and the descriptor while
+    // compiling (see the `mixin` block above), which is also what produces the refmap that
+    // `verifySodiumHookMapping` then checks against the jar being shipped.
+    //
+    // It stays `compileOnly`: no Sodium class is referenced from our code, nothing of it is bundled, and
+    // the built jar neither needs nor declares it. modLocalRuntime keeps it in a dev client, which is
+    // what makes the hook exercisable there.
+    modCompileOnly "maven.modrinth:sodium:${sodium_version}"
+    modLocalRuntime "maven.modrinth:sodium:${sodium_version}"
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Fabric Loom puts Minecraft on the main source set's classpath only, so the test source set has to
+// inherit it explicitly - the same trick the NeoForge build needed. Without it the pure-logic tests
+// cannot even see net.minecraft.* classes.
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// P1.58: a RELEASE package logs lightly by default; a build made for development keeps the detailed log.
+// `-Prelease` (or `-Prelease=true`) marks the jar; BuildFlags reads the marker and RCConfig takes its
+// debugLog default from it. Everything else about the two builds is identical, deliberately.
+def releaseBuild = project.hasProperty('release') && project.property('release') != 'false'
+logger.lifecycle("[redstonecircuit] build mode: {} (debugLog default {})",
+        releaseBuild ? 'RELEASE - light log by default' : 'development - detailed log by default',
+        releaseBuild ? 'false' : 'true')
+
+processResources {
+    // Configuration-cache safe: every value these closures expand is a local of THIS task closure and a
+    // plain String, so no closure reaches back into the script/project object at execution time - which is
+    // what the cache rejects ("Invocation of 'project' references a Gradle script object from a Groovy
+    // closure at execution time"). `version` was such a reference all along and only showed up the first
+    // time this task actually re-ran under the cache (P1.58); the script-level `releaseBuild` above is
+    // used for the build-log line only.
+    def versionValue = project.version.toString()
+    // `-Prelease` with no value arrives as the EMPTY STRING, not as "true" - so the test has to be
+    // `hasProperty` plus "not the literal false", which is what the script-level `releaseBuild` above
+    // does for the log line. (`findProperty('release') ?: 'false'` treats the empty string as absent and
+    // silently produced a development marker out of a `-Prelease` build.)
+    def releaseValue = project.hasProperty('release') && project.property('release') != 'false'
+            ? 'true' : 'false'
+    inputs.property 'version', versionValue
+    inputs.property 'release', releaseValue
+    filesMatching('fabric.mod.json') {
+        expand 'version': versionValue
+    }
+    filesMatching('redstonecircuit-build.properties') {
+        expand 'release': releaseValue
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// verifySodiumHookMapping - the gate that makes "the mesh hooks resolve at runtime" a fact of the
+// build instead of something only a player's machine can tell you.
+//
+// The fault this exists for: the hooks are written against Mojang's names (`BakedModel`,
+// `BlockState`, `BlockPos`) because that is what this source is compiled against, while the game runs
+// the same classes under intermediary names (`class_1087`, `class_2680`, `class_2338`). Mixin bridges
+// the two through the refmap the annotation processor generates. With the processor switched off there
+// was no refmap in the jar at all, so Mixin looked for a method that does not exist, and `require = 0`
+// turned that into silence: no crash, no "Mixin apply failed" line, just host blocks that stayed in the
+// chunk mesh and hid their own contents.
+//
+// So the check is on the artifact, not on the source: read the refmap out of the jar this build is
+// about to ship, and fail unless every mesh hook's named method spec is mapped to the exact
+// intermediary signature Mixin will look for, and unless both mixin configs name that refmap. A wrong
+// descriptor, a method Sodium renamed, or the processor being switched off again all fail here - in
+// about a second, offline, long before anyone launches the game.
+// ---------------------------------------------------------------------------------------------
+tasks.register('verifySodiumHookMapping') {
+    group = 'verification'
+    description = 'Fails the build unless both mesh hooks are remapped to intermediary in the shipped refmap.'
+
+    def jarFile = tasks.named('remapJar').flatMap { it.archiveFile }
+    dependsOn tasks.named('remapJar')
+
+    // The contract between this source and the runtime, written out in full rather than derived: any
+    // change on either side should have to be deliberate. Each row is mixin class / named spec /
+    // intermediary spec.
+    def expected = [
+            ['com/jiangyuefengyu/redstonecircuit/mixin/SodiumBlockRendererMixin',
+             'renderModel(Lnet/minecraft/client/resources/model/BakedModel;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;)V',
+             'Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/pipeline/BlockRenderer;renderModel(Lnet/minecraft/class_1087;Lnet/minecraft/class_2680;Lnet/minecraft/class_2338;Lnet/minecraft/class_2338;)V'],
+            ['com/jiangyuefengyu/redstonecircuit/mixin/BlockRenderDispatcherMixin',
+             'renderBatched(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/BlockAndTintGetter;Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;ZLnet/minecraft/util/RandomSource;)V',
+             'Lnet/minecraft/class_776;method_3355(Lnet/minecraft/class_2680;Lnet/minecraft/class_2338;Lnet/minecraft/class_1920;Lnet/minecraft/class_4587;Lnet/minecraft/class_4588;ZLnet/minecraft/class_5819;)V'],
+    ]
+
+    doLast {
+        def file = jarFile.get().asFile
+        def zip = new java.util.zip.ZipFile(file)
+        try {
+            def refmapEntry = zip.entries().find { it.name.endsWith('-refmap.json') }
+            if (refmapEntry == null) {
+                throw new GradleException(
+                        "No refmap in ${file.name}: the Mixin annotation processor did not run, so neither " +
+                                "mesh hook can resolve at runtime. Check `loom { mixin { useLegacyMixinAp } }` " +
+                                "and that both optional compatibility targets are on the compile classpath.")
+            }
+            def refmap = new groovy.json.JsonSlurper().parse(zip.getInputStream(refmapEntry))
+            def named = refmap?.data?.get('named:intermediary')
+            def problems = []
+            expected.each { mixin, from, to ->
+                def actual = named?.get(mixin)?.get(from)
+                if (actual == null) {
+                    problems << "  ${mixin}\n      has no refmap entry for ${from}"
+                } else if (actual != to) {
+                    problems << "  ${mixin}\n      ${from}\n      is mapped to ${actual}\n      expected     ${to}"
+                }
+            }
+            ['redstonecircuit.mixins.json', 'redstonecircuit.sodium.mixins.json'].each { name ->
+                def configEntry = zip.getEntry(name)
+                if (configEntry == null) {
+                    problems << "  ${name} is missing from the jar"
+                } else {
+                    def config = new groovy.json.JsonSlurper().parse(zip.getInputStream(configEntry))
+                    if (config?.refmap != refmapEntry.name) {
+                        problems << "  ${name} does not name ${refmapEntry.name} (refmap=${config?.refmap}), so Mixin will never read it"
+                    }
+                }
+            }
+            if (!problems.isEmpty()) {
+                throw new GradleException(
+                        "The mesh hooks are not correctly remapped for runtime:\n" + problems.join('\n') +
+                                "\nIf a descriptor above looks wrong, fix it in the mixin named beside it and " +
+                                "check it with `javap -p -cp <sodium jar> <target class>`; if the intermediary " +
+                                "side looks wrong, the Minecraft version or its mappings moved.")
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'verifySodiumHookMapping'
+}
+
+// P1.58: the test suite is part of "the making and testing process", so it keeps the DETAILED log even in
+// a release build (`-Prelease` only changes what a released jar defaults to). One property, read by
+// RCConfig#debugLog, is also the supported way to ask a released jar for a diagnostic log:
+//     -Dredstonecircuit.debugLog=true
+tasks.named('test', Test) {
+    systemProperty 'redstonecircuit.debugLog', 'true'
+}

@@ -1,0 +1,32 @@
+MIT License
+
+Copyright (c) 2026 江月风雨
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+说明（不构成授权条款的补充，仅为澄清范围）：
+
+本模组采用 MIT 许可证。上面的英文条款为准；作者原创的代码、贴图与模型都在 MIT 授权范围内，
+你可以自由使用、修改、再分发（保留版权声明即可）。
+
+Minecraft 本身及其原始素材的版权归 Mojang Studios，不在本许可证的授权范围内：
+模组中有几张贴图是对原版贴图的改色（详见 README 的"说明"一节），它们之所以能出现在这里，
+依据的是 Minecraft 的 EULA 与 Usage Guidelines 对模组这一形态的允许，而不是 MIT。

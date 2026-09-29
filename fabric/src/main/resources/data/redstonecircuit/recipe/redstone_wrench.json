@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "R": {
+      "item": "minecraft:redstone"
+    }
+  },
+  "pattern": [
+    "R",
+    "R",
+    "R"
+  ],
+  "result": {
+    "count": 1,
+    "id": "redstonecircuit:redstone_wrench"
+  }
+}

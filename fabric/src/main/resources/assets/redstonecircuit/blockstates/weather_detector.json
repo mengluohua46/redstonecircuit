@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "weather=clear,active=false": { "model": "redstonecircuit:block/weather_detector" },
+    "weather=clear,active=true": { "model": "redstonecircuit:block/weather_detector" },
+    "weather=rain,active=false": { "model": "redstonecircuit:block/weather_detector" },
+    "weather=rain,active=true": { "model": "redstonecircuit:block/weather_detector" },
+    "weather=thunder,active=false": { "model": "redstonecircuit:block/weather_detector" },
+    "weather=thunder,active=true": { "model": "redstonecircuit:block/weather_detector" }
+  }
+}
