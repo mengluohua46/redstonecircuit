@@ -25,25 +25,13 @@ import org.junit.jupiter.api.Test;
 /**
  * <b>Where the world path's vertices actually land, driven through the production emitter.</b>
  *
- * <h2>The regression this exists for</h2>
- * A revision of {@code HostRenderPass} was changed so that the world path emits at a {@code float[] base}
- * instead of a {@link BlockPos}. Each base is a small, plausible-looking array, and the failure mode when
- * one is not filled in is the worst kind: the geometry still exists, every counter is still healthy, and
- * the whole overlay is simply drawn somewhere else - at the origin, in this case, which is two thousand
- * blocks from the author's machine.
- *
- * <p>The test that was supposed to catch this, {@code CarrierFrameTest#theTwoPathsAgree}, did not,
- * because it <b>re-derived both paths' arithmetic from the prose</b> rather than calling the renderer:
- * {@code new Vector3d(block.getX() + mapped[0], ...)} is the test agreeing with itself. It is not enough
- * to be wrong about the code; a test has to be able to be wrong about the code.
- *
- * <p>So these tests drive {@link HostRenderPass#emitWorldBoxesForTest}, which goes through the same
- * {@code emitBoxes} the renderer calls, into a recording {@link VertexConsumer}, and assert on the
- * coordinates that were handed to the vertex consumer.
+ * <p>世界路径把顶点发射在 {@code float[] base} 而不是 {@link BlockPos} 上，base 忘了填时几何体照样存在、
+ * 每个计数器照样健康，只是整个 overlay 被画到了别处。所以这里把渲染器真正调用的
+ * {@link HostRenderPass#emitWorldBoxesForTest} 送进记录用的 {@link VertexConsumer}，断言顶点坐标本身。
  */
 class WorldPathCoordinatesTest {
 
-    /** The author's machine: the block that must NOT be drawn at the origin. */
+    /** The block that must NOT be drawn at the origin. */
     private static final BlockPos BLOCK = new BlockPos(2775, 77, -1395);
 
     /** A camera far from it, so the camera translation is part of what is asserted. */
@@ -93,12 +81,8 @@ class WorldPathCoordinatesTest {
         return pose;
     }
 
-    /**
-     * The atlas UV the emitter needs; the values never reach a vertex position.
-     *
-     * <p>{@code null} for both sprites is not an option - {@code faceUv} reads them - so this stands in
-     * with the unit square, which is what any real atlas slice is a rectangle of.
-     */
+    /** The atlas UV the emitter needs; the values never reach a vertex position. {@code null} sprites are not
+     * an option - {@code faceUv} reads them - so the unit square stands in for any real atlas slice. */
     private static HostRenderPass.AtlasUv uv() {
         return new HostRenderPass.AtlasUv(0.5F, 0.5F, 0.0F, 1.0F, 0.0F, 1.0F);
     }
@@ -128,9 +112,8 @@ class WorldPathCoordinatesTest {
         assertTrue(!vertices.isEmpty(),
                 "the world path emitted no geometry at all, so there is nothing to place");
 
-        // The exact complaint this test answers: "普通状态下都看不见边框和内部元件". If the base is left at
-        // zero the vertices come out around (0,0,0) - two thousand blocks from the machine - while every
-        // counter still reports healthy geometry.
+        // If the base is left at zero the vertices come out around (0,0,0) - far from the machine - while
+        // every counter still reports healthy geometry.
         float minX = Float.MAX_VALUE;
         float maxX = -Float.MAX_VALUE;
         float minY = Float.MAX_VALUE;
@@ -138,9 +121,8 @@ class WorldPathCoordinatesTest {
         float minZ = Float.MAX_VALUE;
         float maxZ = -Float.MAX_VALUE;
         for (Vector3f v : vertices) {
-            // The world path's pose is `T(-cameraPos)`, so what the vertex consumer receives is
-            // camera-relative. The world coordinate - the thing the player sees and the thing this test
-            // is about - is that plus the camera, and it is the coordinate a failure must quote.
+            // The world path's pose is `T(-cameraPos)`, so the consumer receives camera-relative
+            // coordinates; the world coordinate is that plus the camera, and it is what a failure must quote.
             minX = Math.min(minX, v.x + (float) CAMERA.x);
             maxX = Math.max(maxX, v.x + (float) CAMERA.x);
             minY = Math.min(minY, v.y + (float) CAMERA.y);
@@ -151,9 +133,8 @@ class WorldPathCoordinatesTest {
         String where = "world vertices span x[" + minX + "," + maxX + "] y[" + minY + "," + maxY
                 + "] z[" + minZ + "," + maxZ + "]";
 
-        // The basis maps component space onto the block's 0..1, so every box vertex is inside the block
-        // and the whole set is inside it too. Stated as a range rather than as an origin check so that
-        // BOTH ways of getting it wrong - zero base, or a base applied twice - fail here.
+        // The basis maps component space onto the block's 0..1, so every box vertex is inside the block.
+        // Stated as a range so BOTH ways of getting it wrong - zero base, or a base applied twice - fail here.
         assertTrue(minX >= BLOCK.getX() - 0.001F && maxX <= BLOCK.getX() + 1.001F,
                 "the world path's x is not on the block " + BLOCK.toShortString() + ": " + where);
         assertTrue(minZ >= BLOCK.getZ() - 0.001F && maxZ <= BLOCK.getZ() + 1.001F,
@@ -187,12 +168,12 @@ class WorldPathCoordinatesTest {
     @Test
     @DisplayName("the world path and the carried path put the same vertex on the same world point")
     void theTwoPathsAgreeAtARealWorldPoint() {
-        // BOTH SIDES DRIVEN, not re-derived. The world side goes through the production emitter into a
-        // recorded vertex; the carried side goes through `applyCarrierFrame` + the production base, which
-        // is the same expression `drawCarriedContents` pushes, and the same one the shell emits at.
+        // Both paths driven, not re-derived: the world side goes through the production emitter into a
+        // recorded vertex, the carried side through the production base - the same expression
+        // `drawCarriedContents` pushes and the shell emits at.
         //
         // A Create contraption holding exactly this block: `local = (0,0,0)`, `pivot = (0.5,0.5,0.5)`,
-        // `position = the block's centre` - quoted from the author's `carrier claim` line.
+        // `position = the block's centre`.
         CarrierPose pose = new CarrierPose(new Vector3d(BLOCK.getX() + 0.5, BLOCK.getY() + 0.5,
                 BLOCK.getZ() + 0.5), new Quaterniond(), new Vector3d(0.5, 0.5, 0.5), 1.0);
         CarrierFrame frame = CarrierFrame.forBlock(pose, new Vector3d(0, 0, 0));
@@ -216,17 +197,14 @@ class WorldPathCoordinatesTest {
                             + offsetX + "," + offsetY + "," + offsetZ + ")");
 
             // The carried path's world position for that same local point: `T(position) · R · S` applied
-            // to `base + the block-local offset`. `R` is the identity here and `carriedBase` is
-            // `local - pivot = (-0.5,-0.5,-0.5)`, so this is `position + offset - 0.5`, and it must land
-            // on the world point the world path drew.
+            // to `base + the block-local offset`. `R` is the identity and `carriedBase` is
+            // `local - pivot = (-0.5,-0.5,-0.5)`, so this is `position + offset - 0.5`.
             Vector3d carriedWorld = new Vector3d(pose.position())
                     .add(carriedBase[0] + offsetX, carriedBase[1] + offsetY,
                             carriedBase[2] + offsetZ);
             // The same point by the contract. `CarrierPose#transformPosition` takes the STRUCTURE-LOCAL
-            // coordinate - `local` plus the block-local offset - which for this contraption is the
-            // point inside the unit cube at `local = (0,0,0)`. (`CarrierFrame#worldOf` is the same
-            // function and is asserted equal to this one elsewhere; both take local coordinates, and
-            // passing them a world coordinate is the mistake that made this test fail first.)
+            // coordinate - `local` plus the block-local offset, which for this contraption is the point
+            // inside the unit cube at `local = (0,0,0)` - and not a world coordinate.
             Vector3d contract = pose.transformPosition(
                     new Vector3d(offsetX, offsetY, offsetZ), new Vector3d());
             assertEquals(0.0, contract.distance(carriedWorld), 1.0E-4,
@@ -258,7 +236,7 @@ class WorldPathCoordinatesTest {
     }
 
     @Test
-    @DisplayName("an empty box list still yields a usable scratch, so the loop cannot be the bug")
+    @DisplayName("an empty box list still yields a usable scratch")
     void emptyBoxesEmitNothing() {
         RecordingConsumer consumer = new RecordingConsumer();
         Slot slot = new Slot(ComponentType.TORCH);

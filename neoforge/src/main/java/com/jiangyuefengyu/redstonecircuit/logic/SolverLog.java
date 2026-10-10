@@ -18,48 +18,20 @@ import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>The solver's own logging, aggregated: one summary line per window, and one warning when a host is
- * being recomputed over and over inside a single tick.</b>
+ * The solver's own logging, aggregated: one summary line per window, and one warning when a host is
+ * recomputed over and over inside a single tick.
  *
- * <h2>Why this exists, in numbers</h2>
- * The author's P1.22 run produced a 52.5 MB log. 249,027 of its 249,387 lines were this mod's, and
- * <b>242,588</b> of those were four per-step lines:
+ * <p>The four per-step lines - the world change that notified a host, the output change that re-solved one,
+ * the recompute seed and the component power change - are counted rather than printed, and appear only
+ * behind {@code debugLog} <b>and</b> {@code verboseSolverLog}; the summary carries the totals, how many hosts
+ * were involved and the worst host's share, once per {@value #SUMMARY_WINDOW_TICKS} ticks.
  *
- * <pre>
- *   world change at … notified host … -> re-solving                          86,543
- *   output change at host … -> re-solving                                    77,416
- *   recompute seed=… component=[…]                                           31,045
- *   DUST at … power 14 -> 13 (supply=13, externalSignal=13, …)               47,584
- * </pre>
+ * <p>More than {@code solverSpinWarnPerTick} recomputes of one host inside one tick is not a slow machine
+ * but the solver being re-fed by its own neighbour notifications, so that warning is written once per host
+ * per tick and is not behind the verbose switch.
  *
- * <p>That is about <b>400 lines a second</b> for a test that lasted a minute, and it is not a
- * player's click rate - a click cannot produce thirty thousand recomputes. It is the solver writing one
- * line per step of a loop that was running inside a single tick, which is the second thing this class is
- * for.
- *
- * <h2>The two things it does</h2>
- * <ol>
- *   <li><b>Counts instead of printing.</b> Those four lines become one {@code solver: …} line per
- *       {@value #SUMMARY_WINDOW_TICKS} ticks, carrying the totals, how many hosts were involved and the
- *       worst host's share. The per-step detail is still available, behind {@code debugLog}
- *       <b>and</b> {@code verboseSolverLog} (off by default) - because when a solver problem is being
- *       chased, the steps are exactly what is wanted, and it should be one config edit away rather than
- *       a rebuild.</li>
- *   <li><b>Says when a host is spinning.</b> More than {@code solverSpinWarnPerTick} recomputes of one
- *       host within one tick is not "a slow machine": it means the solver is being re-fed by its own
- *       neighbour notifications in the same tick, which is a defect and needs to be visible without
- *       reading four million lines. That warning is written <b>once per host per tick</b>, it carries
- *       the host's coordinate, the tick and - if the host belongs to a moving structure - the carrier
- *       and its local coordinate, and it is deliberately <b>not</b> behind the verbose switch: it is the
- *       one line that survives the aggregation.</li>
- * </ol>
- *
- * <h2>What it is not allowed to do</h2>
- * It counts; it never decides. No solver behaviour reads anything here, the counters are bounded to
- * {@value #MAX_TRACKED_HOSTS} distinct hosts per map (the rest are pooled into one number rather than
- * growing the map), the carrier lookup a warning makes is read-only and capped by
- * {@code CarrierStore#scanLocalCoordinate}'s own ceiling, the whole of it is behind {@code debugLog}, and
- * {@link #clear()} is called when a level unloads so nothing survives a reload.
+ * <p>It counts and never decides: no solver behaviour reads anything here, each counter is bounded to
+ * {@value #MAX_TRACKED_HOSTS} distinct hosts, and {@link #clear()} runs when a level unloads.
  */
 public final class SolverLog {
 
@@ -88,29 +60,24 @@ public final class SolverLog {
     private static final Map<BlockPos, Integer> tickPerHost = new LinkedHashMap<>();
 
     /**
-     * The convergence figures for the window: settle rounds, solves, and notifications sent.
+     * The convergence figures for the window: settle rounds, solves, and notifications sent, read off
+     * {@link SolverNotifications#lastStats} once per tick and summed.
      *
-     * <p>Read off {@link SolverNotifications#lastStats} once per tick and summed. With the notifications
-     * coalesced to the tick boundary a settled circuit reaches its fixed point in <b>one</b> round per
-     * solve, so "rounds per solve" is the number that separates "it converged" from "it stopped because
-     * the round budget ran out" - which is the whole of the evidence the next log has to carry. Part of
-     * the window summary, and deliberately <b>not</b> behind {@code verboseSolverLog}: one number per
-     * twenty ticks is exactly what the summary line is for.
+     * <p>Rounds per solve is the number that separates "it converged" from "it stopped because the round
+     * budget ran out": with the notifications coalesced to the tick boundary a settled circuit reaches its
+     * fixed point in one round per solve.
      */
     private static int windowRounds;
     private static int windowSolves;
     private static int windowNotifications;
 
-    /** The same, for one tick; used to answer "at most one round per tick" directly. */
+    /** The same, for one tick; answers "at most one round per tick" directly. */
     private static int roundsThisTick;
     private static int solvesThisTick;
 
     /**
-     * How many ticks the current window has covered.
-     *
-     * <p>Counted rather than measured against the level's clock on purpose: a summary is due after a
-     * number of <em>ticks this code saw</em>, which is what "in the last N ticks" means, and which cannot
-     * be thrown off by a reloaded world whose clock went backwards or by a level that was not ticked.
+     * How many ticks the current window has covered: counted rather than read from the level's clock, so a
+     * reloaded world whose clock went backwards cannot throw the window off.
      */
     private static int windowTicks;
 
@@ -121,11 +88,9 @@ public final class SolverLog {
     }
 
     /**
-     * Whether the per-step detail lines should be written.
-     *
-     * <p>Two switches rather than one on purpose: {@code debugLog} is the mod's general diagnostic switch
-     * and is on by default, while this detail is the one thing in the mod that can produce hundreds of
-     * lines a second. So the default is the summary, and the steps are one config edit away.
+     * Whether the per-step detail lines should be written: {@code debugLog} is the mod's general diagnostic
+     * switch and is on by default, while this detail is the one thing here that can produce hundreds of lines
+     * a second.
      */
     public static boolean verbose() {
         return RCConfig.debugLog() && RCConfig.verboseSolverLog();
@@ -161,25 +126,17 @@ public final class SolverLog {
     }
 
     /**
-     * Ends one level tick: the spin warnings for the tick that just ended, then the window summary when
-     * {@value #SUMMARY_WINDOW_TICKS} ticks have passed.
-     *
-     * <p>Returns the lines rather than logging them so the shape and the thresholds are asserted by
-     * offline unit tests, exactly as {@code CarrierEntryTrace#candidates} does; {@link #flush} is the
-     * production caller and writes them.
-     *
-     * @param level the level the tick belongs to, or {@code null} in the unit tests
+     * Ends one level tick: the spin warnings for the tick that just ended, then the window summary once
+     * {@value #SUMMARY_WINDOW_TICKS} ticks have passed. Returns the lines rather than logging them, so the
+     * shape and the thresholds are asserted by offline unit tests.
      */
     public static List<String> tickEnd(@Nullable ServerLevel level) {
         return tickEnd(level == null ? 0L : level.getGameTime(), level);
     }
 
     /**
-     * The same, with the tick supplied.
-     *
-     * <p>Split out so the window arithmetic and the spin threshold - the two things about this class
-     * that cannot be checked by reading it - are pinned by an offline unit test that can drive any tick it
-     * likes. {@link #tickEnd(ServerLevel)} is the production form and is this with the level's clock.
+     * The same with the tick supplied, so the window arithmetic and the spin threshold can be driven to any
+     * tick an offline unit test likes.
      */
     static List<String> tickEnd(long tick, @Nullable ServerLevel level) {
         List<String> out = new ArrayList<>();
@@ -204,17 +161,12 @@ public final class SolverLog {
     }
 
     /**
-     * <b>The convergence evidence: how many settle rounds one solve took.</b>
+     * The convergence evidence: how many settle rounds one solve took, summed over the window so it costs one
+     * line per second however busy the solver is. Read off {@link SolverNotifications}, which owns the
+     * per-tick counters; this class only aggregates.
      *
-     * <p>One line per solve, at the same window as the summary. The number to read is
-     * <b>rounds per solve</b>: a circuit that has a fixed point reaches it in one round once the solve
-     * cannot be fed by its own notifications, so a figure of 1 (or a small constant, for a chain that
-     * genuinely needs to propagate in several passes) is the proof that the fix is in effect. A figure
-     * that sits at {@code MAX_ROUNDS_PER_TICK} is the opposite proof: the round budget is what stopped it.
-     *
-     * <p>Summed over the window rather than printed per tick, so it costs one line per second however
-     * busy the solver is. Read off {@link SolverNotifications}, which owns the per-tick counters; this
-     * class only aggregates and never decides.
+     * <p>Rounds per solve is the number to read: a circuit with a fixed point reaches it in one round, while a
+     * figure sitting at {@code MAX_ROUNDS_PER_TICK} means the round budget is what stopped it.
      */
     static void recordConvergence(@Nullable ServerLevel level) {
         if (level == null) {
@@ -234,12 +186,10 @@ public final class SolverLog {
     /**
      * The production form: end the tick and write whatever that produced.
      *
-     * <p><b>Once per game tick, not once per level event.</b> The tick handler is called for every loaded
-     * dimension, and the counters here are deliberately global (a redstone component is a position in one
-     * level, and the counts are about the solver as a whole). Ending the tick once per level would split
-     * one tick's recomputes across three flushes, and the spin threshold - which is stated <em>per
-     * tick</em> - would then be measured against a third of a tick and never fire. So the first level to
-     * tick a given game time ends it, and the others are no-ops.
+     * <p>Once per game tick, not once per level event: the counters here are global, and ending the tick once
+     * per dimension would split one tick's recomputes across three flushes and leave the spin threshold -
+     * which is stated <em>per tick</em> - compared against a third of a tick. So the first level to tick a
+     * given game time ends it, and the others are no-ops.
      */
     public static void flush(@Nullable ServerLevel level) {
         long tick = level == null ? 0L : level.getGameTime();
@@ -252,9 +202,8 @@ public final class SolverLog {
     }
 
     /**
-     * Claims one game tick for the flush; the second and later calls for the same tick answer false.
-     *
-     * <p>Package-visible so "three loaded dimensions still end one tick once" is an offline assertion.
+     * Claims one game tick for the flush; the second and later calls for the same tick answer false, so three
+     * loaded dimensions still end one tick once.
      */
     static boolean claimTick(long tick) {
         if (tick == lastFlushedTick) {
@@ -265,11 +214,8 @@ public final class SolverLog {
     }
 
     /**
-     * <b>The spin warning: one host recomputed too many times inside one tick.</b>
-     *
-     * <p>Ordered worst-first and capped at {@value #MAX_SPIN_WARNINGS_PER_TICK} lines per tick, so a
-     * world where everything spins still produces a bounded number of them. The threshold is
-     * {@code solverSpinWarnPerTick}.
+     * The spin warning: one host recomputed more than {@code solverSpinWarnPerTick} times inside one tick,
+     * worst first and capped at {@value #MAX_SPIN_WARNINGS_PER_TICK} lines per tick.
      */
     private static List<String> spinWarnings(@Nullable ServerLevel level, long tick) {
         List<String> out = new ArrayList<>();
@@ -304,15 +250,8 @@ public final class SolverLog {
     }
 
     /**
-     * One line for the window: the totals, how many hosts, the worst host's share, and <b>how many settle
-     * rounds each solve needed</b>.
-     *
-     * <p>The rounds figure is the convergence evidence this round exists to provide, and it is on the same
-     * line as the totals so that a reader has one thing to grep: {@code rounds/solve}. A settled circuit
-     * reaches its fixed point in one round per solve when the solve cannot be fed by its own notifications
-     * (see {@link SolverNotifications}), so a small number here - one, or a small constant for a chain that
-     * genuinely needs several passes - is the proof; a number sitting at {@code MAX_ROUNDS_PER_TICK} is the
-     * proof of the opposite.
+     * One line for the window: the totals, how many hosts, the worst host's share, and how many settle rounds
+     * each solve needed - all on one line so that a reader has one thing to grep.
      */
     private static String summary() {
         BlockPos worst = null;
@@ -332,9 +271,9 @@ public final class SolverLog {
             sb.append(" (worst host=").append(worst.toShortString()).append(" at ").append(worstCount)
                     .append(" recompute(s) in the window)");
         }
-        // THE CONVERGENCE FIGURES. "The solver ran" and "the solver converged" are different statements,
-        // and only the second one is the fix: rounds/solve is 1 for a circuit that reached its fixed
-        // point in a single pass, and MAX_ROUNDS_PER_TICK for one the budget had to stop.
+        // "The solver ran" and "the solver converged" are different statements, and only the second one is the
+        // fix: rounds/solve is 1 for a circuit that reached its fixed point in a single pass, and
+        // MAX_ROUNDS_PER_TICK for one the budget had to stop.
         if (windowSolves > 0) {
             sb.append("; convergence: ").append(windowSolves).append(" solve(s), ").append(windowRounds)
                     .append(" round(s) = ")
@@ -349,10 +288,9 @@ public final class SolverLog {
             sb.append(" (").append(pooledHosts).append(" recompute(s) were on hosts beyond the first ")
                     .append(MAX_TRACKED_HOSTS).append(" counted)");
         }
-        // P1.38: THE CARRIER READ COUNTERS, on the line the author already greps. Before this they only
-        // existed behind the /rc command, so a log without a command in it could not say whether a
-        // cross-structure read had been attempted at all. Empty when nothing has been read, which keeps
-        // this line byte-for-byte the same in a level with nothing physicalised.
+        // The carrier read counters ride on this line so a log with no command in it can still say whether a
+        // cross-structure read was attempted; empty when nothing has been read, which keeps the line
+        // byte-for-byte the same in a level with nothing physicalised.
         String carrierReads = SignalReadTrace.describe();
         if (!carrierReads.isEmpty()) {
             sb.append("; ").append(carrierReads);
@@ -362,14 +300,10 @@ public final class SolverLog {
     }
 
     /**
-     * Which structure, if any, a spinning position belongs to - and where inside it.
-     *
-     * <p>Three questions in the order that costs least: is a carried component <em>projected</em> at this
-     * world position (the ordinary case, one hash lookup); is this position one a record answers at;
-     * and - the case the author's own log is full of - is this position a structure's <b>own</b>
-     * coordinate, which it is when a sub-level's block is being solved in the plot region. The last one
-     * reuses {@code CarrierStore#scanLocalCoordinate}, so it is bounded by that method's own ceiling, and
-     * the whole thing is inside a {@code try} because a warning must never be able to throw.
+     * Which structure, if any, a spinning position belongs to - and where inside it. Three questions in the
+     * order that costs least: is a carried component projected at this world position, is this a position a
+     * record answers at, and is this a structure's own plot coordinate. The last one reuses the carrier
+     * store's bounded scan, and the whole thing is inside a {@code try} because a warning must never throw.
      */
     private static String structureOf(@Nullable ServerLevel level, @Nullable BlockPos pos) {
         try {
@@ -409,10 +343,8 @@ public final class SolverLog {
     }
 
     /**
-     * Counts one host, bounded: past {@link #MAX_TRACKED_HOSTS} the map stops growing and the caller is
-     * told so it can pool the number instead.
-     *
-     * @return true when the host was counted in the map, false when it was pooled
+     * Counts one host, bounded: past {@link #MAX_TRACKED_HOSTS} the map stops growing and the caller is told
+     * so it can pool the number instead. Returns whether the host was counted in the map.
      */
     private static boolean count(Map<BlockPos, Integer> map, @Nullable BlockPos pos) {
         if (pos == null) {
@@ -444,10 +376,8 @@ public final class SolverLog {
     }
 
     /**
-     * How many settle rounds the last tick that ran a solve used, and how many solves it ran.
-     *
-     * <p>The per-tick form of the convergence evidence: "at most one round for a settled circuit" is what
-     * a unit test can assert directly, without a loaded config or a level.
+     * How many settle rounds the last tick that ran a solve used: "at most one round for a settled circuit"
+     * is what a unit test can assert directly, without a loaded config or a level.
      */
     public static int roundsInLastTick() {
         return roundsThisTick;
@@ -464,10 +394,8 @@ public final class SolverLog {
     }
 
     /**
-     * Forgets everything, including the window clock.
-     *
-     * <p>Called when a level unloads or the server stops, for the same reason the carrier store's own
-     * state is: a counter that survived a reload would report a window that never happened. Also the unit
+     * Forgets everything, including the window clock: called when a level unloads or the server stops,
+     * because a counter that survived a reload would report a window that never happened. Also the unit
      * tests' reset, so one test cannot leak into the next.
      */
     public static void clear() {

@@ -17,25 +17,35 @@ import net.fabricmc.api.Environment;
 /**
  * Whether a shader pack is drawing the world, and what that changes about the overlay.
  *
- * <h2>Why the overlay has to change at all</h2>
- * Without shaders the components inside a block are drawn by a render type of our own that ignores the
- * depth test - the block's own opaque cube was drawn first, so anything that honestly tested depth from
- * inside the block would be rejected by the block's own face. Shader packs pick the program (and the
- * extra vertex attributes their shaders expect) from the <em>identity</em> of the render type, so a
- * type of ours is a stranger to them, and one that ignores depth has no surface for a deferred lighting
- * pass to light: Bliss, Eclipse and Photon dropped the components, Complementary Unbound dropped the
- * shell.
+ * <h2>What the answer is still for</h2>
+ * Not which renderer draws. The overlay has one drawing path now: the host block always leaves the chunk
+ * mesh ({@code BlockRenderDispatcherMixin}, {@code SodiumBlockRendererMixin}) and everything it draws uses
+ * vanilla render types taken by reference - see {@link HostRenderTypes}. A type of ours was the bug: Iris
+ * picks the program, and the extra vertex attributes a pack's shaders expect, from the <em>identity</em> of
+ * the render type it is handed, so a type of ours was a stranger to every pack, while the shell drawn with
+ * vanilla's own {@code translucent()} was recognised - "only the outer frame is visible" is exactly what
+ * that looks like.
  *
- * <p>With shaders on, the overlay therefore switches to vanilla render types, which means the block's
- * own cube has to go: the block is skipped while its section is being meshed (see
- * {@code BlockRenderDispatcherMixin}), and the pass draws the block itself - both sides of it, so
- * nothing behind shows through - plus the components, all with render types a pack knows by name.
+ * <p>Two things still depend on the answer. The <b>light floor</b> ({@code HostRenderPass#lightFor}): with
+ * a pack drawing, the block's own faces are drawn by hand rather than by the pack's terrain pipeline, so
+ * the inside of a block needs a floor under it or the packs that lean hardest on shadow darken it to
+ * nothing. And the <b>diagnostics</b>, which name the arrangement a log's numbers came from, so that a
+ * report can be read without a second run.
  *
  * <h2>Finding out without depending on it</h2>
- * Iris publishes {@code net.irisshaders.iris.api.v0.IrisApi}, and Oculus implements the same interface,
- * but hard-depending on either to ask one boolean would put a shader mod in everyone's jar. The class is
- * looked up reflectively instead, once, and the answer is cached; when neither is installed the lookup
- * simply fails and the overlay stays on its own render types.
+ * Iris publishes {@code net.irisshaders.iris.api.v0.IrisApi}, and Oculus implements the same interface, but
+ * hard-depending on either to ask one boolean would put a shader mod in everyone's jar. The class is looked
+ * up reflectively instead, once, and the answer is cached; when neither is installed the lookup simply
+ * fails and the answer is "no shaders".
+ *
+ * <h2>Two questions, not one</h2>
+ * Iris's {@code isShaderPackInUse()} answers "a pack is <em>selected</em>", which is not the same as "those
+ * shaders are running": it stays true while {@code enableShaders} is false in {@code iris.properties}. The
+ * second question is part of the same public API ({@code IrisApi#getConfig()}, whose
+ * {@code areShadersEnabled()} is that flag), and a pack is drawing only when both answers are yes. Nothing
+ * about the drawing branches on either answer any more, which is deliberate - a question that reads true
+ * with the shaders off is not a thing to branch a renderer on, and branching on it is how a block ended up
+ * drawn as a bare frame with its own cube still in the mesh hiding everything inside it.
  */
 @Environment(EnvType.CLIENT)
 public final class ShaderCompat {
@@ -46,8 +56,17 @@ public final class ShaderCompat {
     private static boolean lookedUp;
     private static Method getInstance;
     private static Method isShaderPackInUse;
+    private static Method getConfig;
+    private static Method areShadersEnabled;
+    /** Iris's {@code IrisApiConfig}, which answers the second question. One instance for the whole game. */
+    private static Object irisConfig;
+    /** Iris's own answer: a pack is <em>selected</em>. Not on its own a reason to change a renderer. */
     private static boolean packInUse;
+    /** The configuration's answer: those shaders are switched <em>on</em>. Also not enough on its own. */
+    private static boolean shadersEnabled;
     private static long checkedAt;
+    /** The verdict already written to the log, so the one-line diagnosis appears once per change. */
+    private static Boolean reportedPath;
 
     /**
      * Positions whose block must not be meshed, because the overlay draws them itself.
@@ -81,39 +100,105 @@ public final class ShaderCompat {
     private ShaderCompat() {
     }
 
-    /** True while a shader pack is drawing the world. Cheap: the answer is cached for a second. */
+    /**
+     * True while a shader pack is actually drawing the world. Cheap: the answer is cached for a second.
+     *
+     * <p><b>Two questions, not one.</b> Iris's {@code isShaderPackInUse()} answers "a pack is
+     * <em>selected</em>", which is not the same as "those shaders are running" and is not a thing to branch
+     * a renderer on: it stays true while {@code enableShaders} is false. The second question is part of the
+     * same public API ({@code IrisApi#getConfig()}, whose {@code areShadersEnabled()} is that flag), and the
+     * pack is drawing only when both answers are yes.
+     *
+     * <p>Still pure reflection, still one lookup, still one answer per second. If Iris is absent, or its API
+     * cannot answer either question - an older build without {@code getConfig}, a lookup that fails, a call
+     * that throws - the answer is "no shaders", which is the arrangement every machine can be read as.
+     */
     public static boolean shaderPackInUse() {
         long now = System.currentTimeMillis();
         if (!lookedUp) {
             lookedUp = true;
-            try {
-                Class<?> api = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
-                getInstance = api.getMethod("getInstance");
-                isShaderPackInUse = api.getMethod("isShaderPackInUse");
-            } catch (Throwable absent) {
-                // No Iris and no Oculus: nothing to ask, and nothing to adapt to.
-                getInstance = null;
-                isShaderPackInUse = null;
-                packInUse = false;
-                checkedAt = now;
-                return false;
-            }
+            lookUpIris();
+            checkedAt = now;
+            reportPath();
+            return shaderPath();
         }
-        if (getInstance == null || isShaderPackInUse == null) {
+        if (getInstance == null || isShaderPackInUse == null || getConfig == null
+                || areShadersEnabled == null) {
             return false;
         }
         if (now - checkedAt < CHECK_INTERVAL_MS) {
-            return packInUse;
+            return shaderPath();
         }
         checkedAt = now;
+        askIris();
+        reportPath();
+        return shaderPath();
+    }
+
+    /** The verdict: a pack is selected <em>and</em> switched on. */
+    private static boolean shaderPath() {
+        return packInUse && shadersEnabled;
+    }
+
+    /**
+     * Resolves Iris's public API, once.
+     *
+     * <p>A missing piece is not an error to report: it is the answer "no shaders", and the failure is
+     * already carried by the log line {@link #reportPath()} writes.
+     */
+    private static void lookUpIris() {
         try {
-            Object answer = isShaderPackInUse.invoke(getInstance.invoke(null));
-            packInUse = answer instanceof Boolean inUse && inUse;
-        } catch (Throwable broken) {
-            // A pack that cannot answer is treated as "no shaders": our own render types still work.
-            packInUse = false;
+            Class<?> api = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
+            getInstance = api.getMethod("getInstance");
+            isShaderPackInUse = api.getMethod("isShaderPackInUse");
+            getConfig = api.getMethod("getConfig");
+            areShadersEnabled = Class.forName("net.irisshaders.iris.api.v0.IrisApiConfig")
+                    .getMethod("areShadersEnabled");
+        } catch (Throwable absent) {
+            // No Iris and no Oculus, or an API too old to be asked about the configuration.
+            getInstance = null;
+            isShaderPackInUse = null;
+            getConfig = null;
+            areShadersEnabled = null;
         }
-        return packInUse;
+        packInUse = false;
+        shadersEnabled = false;
+    }
+
+    /** One round of questions. Anything that cannot answer answers "no shaders". */
+    private static void askIris() {
+        try {
+            Object api = getInstance.invoke(null);
+            Object inUse = isShaderPackInUse.invoke(api);
+            packInUse = inUse instanceof Boolean selected && selected;
+            if (irisConfig == null) {
+                irisConfig = getConfig.invoke(api);
+            }
+            Object enabled = irisConfig == null ? null : areShadersEnabled.invoke(irisConfig);
+            shadersEnabled = enabled instanceof Boolean on && on;
+        } catch (Throwable broken) {
+            // A pack that cannot answer is treated as "no shaders": the overlay's own arrangement always
+            // works.
+            packInUse = false;
+            shadersEnabled = false;
+        }
+    }
+
+    /**
+     * Writes, once and then only when it changes, which arrangement the pass is running in.
+     *
+     * <p>This is the line that answers "why does it look like this" from a log without a second run: it
+     * names both inputs, so "I installed Iris" can be told apart from "Iris is drawing", and a pack
+     * switched on or off in game produces a new line because the answer really changed.
+     */
+    private static void reportPath() {
+        boolean on = shaderPath();
+        if (reportedPath != null && reportedPath == on) {
+            return;
+        }
+        reportedPath = on;
+        RCConfig.LOGGER.info("[redstonecircuit] shader path: {} (pack in use={}, shaders enabled={})",
+                on ? "on" : "off", packInUse, shadersEnabled);
     }
 
     /**
@@ -121,16 +206,15 @@ public final class ShaderCompat {
      *
      * <p>No longer a switch between two ways of drawing. The overlay has one path now: the host block
      * always leaves the chunk mesh and everything it draws uses vanilla render types taken by
-     * reference. What is left to ask is whether to lift the light floor, because with a pack the
-     * block's own faces are gone from the mesh and the packs that lean hardest on shadows darken
-     * geometry drawn by hand.
+     * reference. What is left to ask is whether to lift the light floor, because the block's own faces are
+     * drawn by hand rather than by the pack's terrain pipeline, and the packs that lean hardest on shadows
+     * and ambient occlusion darken geometry drawn by hand.
      *
-     * <p>Worth knowing when reading a log: Iris answers "a pack is selected", not "a pack is compiled
-     * and running" - with a pack chosen but {@code enableShaders=false} in {@code iris.properties} this
-     * is still true. Nothing about the drawing depends on the answer any more, which is deliberate: an
-     * answer that reads true with the shaders off is not a thing to branch a renderer on. It is exactly
-     * what the old two-path design did, and how a block ended up drawn as a bare frame with its own
-     * cube still in the mesh hiding everything inside it.
+     * <p>Worth knowing when reading a log: the answer is "a pack is selected <em>and</em> switched on",
+     * because {@code areShadersEnabled} is asked as well - a pack chosen with
+     * {@code enableShaders=false} in {@code iris.properties} is not drawing and must not brighten
+     * anything. Nothing about the drawing depends on the answer, which is deliberate: an answer that reads
+     * true with the shaders off is not a thing to branch a renderer on.
      */
     public static boolean vanillaGeometry() {
         return shaderPackInUse();

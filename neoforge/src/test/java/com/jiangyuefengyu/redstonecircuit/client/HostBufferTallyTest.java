@@ -18,19 +18,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The counters that measure what a buffer really took, and the alarms for when it took nothing.</b>
+ * The counters that measure what a buffer really took, and the alarms for when it took nothing.
  *
- * <h2>The defect these exist for, in numbers</h2>
- * The author's contraption showed its frosted frame and no components, while the log said
- * {@code carriedShellQuads=30 carriedContentQuads=12} - on 431 frames. Both numbers were counted in the
- * drawing loops, i.e. they measured how many quads were <em>handed to a consumer</em>, and the two carried
- * draw points had asked for that consumer from the <b>world</b> buffer source, whose batch is submitted
- * at {@code AFTER_ENTITIES}. The carried stage runs two stages later. So every vertex went into a batch
- * that had already been sent, nothing reached the screen, and every counter agreed the frame was perfect.
- *
- * <p>These tests hold the two facts that make that impossible to repeat silently:
- * {@link HostBufferTally#flushedQuads} only counts what was in the source at its flush, and
- * {@link HostBufferTally#postFlushWrites} is non-zero exactly when something aimed at a finished batch.
+ * <p>{@link HostBufferTally#flushedQuads} counts only what was in the source at its flush, and
+ * {@link HostBufferTally#postFlushWrites} is non-zero exactly when something aimed at a batch that had already
+ * been submitted. Both carried draw points must take their consumer from the carried source: vertices written
+ * into the world source after its flush sit in a batch nobody submits that frame, so nothing reaches the screen
+ * while every counter agrees the frame was perfect.
  */
 class HostBufferTallyTest {
 
@@ -56,8 +50,8 @@ class HostBufferTallyTest {
                 HostBufferTally.Kind.SHELL));
         assertEquals(48, HostBufferTally.writtenVertices(HostBufferTally.Sink.CARRIED,
                 HostBufferTally.Kind.CONTENTS));
-        // The world source must be untouched by a carried write: this is the assertion whose absence let
-        // the defect through, because the defect was precisely a carried write landing in the world sink.
+        // The world source must be untouched by a carried write: a carried write landing in the world sink is
+        // the wrong wiring.
         assertEquals(0, HostBufferTally.writtenVertices(HostBufferTally.Sink.WORLD,
                 HostBufferTally.Kind.SHELL));
         assertEquals(0, HostBufferTally.writtenVertices(HostBufferTally.Sink.WORLD,
@@ -88,11 +82,8 @@ class HostBufferTallyTest {
     }
 
     /**
-     * <b>The semantic the parent asked for, stated as the defect's own signature.</b>
-     *
-     * <p>The world source is flushed at {@code AFTER_ENTITIES}. Vertices handed to it afterwards are not
-     * "flushed" and never can be - they are in a batch nobody submits this frame. This is what the old
-     * counters could not express, and it is the assertion that would have failed on the broken build.
+     * A write after a source was flushed is never counted as flushed. The world source is flushed at
+     * {@code AFTER_ENTITIES}, so vertices handed to it afterwards are in a batch nobody submits this frame.
      */
     @Test
     @DisplayName("a write after a source was flushed is not counted as flushed, and is flagged")
@@ -101,23 +92,22 @@ class HostBufferTallyTest {
         assertEquals(0, HostBufferTally.flushedQuads(HostBufferTally.Sink.WORLD,
                 HostBufferTally.Kind.CONTENTS));
 
-        // The carried contents draw point, aiming at the world source - the defect, in one call.
+        // A carried contents write aimed at the world source.
         writeQuads(HostBufferTally.Sink.WORLD, HostBufferTally.Kind.CONTENTS, 12);
 
         assertEquals(0, HostBufferTally.flushedQuads(HostBufferTally.Sink.WORLD,
                 HostBufferTally.Kind.CONTENTS),
                 "a vertex written after its source was flushed must NOT be reported as flushed");
         assertEquals(48, HostBufferTally.postFlushWrites(HostBufferTally.Sink.WORLD),
-                "and it must be recorded as a stray write, which is how the defect is detected");
+                "and it must be recorded as a stray write");
     }
 
     // ------------------------------------------------------------------ the alarms --
 
     @Test
-    @DisplayName("the defect's exact signature trips both alarms")
+    @DisplayName("a carried write into the world source trips both alarms")
     void theDefectSignatureTripsTheAlarms() {
-        // BEFORE THE FIX. Reproduced from the author's log shape: 30 shell quads and 12 content quads
-        // emitted for one carried host, all of them handed to the world consumer.
+        // One carried host emitting 30 shell quads and 12 content quads, all handed to the world consumer.
         int emitted = 30 + 12;
         HostBufferTally.flush(HostBufferTally.Sink.WORLD);                 // AFTER_ENTITIES: endWorldBatch
         writeQuads(HostBufferTally.Sink.WORLD, HostBufferTally.Kind.SHELL, 30);
@@ -125,16 +115,16 @@ class HostBufferTallyTest {
         HostBufferTally.flush(HostBufferTally.Sink.CARRIED);               // the carried stage's endBatch
 
         assertEquals(0, HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
-                HostBufferTally.Kind.SHELL), "before the fix, NOTHING reached the carried source");
+                HostBufferTally.Kind.SHELL), "nothing reached the carried source");
         assertEquals(0, HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
-                HostBufferTally.Kind.CONTENTS), "before the fix, NOTHING reached the carried source");
+                HostBufferTally.Kind.CONTENTS), "nothing reached the carried source");
 
         String alarm = HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.CARRIED, emitted,
                 0);
         assertNotNull(alarm, "a stage that emitted " + emitted + " quads and flushed none must alarm");
         assertTrue(alarm.contains("WROTE NOTHING INTO ITS OWN BUFFER"), alarm);
         assertTrue(alarm.contains("WRONG-BUFFER defect"), alarm);
-        // And the second fact, which names the fix: where the vertices went instead.
+        // The second fact: where the vertices went instead.
         assertTrue(HostBufferTally.postFlushWrites(HostBufferTally.Sink.WORLD) > 0,
                 "the stray writes into the finished world batch are the evidence");
         assertTrue(HostBufferTally.postFlushSentence().contains("AFTER we were done with it"),
@@ -142,9 +132,9 @@ class HostBufferTallyTest {
     }
 
     @Test
-    @DisplayName("the fixed wiring reaches the carried source, and trips nothing")
+    @DisplayName("the carried wiring reaches the carried source, and trips nothing")
     void theFixedWiringFlushesEverythingItEmitted() {
-        // AFTER THE FIX. Same 30 + 12 quads, now through the carried consumer.
+        // The same 30 + 12 quads, through the carried consumer.
         int emitted = 30 + 12;
         HostBufferTally.flush(HostBufferTally.Sink.WORLD);                 // AFTER_ENTITIES: endWorldBatch
         writeQuads(HostBufferTally.Sink.CARRIED, HostBufferTally.Kind.SHELL, 30);
@@ -152,9 +142,9 @@ class HostBufferTallyTest {
         HostBufferTally.flush(HostBufferTally.Sink.CARRIED);               // the carried stage's endBatch
 
         assertEquals(30, HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
-                HostBufferTally.Kind.SHELL), "after the fix, the shell reaches CARRIED_BUFFERS");
+                HostBufferTally.Kind.SHELL), "the shell reaches CARRIED_BUFFERS");
         assertEquals(12, HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
-                HostBufferTally.Kind.CONTENTS), "after the fix, the contents reach CARRIED_BUFFERS");
+                HostBufferTally.Kind.CONTENTS), "the contents reach CARRIED_BUFFERS");
         assertEquals(0, HostBufferTally.postFlushWrites(HostBufferTally.Sink.WORLD),
                 "and nothing is written into the world source after it was flushed");
         assertEquals(0, HostBufferTally.postFlushWrites(HostBufferTally.Sink.CARRIED));
@@ -181,10 +171,8 @@ class HostBufferTallyTest {
         assertTrue(line.contains("worldShellHandedOverQuads="), line);
         assertTrue(line.contains("carriedShellQuads="), line);
         assertTrue(line.contains("carriedEmittedQuads="), line);
-        // The two readings are named and explained, so a reader who sees them disagree knows what it means
-        // and knows which of the two is outside the equation. The explanation is the gated half: the
-        // per-frame line carries the numbers, and the guidance is printed when the verdict changes
-        // (see CarrierFrameLogTest for why that split exists and what it saves).
+        // The two readings are named and explained, so a reader who sees them disagree knows which of the two
+        // is outside the equation. The explanation is the gated half: printed when the verdict changes.
         assertTrue(HostRenderPass.flushStageExplanation()
                         .contains("The world SHELL is deliberately outside that equation"),
                 HostRenderPass.flushStageExplanation());
@@ -213,16 +201,13 @@ class HostBufferTallyTest {
                 HostBufferTally.describe());
     }
 
-    // ------------------------------------------------- the false alarm of §18 --
+    // ------------------------------------------- frames that must not alarm --
 
     @Test
     @DisplayName("a frame that drew only the world shell does NOT alarm: that source is not ours")
     void shellOnlyFrameDoesNotAlarm() {
-        // The author's session, reproduced: the world path was working perfectly, and the module still
-        // reported "WORLD STAGE WROTE NOTHING INTO ITS OWN BUFFER" 305 times. The cause was two different
-        // facts sharing one ledger - the world shell contributes quads to the picture and none to our
-        // flush, because the level renderer submits its source - so "emitted 42, flushed 0" was true and
-        // meant nothing.
+        // Two different facts share one ledger: the world shell contributes quads to the picture and none to our
+        // flush, because the level renderer submits that source, so "emitted 42, flushed 0" is true and means nothing.
         writeQuads(HostBufferTally.Sink.RENDERER, HostBufferTally.Kind.SHELL, 30);
         HostBufferTally.flush(HostBufferTally.Sink.WORLD);        // contents: nothing this frame
         HostBufferTally.handOver(HostBufferTally.Sink.RENDERER);  // the shell: handed over, not flushed
@@ -244,7 +229,7 @@ class HostBufferTallyTest {
         // Even with 30 quads "emitted" and nothing flushed, the renderer's source is not our business.
         assertNull(HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.RENDERER, 30, 0),
                 "a source this build hands to LevelRenderer cannot fail a flush it never performs");
-        // And the two operations are named apart on purpose, so the mistake cannot be made quietly.
+        // The two operations are named apart, so the mistake cannot be made quietly.
         assertThrows(IllegalArgumentException.class,
                 () -> HostBufferTally.flush(HostBufferTally.Sink.RENDERER));
         assertThrows(IllegalArgumentException.class,
@@ -252,15 +237,11 @@ class HostBufferTallyTest {
     }
 
     @Test
-    @DisplayName("the stale-reading bug: an empty frame must not be judged on the last frame's numbers")
+    @DisplayName("an empty frame is judged on its own numbers, not on the last frame's")
     void anEmptyFrameIsJudgedOnItsOwnNumbers() {
-        // THE 305-ALARM BUG, as arithmetic. Frame N drew 12 quads for our world source and flushed them
-        // all. Frame N+1 had nothing to draw.
-        //
-        // Old shape: the empty path submitted the batch but left `worldEmittedQuads` at frame N's value,
-        // so the alarm compared a stale 42 against a freshly flushed 0 and reported a defect that did not
-        // exist. New shape: the empty path records its own zeroed counter, and both numbers belong to
-        // frame N+1.
+        // Frame N drew 12 quads for our world source and flushed them all; frame N+1 had nothing to draw. The
+        // empty path must record its own zeroed counter, or the alarm compares a stale emitted count against a
+        // freshly flushed 0.
         writeQuads(HostBufferTally.Sink.WORLD, HostBufferTally.Kind.CONTENTS, 12);
         HostBufferTally.flush(HostBufferTally.Sink.WORLD);
         assertEquals(12, HostBufferTally.flushedQuads(HostBufferTally.Sink.WORLD,
@@ -273,7 +254,7 @@ class HostBufferTallyTest {
                 HostBufferTally.Kind.CONTENTS), "the empty frame's reading is its own, not frame N's");
         assertNull(HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.WORLD, 0, 0),
                 "an empty frame is not a defect");
-        // The defect this alarm is FOR still alarms when the pair really disagrees.
+        // A frame that emitted for our source and flushed none must still alarm.
         assertNotNull(HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.WORLD, 42, 0),
                 "a frame that emitted 42 for our source and flushed none is still a defect");
     }
@@ -281,32 +262,22 @@ class HostBufferTallyTest {
     // ------------------------------------------------------------------ the wiring --
 
     /**
-     * <b>The wiring guard, and why it reads the source.</b>
+     * <b>The wiring guard, and why it reads the source.</b> Running {@code drawCarriedShells} against a real buffer
+     * source is impossible here: {@code RenderType}'s class initialiser reaches {@code ItemRenderer}, {@code Items}
+     * and the vanilla registries, which throw {@code Not bootstrapped} on a bare JVM. The accessors are named after
+     * the path they belong to so the mistake is visible in the source, and this asserts exactly that.
      *
-     * <p>The defect was one method call in each of two drawing methods choosing the wrong accessor. The
-     * honest way to test that would be to run {@code drawCarriedShells} against a real buffer source -
-     * but {@code RenderType}'s class initialiser reaches {@code ItemRenderer}, {@code Items} and the
-     * vanilla registries, which throw {@code Not bootstrapped} on a bare JVM, so no test can touch a
-     * render type at all. That is not a reason to leave the wiring unguarded: the accessors are named
-     * after the path they belong to precisely so the mistake is visible in the source, and this asserts
-     * exactly that, which is the whole of what the defect was.
-     *
-     * <p>A deliberate, narrow exception to "no test reads the source": it is the only offline observation
-     * that distinguishes {@code carriedShellBuffer()} from {@code worldShellBuffer()}, and getting that
-     * wrong is not a style problem - it is 431 frames of invisible geometry.
+     * <p>A narrow exception to "no test reads the source": it is the only offline observation that distinguishes
+     * {@code carriedShellBuffer()} from {@code worldShellBuffer()}, and using the wrong one draws nothing at all.
      */
     @Test
     @DisplayName("each draw point uses its own path's buffer accessor, never the other path's")
     void drawPointsUseTheirOwnPathsBuffer() throws IOException {
         String source = readMainSource("HostRenderPass.java");
 
-        // The carried draw points: the bug was these two lines. Searched by DECLARATION, not by name -
-        // `source.indexOf("drawCarriedShells")` would find the call site in `runCarriedStage` first and
-        // then brace-match that method's body instead.
-        //
-        // The accessor names lost their empty argument list when the shader-path decision arrived (each
-        // now takes the RenderPlan it must obey), so the guard matches the name and its opening bracket:
-        // what it is here to catch - one draw point borrowing the other path's accessor - is unchanged.
+        // Searched by DECLARATION, not by name: `source.indexOf("drawCarriedShells")` would find the call site in
+        // `runCarriedStage` first and then brace-match that method's body instead. The accessor names take a
+        // RenderPlan rather than an empty argument list, so the guard matches the name and its opening bracket.
         assertBodyUses(source, "private static void drawCarriedShellsInto", "carriedShellBuffer(",
                 "worldShellBuffer(");
         assertBodyUses(source, "private static void drawCarriedContentsInto", "carriedContentsBuffer(",
@@ -319,8 +290,7 @@ class HostBufferTallyTest {
         assertBodyUses(source, "private static void drawHighlight", "worldShellBuffer()",
                 "carriedShellBuffer(");
 
-        // And the path-specific accessors really do name different sources, which is the property that
-        // makes using the wrong one fatal rather than merely untidy.
+        // The path-specific accessors name different sources, which is what makes using the wrong one fatal.
         assertTrue(source.contains("HostRenderTypes.CARRIED_BUFFERS.getBuffer"),
                 "the carried accessors must obtain from CARRIED_BUFFERS");
         assertTrue(source.contains("HostRenderTypes.BUFFERS.getBuffer"),

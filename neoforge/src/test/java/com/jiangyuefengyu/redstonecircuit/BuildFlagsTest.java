@@ -10,15 +10,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.58: a release package logs lightly by default, a development build keeps the detailed log.</b>
+ * A release package logs lightly by default, a development build keeps the detailed log. Tested on plain data rather
+ * than through a jar, because what can go wrong is the rule itself: a marker that says one thing and a default that
+ * does the other.
  *
- * <p>The mapping is tested on plain data rather than through a jar, because the thing that can go wrong is
- * the <em>rule</em>: a marker that says one thing and a default that does the other is a silent regression
- * (the detailed log is what every diagnosis in this project was read out of), and the reverse direction -
- * a release that quietly keeps per-tick diagnostics on - is exactly what the author asked to stop.
- *
- * <p>The consistency assertion is written so that it holds in BOTH build modes: the release gate runs this
- * same suite with {@code -Prelease}, and a test that demanded "detailed" would then have to be skipped.
+ * <p>The consistency assertion holds in BOTH build modes: the release gate runs this same suite with
+ * {@code -Prelease}, so a test that demanded "detailed" would then have to be skipped.
  */
 class BuildFlagsTest {
 
@@ -43,10 +40,9 @@ class BuildFlagsTest {
                 "detailed while being built and tested, light in a release package - and the fallback is "
                         + "always the detailed one, because a light log loses evidence and a detailed one "
                         + "only costs bytes");
-        // WITHOUT the run's own request: this is the package's default, the number a player's log obeys.
-        // The test task sets `-Dredstonecircuit.debugLog=true` (see build.gradle) so that the rest of the
-        // suite keeps the detailed evidence it asserts on, so the property is cleared here and restored
-        // afterwards - the only assertion in the repo that reads the released default.
+        // Without the run's own request - the test task sets -Dredstonecircuit.debugLog=true for the rest of the
+        // suite - so the property is cleared here and restored afterwards: the package's default, which a player's
+        // log obeys.
         String saved = System.getProperty("redstonecircuit.debugLog");
         try {
             System.clearProperty("redstonecircuit.debugLog");

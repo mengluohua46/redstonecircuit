@@ -33,32 +33,20 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Putting a component into, and taking it out of, a block a structure is carrying.</b>
+ * Putting a component into, and taking it out of, a block a structure is carrying.
  *
- * <h2>The defect these tests exist for</h2>
- * After a block was physicalised, placing a redstone component inside it showed nothing at all - no
- * frame and no component. The cause is a coordinate frame, not a renderer:
- * {@code InnerRedstoneInteraction} looks the click up with {@code WrenchLinks.slotAt(level, pos)}, which
- * reads the <b>world</b> store by a <b>world</b> coordinate, and a physicalised block's position in the
- * level is the <em>structure's own</em> coordinate. Claiming is a move, not a copy, so the world store
- * has never had an entry there: the click was neither claimed nor recorded, the host never entered the
- * carrier picture, and the overlay had nothing to draw.
+ * <p>The gesture is the world's - sneak with a component stores it, sneak with a bare hand takes it out, and
+ * anything else is the block's own - but the write lands <b>in the index, at the structure's own coordinate</b>
+ * and never in the world store. That is a coordinate frame rather than a renderer: a physicalised block's
+ * position in the level is the structure's own coordinate, and claiming is a move rather than a copy, so the
+ * world store has never had an entry there.
  *
- * <p>What is pinned here is every rule the fix turns on, with no game running:
- *
- * <ul>
- *   <li>the gesture is the world's - sneak with a component stores it, sneak with a bare hand takes it
- *       out, and anything else is the block's own;</li>
- *   <li>the write lands <b>in the index, at the structure's own coordinate</b>, and never in the world
- *       store - which is what makes the host enter the picture the overlay draws from;</li>
- *   <li>one component per block, and the clicked face becomes the stored component's input side;</li>
- *   <li><b>exactly once</b>: the record is the state, so a second delivery of one gesture finds "already
- *       holds a component" or "nothing to take out" and changes nothing;</li>
- *   <li><b>a failed placement consumes nothing</b>, and an ordinary world coordinate is refused with
- *       nothing written at all.</li>
- *   <li>a retrieval owes the client a <b>host-level removal notice</b>: an emptied host is still riding
- *       and holds nothing, and the carrier payload's host list cannot say that (P1.43).</li>
- * </ul>
+ * <p>What is pinned here, with no game running: one component per block, the clicked face becoming the stored
+ * component's input side; <b>exactly once</b>, because the record is the state, so a second delivery of one
+ * gesture finds the host occupied or empty and changes nothing; a failed placement consumes nothing; an
+ * ordinary world coordinate is refused with nothing written at all; and a retrieval owes the client a
+ * <b>host-level removal notice</b>, since an emptied host is still riding and holds nothing, which the carrier
+ * payload's host list cannot say.
  */
 class CarriedInsertTest {
 
@@ -67,7 +55,7 @@ class CarriedInsertTest {
     private static final CarrierId THEIRS =
             CarrierId.contraption(UUID.fromString("00000000-0000-0000-0000-000000004002"));
 
-    /** The host's coordinate in the structure's own frame. Deliberately the Sable-shaped magnitude. */
+    /** The host's coordinate in the structure's own frame; the magnitude a Sable plot coordinate has. */
     private static final BlockPos LOCAL = new BlockPos(20481032, 127, 20524040);
 
     /** Where the pose puts it; only ever used for a broadcast or a drop. */
@@ -85,14 +73,10 @@ class CarriedInsertTest {
     }
 
     /**
-     * Claims one host the way the assembly callback does, and leaves it <b>holding nothing</b>.
-     *
-     * <p>An empty host is the ordinary state of a block a player has just built into a machine, and it is
-     * what the world store models as a node with no slot at all ({@code InnerRedstoneNode#isEmpty}). The
-     * claim still has to be made against a real component - that is what a claim moves - so this claims a
-     * piece of dust and then takes it out again through the same {@code updateSlot} path a retrieval
-     * uses, which is also what makes the tests below about <em>placement</em> rather than about the
-     * index's claiming rules.
+     * Claims one host the way the assembly callback does, and leaves it <b>holding nothing</b> - the ordinary
+     * state of a block a player has just built into a machine. The claim still has to be made against a real
+     * component, which is what a claim moves, so this claims a piece of dust and takes it out again through the
+     * same path a retrieval uses.
      */
     private void carryEmpty(CarrierId carrier, BlockPos local, BlockPos origin) {
         world.put(origin.asLong(), dust());
@@ -181,29 +165,20 @@ class CarriedInsertTest {
                 "but the HOST is still carried: taking a component out is not a release");
     }
 
-    // -------------------------------------------- the notice the client is owed (P1.43) --
+    // ---------------------------------------------------- the notice the client is owed --
 
     /**
-     * <b>A retrieval owes the host-level removal notice a break sends, and an insert owes none.</b>
+     * A retrieval owes the host-level removal notice a break sends, and an insert owes none.
      *
-     * <h2>The defect these two tests exist for</h2>
-     * The author's report: <em>"taking the redstone component out of a physicalised block with a bare
-     * hand leaves the frame and the component on screen, and breaking the block afterwards drops
-     * nothing and still draws them."</em> The server was right the whole time - the record is riding and
-     * empty - so the only place the two sides disagreed was the message.
+     * <p>An emptied host cannot be expressed by the carrier payload's host list: that list names the hosts that
+     * are riding <b>with their components</b>, and an empty one is left out of it. On the wire,
+     * "not in the list" is how a <b>put-down</b> travels, and the client is required to keep a put-down as a
+     * landed record - that is what makes a component put down over air visible. So an emptied host leaves the
+     * list, the client reads it as a landing, and keeps drawing what it had been holding, component and all.
      *
-     * <p>An emptied host cannot be expressed by the carrier payload's host list: that list names the
-     * hosts that are riding <b>with their components</b>, and an empty one is deliberately left out of it
-     * ({@code HostSync#carrierPayload}). On the wire, "not in the list" is how a <b>put-down</b> travels,
-     * and the client is <em>required</em> to keep a put-down as a landed record - that is what makes a
-     * component put down over air visible. So the emptied host left the list, the client read it as a
-     * landing, and it kept drawing what it had been holding, component and all, at the position the block
-     * came from.
-     *
-     * <p>{@link CarriedInsert#removalNotice} is the one line that separates the two cases, and it is a
-     * pure function of the action {@link CarriedInsert#apply} just returned - so the rule is pinned here
-     * rather than in a game. The client half of it (three deletions and no landed record) is pinned by
-     * {@code CarrierEmptyHostNoticeTest}.
+     * <p>{@link CarriedInsert#removalNotice} is the one line that separates the two cases, and it is a pure
+     * function of the action {@link CarriedInsert#apply} just returned, so the rule is pinned here rather than
+     * in a game.
      */
     @Test
     @DisplayName("a retrieval owes the host-level removal notice a break sends; every other outcome owes none")
@@ -416,9 +391,8 @@ class CarriedInsertTest {
     @Test
     @DisplayName("a component put in after physicalisation is the SAME record shape as one claimed with the block")
     void anInsertedComponentIsIndistinguishableFromAClaimedOne() {
-        // Two structures carrying the same block at the same local coordinate, from the same world
-        // position. One had its component in the block when it was physicalised; the other had one put in
-        // afterwards - which is the author's "put a component into a physicalised block" case.
+        // Two structures carrying the same block at the same local coordinate, from the same world position:
+        // one had its component in the block when it was physicalised, the other had one put in afterwards.
         carryEmpty(MINE, LOCAL, WORLD);
         world.put(WORLD.asLong(), new Slot(ComponentType.DUST));
         index.claim(THEIRS, LOCAL, WORLD, new MapWorld(world));
@@ -431,8 +405,7 @@ class CarriedInsertTest {
 
         // (1) in the carrier index, still riding
         assertNotNull(inserted, "the host has to be IN the index, or the overlay and the world bridge "
-                + "cannot see it at all - which is exactly the 'invisible and inert towards the world' "
-                + "report this round is about");
+                + "cannot see it at all - the 'invisible and inert towards the world' case");
         assertFalse(inserted.landed(), "and riding, not put down");
 
         // (2) the same world position, computed through the pose, for both
@@ -465,9 +438,8 @@ class CarriedInsertTest {
         carryEmpty(MINE, LOCAL, WORLD);
         CarriedInsert.apply(index, MINE, LOCAL, Direction.NORTH, true, ComponentType.DUST, false);
 
-        // The table is what the world bridge reads - and what a world-side query and a world-side break
-        // resolve through - and it is keyed by the WORLD position the pose computes: never by the
-        // structure's own coordinate, and never by the origin.
+        // The table is keyed by the WORLD position the pose computes: never by the structure's own coordinate,
+        // and never by the origin.
         CarrierPose pose = CarrierPose.at(new Vector3d(WORLD.getX(), WORLD.getY(), WORLD.getZ()));
         BlockPos projected = CarrierProjection.project(pose, LOCAL);
         CarrierProjection table = new CarrierProjection();
@@ -493,11 +465,10 @@ class CarriedInsertTest {
         carryEmpty(MINE, LOCAL, WORLD);
         CarriedInsert.apply(index, MINE, LOCAL, Direction.NORTH, true, ComponentType.DUST, false);
 
-        // This is the two outbound halves of the acceptance standard, driven through the real arithmetic:
-        // `CarrierWorldIo` is what the in-structure solve asks about the world (external -> the host) and
-        // it converts a local side into a WORLD position and a world direction; `emittedToward` is what
-        // the world asks about the host (the host -> the world) and it converts the query back through
-        // the same pose.
+        // The two outbound halves, driven through the real arithmetic: `CarrierWorldIo` is what the
+        // in-structure solve asks about the world, converting a local side into a world position and a world
+        // direction, and `emittedToward` is what the world asks about the host, converting the query back
+        // through the same pose.
         CarrierPose pose = CarrierPose.at(new Vector3d(WORLD.getX(), WORLD.getY(), WORLD.getZ()));
         List<BlockPos> asked = new ArrayList<>();
         CarrierWorldIo io = new CarrierWorldIo(pose, (worldPos, worldDirection) -> {
@@ -513,8 +484,8 @@ class CarriedInsertTest {
         assertFalse(asked.contains(WORLD.relative(Direction.EAST)),
                 "nor about 'the origin plus a side', which is a different block once the machine moved");
 
-        // The outbound half: the world's query is answered from the projection, using the component that
-        // was just put in - so a lamp beside the machine lights.
+        // The outbound half: the world's query is answered from the projection, using the component just put
+        // in - so a lamp beside the machine lights.
         CarrierProjection table = new CarrierProjection();
         table.begin(DIMENSION, true);
         table.put(DIMENSION, new CarrierProjection.ProjectedHost(MINE, LOCAL,

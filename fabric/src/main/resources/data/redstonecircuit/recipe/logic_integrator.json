@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "R": { "item": "minecraft:redstone" },
+    "L": { "item": "minecraft:lapis_lazuli" },
+    "Q": { "item": "minecraft:quartz" },
+    "C": { "item": "minecraft:copper_ingot" }
+  },
+  "pattern": [ "CLC", "QRQ", "CLC" ],
+  "result": { "count": 1, "id": "redstonecircuit:logic_integrator" }
+}

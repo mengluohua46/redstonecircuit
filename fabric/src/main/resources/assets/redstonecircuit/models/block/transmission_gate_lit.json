@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "redstonecircuit:block/transmission_gate_secondary_input",
+    "north": "redstonecircuit:block/transmission_gate_main_input_lit",
+    "south": "redstonecircuit:block/transmission_gate_main_output_lit",
+    "east": "redstonecircuit:block/transmission_gate_secondary_input",
+    "west": "redstonecircuit:block/transmission_gate_secondary_input",
+    "up": "redstonecircuit:block/transmission_gate_secondary_input",
+    "down": "redstonecircuit:block/transmission_gate_secondary_input"
+  }
+}

@@ -12,6 +12,7 @@ import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
 import com.jiangyuefengyu.redstonecircuit.logic.RotationRod;
 import com.jiangyuefengyu.redstonecircuit.logic.WrenchLinks;
 
+import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -19,6 +20,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CakeBlock;
 import net.minecraft.world.level.block.DiodeBlock;
@@ -27,32 +29,20 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
-import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
-
 /**
  * In-world tests for inner-redstone power propagation.
  *
- * <p>These need a real level: whether two inner components couple depends on the surrounding
- * blocks being redstone conductors or transparent blocks, which cannot be modelled faithfully
- * outside a running game. The headless maths lives in {@code PowerSolverTest}.
+ * <p>These need a real level: whether two inner components couple depends on the surrounding blocks being
+ * redstone conductors or transparent blocks, which cannot be modelled faithfully outside a running game.
+ * The headless maths lives in {@code PowerSolverTest}. They use the {@code redstonecircuit:empty}
+ * structure template - a 5x3x5 box of pure air - so every block a test needs is placed by the test itself.
  *
- * <p>They use the {@code redstonecircuit:empty} structure template - a 5x3x5 box of pure air, so
- * every block a test needs (including the floor under a piece of vanilla wire) is placed by the test
- * itself with {@code setBlock}.
- *
- * <p><b>Careful with coordinates:</b> {@code GameTestHelper#setBlock} takes a position
- * <em>relative to the structure</em>, while the inner-redstone store is keyed by absolute world
- * positions. Mixing the two silently produces a network that can never connect, so every position
- * used for store access goes through {@link #at}.
+ * <p><b>Careful with coordinates:</b> {@code GameTestHelper#setBlock} takes a position <em>relative to the
+ * structure</em>, while the inner-redstone store is keyed by absolute world positions. Mixing the two
+ * silently produces a network that can never connect, so every position used for store access goes through
+ * {@link #at}.
  *
  * <p>Run with {@code gradlew runGameTest}, or via {@code /test} in game.
- *
- * <h2>How it is registered on Fabric</h2>
- * NeoForge found these tests through {@code @GameTestHolder}; Fabric scans the classes named by the
- * {@code fabric-gametest} entrypoint in {@code fabric.mod.json}, and {@link FabricGameTest} is how it
- * recognises one. {@code @PrefixGameTestTemplate(false)} has no counterpart and is not needed, but
- * nothing on this side prefixes a template with the mod id either, so every {@code @GameTest} names
- * its template in full - {@code redstonecircuit:empty}.
  */
 public final class InnerRedstoneGameTest implements FabricGameTest {
 
@@ -131,9 +121,9 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     /**
      * Runs propagation the way the server does.
      *
-     * <p>Deliberately goes through the queue and {@link InnerRedstoneNetwork#settle} rather than
-     * calling {@code recompute} directly, so the tests exercise the real path - including the
-     * neighbour updates a solve sends back into the world.
+     * <p>Goes through the queue and {@link InnerRedstoneNetwork#settle} rather than calling
+     * {@code recompute} directly, so the tests exercise the real path - including the neighbour updates a
+     * solve sends back into the world.
      */
     private static void solve(GameTestHelper helper, BlockPos pos) {
         ServerLevel level = helper.getLevel();
@@ -161,9 +151,8 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     /**
      * Runs {@code action} once the world has actually ticked.
      *
-     * <p>Succeeding from the very first tick is unreliable here: a lamp or piston only re-evaluates
-     * its neighbours when a block update reaches it, and that happens during the tick following the
-     * change. Waiting one tick also exercises the real code path players will hit.
+     * <p>Succeeding from the very first tick is unreliable here: a lamp or piston only re-evaluates its
+     * neighbours when a block update reaches it, and that happens during the tick following the change.
      */
     private static void afterTicks(GameTestHelper helper, int ticks, Runnable action) {
         if (ticks <= 0) {
@@ -176,7 +165,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     // --------------------------------------------------------------- tests --
 
     /**
-     * Coupling check used while developing the solver, kept as a plain assertion.
+     * Coupling check for the solver, kept as a plain assertion.
      *
      * <p>Worth keeping because wire coupling was the single hardest part to get right: if it ever
      * regresses, this fails with the exact positions and powers involved rather than a bare
@@ -269,9 +258,9 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      * A lever pressed against a host block powers the redstone inside it, through the real
      * event path - no manual {@code solve} call.
      *
-     * <p>This is the regression test for a bug where levers and torches appeared to do nothing: the
-     * inner network only re-solved when a component was placed or removed by this mod, so an
-     * external block change never triggered a recalculation.
+     * <p>Regression test for levers and torches appearing to do nothing: the inner network only re-solved
+     * when a component was placed or removed by this mod, so an external block change never triggered a
+     * recalculation.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void externalLeverPowersInnerDust(GameTestHelper helper) {
@@ -320,10 +309,10 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      * Two adjacent hosts in a chain must hold their values and then drain together when the source
      * goes away.
      *
-     * <p>Regression test for two separate reports: a chain of components decaying towards zero while
-     * the source was still present, and power staying latched after the source was removed. Both had
-     * the same cause - a component treating its neighbour's <em>settled value</em> as a supply, so a
-     * pair fed off each other. The rule is now stated in terms of each component's own supply.
+     * <p>Regression test for two symptoms: a chain of components decaying towards zero while the source
+     * was still present, and power staying latched after the source was removed. Both had the same cause -
+     * a component treating its neighbour's <em>settled value</em> as a supply, so a pair fed off each
+     * other. The rule is stated in terms of each component's own supply.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void chainHoldsValuesThenDrainsWhenSourceRemoved(GameTestHelper helper) {
@@ -359,7 +348,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      * A lit redstone torch standing beside a host powers the redstone inside it.
      *
      * <p>A standing torch emits 15 downwards ({@code getSignal(..., DOWN)}), which is exactly what
-     * the host's neighbour query asks for. This is the case reported as "torches do nothing".
+     * the host's neighbour query asks for.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void redstoneTorchPowersInnerDust(GameTestHelper helper) {
@@ -436,9 +425,6 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      * The headline of this stage: an inner component lights a vanilla redstone lamp beside its host
      * block. This is what {@code BlockStateSignalMixin} exists for - no other NeoForge hook lets an
      * untouched vanilla block emit a signal.
-     *
-     * <p>The signal itself is asserted first, because if that fails the cause is the mixin, whereas
-     * if only the lamp stays dark the cause is update propagation and needs a tick.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void innerRedstoneLightsAdjacentLamp(GameTestHelper helper) {
@@ -571,12 +557,11 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * The direction that used to be missing: a block above a host is driven like any other side.
+     * The direction above a host that is easy to miss: a block above a host is driven like any other side.
      *
-     * <p>Reported as "everything works except upwards". The host used to keep vanilla wire's quirk of
-     * not powering the block above it, which is fine for a wire lying on the ground but wrong for a
-     * block that is acting as a signal source - a lamp on top of it stayed dark while the same lamp
-     * below it lit.
+     * <p>Vanilla wire does not power the block above it, but that rule belongs to the wire block and not
+     * to the block a component is embedded in - a host is acting as a signal source, so a lamp on top of it
+     * lights like the same lamp below it.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void hostLightsTheLampAboveIt(GameTestHelper helper) {
@@ -595,13 +580,13 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     // ------------------------------------- draining back into the world ------
 
     /**
-     * The reported bug: the inner redstone drained correctly, but the redstone lamp beside the host
-     * stayed lit, and only went out when an unrelated block next to it was broken.
+     * The drain, seen beside a host: the inner redstone drained correctly, but the redstone lamp stayed
+     * lit, and only went out when an unrelated block next to it was broken.
      *
-     * <p>Nothing was wrong with the solver - the stored power really did fall to 0. The problem was
-     * that a stored value is not a block state: dropping it changed no world data, so nothing ever
-     * notified the lamp, and it kept whatever state it happened to hold. A solve now ends by sending
-     * a vanilla neighbour update for every host whose power changed.
+     * <p>Nothing was wrong with the solver - the stored power really did fall to 0. The problem was that a
+     * stored value is not a block state: dropping it changed no world data, so nothing notified the lamp,
+     * and it kept whatever state it happened to hold. A solve therefore ends by sending a vanilla neighbour
+     * update for every host whose power changed.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void lampGoesOutWhenInnerPowerDrains(GameTestHelper helper) {
@@ -626,13 +611,17 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * The same drain, seen through vanilla redstone wire laid against the host block - the check
-     * that was used to report the bug ("I put redstone next to the block and it was not activated").
+     * The same drain, seen through vanilla redstone wire laid against the host block.
      *
-     * <p>This is also the regression test for the loop the wire creates: the wire is powered by the
-     * host and the host reads the wire, so treating the wire as a full-strength supply let the two
-     * hold each other up at 15 forever. The wire is charged one hop instead, exactly as vanilla
-     * charges a hop between two wires, which leaves the pair no way to stay powered on their own.
+     * <p>Also the regression test for the loop the wire creates: the wire is powered by the host and the
+     * host reads the wire, so treating the wire as a full-strength supply would let the two hold each
+     * other up at 15 forever. <b>Both</b> directions are charged one hop - the host reading the wire
+     * ({@code InnerRedstoneNetwork#neighbourSignal}), and the wire reading the host
+     * ({@code BlockSignalSources#hopChargedByReader}) - which leaves the pair no way to stay powered on
+     * their own: with the injected supply taken away they fade together to zero.
+     *
+     * <p>The precondition below pins the wire at 14 rather than 15 for that reason: a buried dust is still
+     * a dust, so a dust beside it costs one, exactly as a dust beside a dust does on the ground.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void vanillaWireFollowsInnerPower(GameTestHelper helper) {
@@ -644,9 +633,9 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         placeDust(helper, host, 15);
 
         afterTicks(helper, 2, () -> {
-            helper.assertTrue(wirePower(helper, 2, 1, 1) == 15,
-                    "precondition: the wire beside the powered host should carry 15, got "
-                            + wirePower(helper, 2, 1, 1));
+            helper.assertTrue(wirePower(helper, 2, 1, 1) == 14,
+                    "precondition: the wire beside the host at 15 should carry 14 - a dust beside a "
+                            + "dust costs one hop, got " + wirePower(helper, 2, 1, 1));
 
             clearSource(helper, host);
             solve(helper, host);
@@ -688,10 +677,9 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     /**
      * A repeater pointing into a host block powers the redstone inside it.
      *
-     * <p>Regression test for a real bug: the neighbour query was made with the direction reversed.
-     * Sources that emit in five or six directions - levers, torches, redstone blocks, wire - hid it,
-     * because the wrong side still answers 15. A repeater answers only for the side it points at, so
-     * with the reversed query it reported nothing at all.
+     * <p>Sources that emit in five or six directions - levers, torches, redstone blocks, wire - cannot
+     * reveal a reversed direction argument, because the wrong side still answers 15. A repeater answers
+     * only for the side it points at, so with the direction reversed it reports nothing at all.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void repeaterOutputPowersInnerRedstone(GameTestHelper helper) {
@@ -713,21 +701,19 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * <b>P1.59 (ported from the NeoForge tree): an observer facing a host block must SEE the inner
-     * redstone change - the author's report.</b>
+     * <b>An observer facing a host block must SEE the inner redstone change.</b>
      *
      * <p>An observer does not watch signals, it watches <b>state changes</b>: {@code ObserverBlock} pulses
      * from {@code updateShape} alone, and vanilla sends that when a block's state changes. A host block is
-     * stone before and stone after, so nothing was sent and the observer stayed silent however much the
-     * inner signal moved - while every redstone consumer (which asks {@code getSignal}) saw it fine.
-     * {@code InnerRedstoneNetwork#notifyOutputChanged} now sends the shape update beside the neighbour
-     * update; this is the regression test for that one call.
+     * stone before and stone after, so nothing is sent and the observer stays silent however much the
+     * inner signal moves - while every redstone consumer (which asks {@code getSignal}) sees it fine.
+     * {@code InnerRedstoneNetwork#notifyNeighboursNow} therefore sends the shape update beside the
+     * neighbour update; this is the regression test for that one call.
      *
-     * <p>{@code FACING} points at what an observer watches, so the observer sits WEST of the host and faces
-     * EAST (the reverse of the test below, which points an observer into a host). The pulse is armed
-     * <em>before</em> the change - an observer stays powered for two ticks - and the change is a lever
-     * inside the host going 0 -> 15, which is a real output change (a fixture that CREATES the component at
-     * 15 never changes an output, so nothing is ever reported and no fix could make it pulse).
+     * <p>A block's {@code FACING} points at what an observer watches, so the observer sits WEST of the host
+     * and faces EAST (the reverse of the test below, which points an observer into a host). The pulse is
+     * armed <em>before</em> the change - an observer stays powered for two ticks - and the change is a
+     * component appearing in the host at full strength, which is the placement path's own notification.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void anObserverFacingAHostSeesTheInnerRedstoneChange(GameTestHelper helper) {
@@ -737,6 +723,8 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         setBlock(helper, 1, 1, 1, Blocks.OBSERVER.defaultBlockState()
                 .setValue(BlockStateProperties.FACING, Direction.EAST));
 
+        // Placed OFF and then flipped: a fixture that CREATES the component at 15 never changes an output,
+        // so nothing is ever reported to the world and an observer could not pulse even on a correct fix.
         placeComponent(helper, host, ComponentType.LEVER, 0, Direction.NORTH);
 
         helper.succeedWhen(() -> {
@@ -747,18 +735,19 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
                     "the inner redstone in the block the observer faces changed; the observer must pulse");
         });
 
-        // The inner signal appears: 0 -> 15 on the component inside the host.
+        // The inner signal appears: 0 -> 15 on the component inside the host, which is an output change
+        // reported to the world exactly like flipping a lever that was already there.
         InnerSwitches.toggle(helper.getLevel(), host);
     }
 
     /**
-     * The reported case: an observer pressed against a host block, emitting into it, powers the
-     * redstone inside - no vanilla wire needed in between.
+     * An observer pressed against a host block, emitting into it, powers the redstone inside - no vanilla
+     * wire needed in between.
      *
-     * <p>{@code ObserverBlock#getSignal} answers 15 only for the side it emits from, so the reversed
-     * query made it report nothing while a wire laid against the host worked (a wire emits in five
-     * directions). That is exactly the "the observer against the block does nothing, it needs a piece
-     * of redstone in between" report.
+     * <p>{@code ObserverBlock#getSignal} answers 15 only for the side it emits from, so a reversed
+     * direction argument makes it report nothing while a wire laid against the host works (a wire emits in
+     * five directions). That is the "the observer against the block does nothing, it needs a piece of
+     * redstone in between" case.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void observerEmittingIntoHostPowersInnerRedstone(GameTestHelper helper) {
@@ -816,9 +805,8 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     /**
      * A lever stored inside a block powers the block next door.
      *
-     * <p>The first component test, and the one that shows what a source is worth: a lever is not wire,
-     * so the dust it feeds holds the full 15 rather than 14 - exactly as a lever does against a piece
-     * of vanilla wire.
+     * <p>A lever is not wire, so the dust it feeds holds the full 15 rather than 14 - exactly as a lever
+     * does against a piece of vanilla wire.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void leverInsideHostPowersDust(GameTestHelper helper) {
@@ -994,18 +982,17 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * A repeater switches off again when its input stops - even with a solid block on its input side.
+     * A repeater switches off again when its input stops, even with a solid block on its input side.
      *
-     * <p>Regression test for a reported bug: the repeater stayed on forever. The cause was not the
-     * delay but the query that decides the switch-off. A neighbouring solid block reports the strong
-     * power it receives, a host block is a signal source, and the query that ran at the scheduled tick
-     * was the one place that did <em>not</em> suppress our own output - so the repeater's input side
-     * read its own 15 back through the stone next door, its input never dropped, and the pending
-     * switch-off was discarded as "computes to the same value".
+     * <p>The query that decides the switch-off is where this matters. A neighbouring solid block reports
+     * the strong power it receives, a host block is a signal source, and the query run at the scheduled
+     * tick must ignore our own output - otherwise a repeater's input side reads its own 15 back through
+     * the stone next door, its input never drops, and the pending switch-off is discarded as "computes to
+     * the same value".
      *
      * <p>The layout matters: the input side has to be a solid host block for the strong-power path to
-     * exist. The earlier repeater test only ever switched the input on, where reading your own output
-     * back happens to give the same answer the input already had.
+     * exist, where switching an input on would read your own output back with the same value the input
+     * already had.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void repeaterTurnsOffWhenItsInputStops(GameTestHelper helper) {
@@ -1259,19 +1246,19 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * The reported bug: switching the lever off left the wire at fifteen, still lighting what it touched.
+     * The lossless wire case, in the world: switching the lever off left the wire at fifteen, still
+     * lighting what it touched.
      *
      * <p>A lossless wire cannot be decided from its neighbours' current values the way vanilla decides a
-     * fading one, because two wires at fifteen see nothing wrong with each other. The run therefore has
-     * to be solved from its sources, and this is the case that says so: with the source gone, there is
-     * nothing left in the run to hold it up.
+     * fading one, because two wires at fifteen see nothing wrong with each other. The run therefore has to
+     * be solved from its sources: with the source gone, there is nothing left in the run to hold it up.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void placedWireGoesDarkWhenItsSourceStops(GameTestHelper helper) {
         for (int x = 0; x <= 3; x++) {
             setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
         }
-        // A lever on the floor beside the wire, which is how the bug was found.
+        // A lever on the floor beside the wire, the shape that produces the lossless run.
         setBlock(helper, 0, 1, 1, Blocks.LEVER.defaultBlockState()
                 .setValue(BlockStateProperties.ATTACH_FACE, net.minecraft.world.level.block.state.properties.AttachFace.FLOOR)
                 .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.NORTH)
@@ -1343,8 +1330,8 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      * Breaking the placed wire gives it back.
      *
      * <p>A wire's drop comes from a loot table rather than from code, and a loot table that fails to load
-     * leaves the block silently dropping nothing - which is exactly the sort of thing that is only ever
-     * noticed after losing a stack of the material.
+     * leaves the block silently dropping nothing - which is the sort of thing that is only noticed after
+     * losing a stack of the material.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void placedWireDropsItself(GameTestHelper helper) {
@@ -1360,7 +1347,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * The reported crash, in the world: a comparator placed on a block's top face inside a block.
+     * A comparator placed on a block's top face inside a block, in the world.
      *
      * <p>{@code Direction#getClockWise} throws for up and down, and the comparator asked for its sides
      * that way as soon as it was ticked - taking the server down. This test only has to place one and let
@@ -1379,8 +1366,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         placeDust(helper, at(helper, 1, 1, 2), 6);
         placeDust(helper, at(helper, 2, 1, 1), 3);
 
-        // The crash happened while the network settled, which is what this does - and then again on the
-        // scheduled tick, which is why it is ticked a few times.
+        // Both paths are exercised: settling the network, and the scheduled tick - hence the ticks below.
         solve(helper, at(helper, 1, 1, 1));
         tick(helper);
         tick(helper);
@@ -1447,17 +1433,16 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * <b>The comparator inside a block reads the block beside it - a cake included.</b>
+     * <b>The comparator inside a block reads the block beside it, a cake included.</b>
      *
-     * <p>Ported from the NeoForge tree (P1.52), where the author reported: "the comparator inside a block
-     * cannot detect the state of the block next to it, a cake for instance". A cake pushes no redstone
-     * signal at all, so before this round the inner comparator read 0 from it; vanilla reads a
-     * comparator's back input as the neighbour block's <em>analogue output</em>, which for a cake is one
-     * per remaining bite. This test builds exactly that: a host block with a comparator inside it, a cake
-     * next to the input side, and asks the solver.
+     * <p>A cake pushes no redstone signal at all, so an inner comparator that only read signals would read
+     * 0 from it; vanilla reads a comparator's back input as the neighbour block's <em>analogue output</em>,
+     * which for a cake is one per remaining bite. This test builds exactly that: a host block with a
+     * comparator inside it, a cake next to the input side, and asks the solver.
      *
-     * <p>The expected value is read from the game itself ({@code BlockState#getAnalogOutputSignal}) rather
-     * than written down, so the fixture cannot agree with a wrong constant.
+     * <p>The expected value is read from the game itself
+     * ({@code BlockState#getAnalogOutputSignal}) rather than written down, so the fixture cannot agree with
+     * a wrong constant.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void anInnerComparatorReadsACakeBesideItsBlock(GameTestHelper helper) {
@@ -1550,7 +1535,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      *
      * <p>A repeater drives one side only, which is why it can be used to route a signal - and why
      * "细微调整走向" needs a tool. Pinning the south side makes the repeater feed a wire that is not on
-     * its output side at all, which is the whole of R7's first half.
+     * its output side at all.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void wrenchForcesAConnectionTheComponentWouldNotMake(GameTestHelper helper) {
@@ -1747,8 +1732,8 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * And the same thing measured in the world, which is how the mistake would reach a player: lamps
-     * all round a repeater's host block, and only the one in front may light.
+     * And the same thing seen in the world: lamps all round a repeater's host block, and only the one in
+     * front may light.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void innerRepeaterLightsOnlyTheLampInFront(GameTestHelper helper) {
@@ -1780,11 +1765,11 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     /**
      * Two repeaters in a row must not light anything beside the first one.
      *
-     * <p>This is the shape a player reported: jump two repeaters and the world beside the first one
-     * comes alive. The cause is vanilla's own rule for <em>conductors</em> - {@code SignalGetter}
+     * <p>Jump two repeaters and the world beside the first one must stay dark. The rule that makes it
+     * matter is vanilla's own rule for <em>conductors</em> - {@code SignalGetter}
      * answers a query against an opaque block with {@code max(its own signal, the strong power pushed
      * into it)} - and a host block is a block of stone. So a repeater pointing into another repeater's
-     * block charged that block, and every side of it lit up.
+     * block would charge that block, and every side of it would light up.
      *
      * <p>That is right for a block of stone. It is wrong for a host block, because the block <em>is</em>
      * the component: a repeater inside a block should hand its signal to what is next to it, not turn
@@ -1866,7 +1851,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * And the consequence, measured in the world: a lamp on the far side of the block in front lights.
+     * And the consequence in the world: a lamp on the far side of the block in front lights.
      *
      * <p>That is what strong power is <em>for</em> - the block carries it onwards - and it is the reason
      * a solid block between a repeater and a lamp is not simply an obstacle. It also covers the second
@@ -2116,7 +2101,7 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
      * A retaining repeater inside a block can read from above and drive the dust below it.
      *
      * <p>Vertical components are the ones with no vanilla blockstate to lean on, so the direction is
-     * ours to get right - and this one passes the strength on, which is the whole point of the part.
+     * ours to get right - and this one passes the strength on, which is what the part is for.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void verticalRetainingRepeaterDrivesTheDustBelow(GameTestHelper helper) {
@@ -2173,6 +2158,119 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
                 "inner dust has no direction, so the rod must decline");
         helper.assertTrue(slotAt(helper, dust).facing == dustFacing, "and leave the dust alone");
 
+        helper.succeed();
+    }
+
+    /**
+     * <b>A vanilla wire and the host block beside it, each reading the other, must reach a fixed point and
+     * stay there.</b>
+     *
+     * <p>{@link #vanillaWireFollowsInnerPower} and {@link #vanillaWireFeedsInnerRedstone} each hold the pair
+     * with a redstone block, so neither ever leaves the two free to re-derive from each other. This one
+     * does: the host's inner redstone is the wire's only remaining supply, and the wire is the host's.
+     *
+     * <p><b>What is asserted.</b> The <b>values</b> this pair settles on depend on vanilla's own
+     * scheduled-tick behaviour for a wire with no source, and pinning a number here would be pinning that
+     * rather than the fix. What the fix is responsible for is the <b>churn</b>, so that is what is asserted:
+     *
+     * <ol>
+     *   <li><b>Solving it again changes nothing.</b> The values read before and after a forced solve are
+     *       identical - which is what "at a fixed point" means, and what a pair feeding itself cannot
+     *       do.</li>
+     *   <li><b>One solve drains its own queue.</b> {@code SolverLog#roundsInLastTick} is the production
+     *       counter behind the {@code round(s)/solve} figure in the log; a pair feeding itself sits at the
+     *       budget ({@code MAX_ROUNDS_PER_TICK}) every tick, and a settled one is well below it.</li>
+     * </ol>
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void aWorldWireAndItsHostBlockSettleInsteadOfSpinning(GameTestHelper helper) {
+        // The host, the stone under it, and the wire beside it - the same shape the other two wire tests
+        // use, so a difference between them is a difference in what is being asserted and not in the rig.
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 0, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+
+        BlockPos host = at(helper, 1, 1, 1);
+        // THE INNER REDSTONE IS NOT A SOURCE. `placeDust(helper, host, 15)` would mark it as an injected
+        // supply, and an injected supply holds the component up from outside: the host would sit at 15 for
+        // ever and the wire against it would be reading a value nothing in the world produced. A plain
+        // component is what makes the two halves each other's input, which is the shape this test is
+        // about.
+        Slot slot = new Slot(ComponentType.DUST);
+        InnerRedstoneNode node = InnerRedstoneStore.get(helper.getLevel()).getOrCreate(host);
+        node.setSlot(slot);
+        InnerRedstoneStore.get(helper.getLevel()).markDirty();
+
+        afterTicks(helper, 4, () -> {
+            // A solve in the same tick is the strongest form of the claim: whatever the pair settles on,
+            // one more solve of it must change nothing at all.
+            solve(helper, host);
+            int wire = wirePower(helper, 2, 1, 1);
+            int inner = powerAt(helper, host);
+            int firstRounds = com.jiangyuefengyu.redstonecircuit.logic.SolverLog.roundsInLastTick();
+            solve(helper, host);
+            int secondRounds = com.jiangyuefengyu.redstonecircuit.logic.SolverLog.roundsInLastTick();
+
+            RCConfig.LOGGER.info("[redstonecircuit] carrier-free wire/host pair settled at wire={} "
+                    + "inner={} (rounds: first={} second={})", wire, inner, firstRounds, secondRounds);
+
+            helper.assertTrue(wirePower(helper, 2, 1, 1) == wire,
+                    "re-solving must not move the wire: " + wire + " -> " + wirePower(helper, 2, 1, 1));
+            helper.assertTrue(powerAt(helper, host) == inner,
+                    "nor the inner power: " + inner + " -> " + powerAt(helper, host));
+            // THE CLAIM IS STRUCTURAL, NOT A SMALL NUMBER.
+            //
+            // A settled pair costs a FEW rounds, and "few" is not a constant: the count is how many times
+            // the queue refilled while this solve ran, which depends on how the world's own wire ticks
+            // interleave with it - and the pair is a ring whose gain is exactly one, so every value from 0
+            // to 15 is a fixed point and the path to it is not unique. The iteration order is not the
+            // cause: `InnerRedstoneNetwork#settle` drains a hash-keyed dirty set, and sorting it
+            // deterministically does not remove the spread.
+            //
+            // So the assertion states the thing that is actually binary: the queue drained BY ITSELF
+            // rather than being stopped by the budget. A pair feeding itself sits at
+            // `MAX_ROUNDS_PER_TICK` every tick, and this is one comparison below that - which also stops
+            // the number drifting out of the test the day the budget changes.
+            helper.assertTrue(secondRounds < com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork
+                            .MAX_ROUNDS_PER_TICK,
+                    "one solve of a settled pair must drain its own queue, not be stopped by the budget ("
+                            + com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork
+                                    .MAX_ROUNDS_PER_TICK
+                            + " rounds, which a pair feeding itself hits every tick); this settle took "
+                            + secondRounds + " round(s)");
+
+            helper.succeed();
+        });
+    }
+
+    /**
+     * <b>A component can be taken out of a position without being dropped, and the store must agree.</b>
+     *
+     * <p>Two halves of one rule, and both are asserted because they pull in opposite directions:
+     * {@code InnerRedstoneInteraction#forget} is what a <b>cut capture</b> uses - everything the block
+     * carried is in the payload by then, so dropping it as well would duplicate it - while {@code cleanup}
+     * is what <b>breaking a host</b> uses. A build that only ever dropped would duplicate; a build that
+     * only ever forgot would destroy the components on every break. The third case is a removal that does
+     * neither, which leaves the client holding a component the server no longer has.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void forgettingAComponentDoesNotDropIt(GameTestHelper helper) {
+        BlockPos host = at(helper, 1, 1, 1);
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        placeDust(helper, host, 9);
+
+        InnerRedstoneNode forgotten = InnerRedstoneInteraction.forget(helper.getLevel(), host);
+
+        helper.assertTrue(forgotten != null && !forgotten.isEmpty(), "the component was there to be taken");
+        helper.assertTrue(InnerRedstoneStore.get(helper.getLevel()).get(host) == null,
+                "and the store no longer has it - the half a cut capture was missing, which would leave a "
+                        + "component the client could see inside whatever block is put there next");
+        // Nothing may be dropped either: whatever took it (a cut capture) has it in its payload already.
+        helper.assertItemEntityNotPresent(Items.REDSTONE, new BlockPos(1, 1, 1), 4.0);
+
+        placeDust(helper, host, 9);
+        InnerRedstoneInteraction.cleanup(helper.getLevel(), host);
+        helper.assertItemEntityPresent(Items.REDSTONE, new BlockPos(1, 1, 1), 4.0);
         helper.succeed();
     }
 }

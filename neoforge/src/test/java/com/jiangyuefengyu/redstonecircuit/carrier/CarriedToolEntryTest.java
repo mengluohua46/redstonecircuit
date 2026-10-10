@@ -22,33 +22,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The carrier-side tools' two entry points, and the coordinate arithmetic they turn on.</b>
+ * The carrier-side tools' two entry points, and the coordinate arithmetic they turn on.
  *
- * <h2>The defect these tests exist for</h2>
- * P1.20's wrench and rotation rod were reached only from
- * {@code PlayerInteractEvent.RightClickBlock}, on the guess that a click on a physicalised block arrives
- * there. The author reported that both tools still did nothing, and the bytecode settled why: a
- * <b>Create contraption's</b> block click is a packet
- * ({@code ContraptionInteractionPacket} -&gt; {@code AbstractContraptionEntity#handlePlayerInteraction})
- * and never becomes a block click at all, so nothing on that path could ever have run for a contraption.
- * A <b>Sable sub-level's</b> click does become a block click - at the structure's own coordinate, which is
- * why a lever can be pulled on a physicalised block - and is served by the event listener.
+ * <p>A <b>Create contraption's</b> block click is a packet
+ * ({@code ContraptionInteractionPacket} -> {@code AbstractContraptionEntity#handlePlayerInteraction}) and never becomes
+ * a block click, so the interaction event cannot serve it; a <b>Sable sub-level's</b> click does become a block click,
+ * at the structure's own coordinate, and is served by that listener.
  *
- * <p>So there are now two entries and one decision, and what is pinned here is the decision's input and
- * the arithmetic around it:
- *
- * <ul>
- *   <li>a click that arrives <b>in the structure's own frame</b> - which is what both entries carry -
- *       resolves to the host outright, with no dependence on the projection table (which is rebuilt once
- *       a tick, and is deliberately not used here at all);</li>
- *   <li>that resolution refuses a landed record (a put-down host is the world's business), an unknown
- *       coordinate, an unknown structure, and a host with no world position to act at;</li>
- *   <li>the face conversion the contraption entry performs twice - local -&gt; world -&gt; local - is the
- *       identity, at every angle including the 9.5 degrees P1 measured on a real contraption, so the two
- *       entries cannot give {@code CarriedTool#turn} two different answers for one click;</li>
- *   <li>the structure's own frame is the frame the host is named in, so a turn applied through it lands
- *       on the coordinate the player clicked rather than on a world one.</li>
- * </ul>
+ * <p>Both entries therefore carry a click in <b>the structure's own frame</b>, which resolves to the host outright with
+ * no dependence on the projection table. That resolution refuses a landed record (a put-down host is the world's
+ * business), an unknown coordinate, an unknown structure, and a host with no world position to act at. The face
+ * conversion the contraption entry performs twice - local -> world -> local - is the identity at every angle, so the
+ * two entries cannot give {@code CarriedTool#turn} two different answers for one click.
  */
 class CarriedToolEntryTest {
 
@@ -57,7 +42,7 @@ class CarriedToolEntryTest {
     private static final CarrierId THEIRS =
             CarrierId.contraption(UUID.fromString("00000000-0000-0000-0000-000000003002"));
 
-    /** The host's coordinate in the structure's own frame. Deliberately not near the origin. */
+    /** The host's coordinate in the structure's own frame, well away from the origin. */
     private static final BlockPos LOCAL = new BlockPos(20481032, 127, 20524040);
 
     /** Where the pose puts it; only ever used for a highlight or a drop. */

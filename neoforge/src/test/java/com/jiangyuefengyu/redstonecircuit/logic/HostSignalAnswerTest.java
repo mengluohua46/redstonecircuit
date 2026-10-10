@@ -15,18 +15,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the single rule behind both halves of P4: what one host block answers to a vanilla signal
+ * Tests the rule behind both halves of the host-signal bridge: what one host block answers to a vanilla signal
  * query.
  *
- * <h2>Why this is worth its own test class</h2>
- * The rule used to live inside {@code BlockStateSignalMixin}, where it could only be exercised by
- * running the game - and it is the rule that decides whether a machine's repeater drives the lamp it
- * flies over. P4 moved it here ({@link PowerSolver#signalAnswer}) for exactly that reason: the mixin
- * now has to hand it a direction in the <em>component's own frame</em>, and both halves - the rule and
- * the conversion - have to be provable without a game.
- *
- * <p>The last test states the whole thing the way a player would: turn the machine 180 degrees and the
- * same repeater answers the opposite world side.
+ * <p>{@link PowerSolver#signalAnswer} decides whether a machine's repeater drives the lamp it flies over, and the
+ * mixin has to hand it a direction in the <em>component's own frame</em>, so both the rule and the conversion have
+ * to be provable without a game. The last test states it the way a player would: turn the machine 180 degrees and
+ * the same repeater answers the opposite world side.
  */
 class HostSignalAnswerTest {
 
@@ -114,10 +109,7 @@ class HostSignalAnswerTest {
         assertEquals(0, PowerSolver.signalAnswer(slot(ComponentType.DUST), null, false, false, false));
     }
 
-    /**
-     * The red line, end to end: the same component, the same local side, a different world answer
-     * because the structure has been turned.
-     */
+    /** The same component and local side answering differently in the world because the structure has turned. */
     @Test
     @DisplayName("a turned machine answers the world side it now faces")
     void turningTheMachineMovesTheAnswer() {
@@ -125,8 +117,7 @@ class HostSignalAnswerTest {
         repeater.facing = Direction.SOUTH;
 
         Quaterniond halfTurn = new Quaterniond().rotateY(Math.PI);
-        // A vanilla query arriving from the world's south: the structure's own "north" is now the
-        // world's south - and that is exactly the side this repeater drives.
+        // A query from the world's south is the turned structure's own north, the side this repeater drives.
         Direction local = CarrierDirections.localDirection(halfTurn, Direction.SOUTH);
         assertEquals(Direction.NORTH, local);
         assertEquals(11, PowerSolver.signalAnswer(repeater, local, true, false, false));

@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=north": { "model": "redstonecircuit:block/logic_integrator" },
+    "facing=east": { "model": "redstonecircuit:block/logic_integrator", "y": 90 },
+    "facing=south": { "model": "redstonecircuit:block/logic_integrator", "y": 180 },
+    "facing=west": { "model": "redstonecircuit:block/logic_integrator", "y": 270 },
+    "facing=up": { "model": "redstonecircuit:block/logic_integrator", "x": 270 },
+    "facing=down": { "model": "redstonecircuit:block/logic_integrator", "x": 90 }
+  }
+}

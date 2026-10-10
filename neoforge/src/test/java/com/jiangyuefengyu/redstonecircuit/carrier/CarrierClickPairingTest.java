@@ -18,38 +18,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.29, defect A: one click, two listeners, and a log that could not say which of them saw it.</b>
+ * One click, two listeners, and two lines that have to be pair-able: what the world side declined, and what the
+ * carrier side saw.
  *
- * <h2>The report, and the two facts the previous log kept apart badly</h2>
- * The author's answer to "what were you holding" was <b>a retaining repeater</b>, shift-right-clicking a
- * physicalised block, and the previous round's log contained:
- *
- * <pre>
- *   carrier entry trace   x45   - gesture=NONE 15, SWITCH 3, ROD 1, WRENCH 8, PLACEMENT 0
- *   world insert declined x18   - and not one of them named the item in hand
- *   carrier insert trace  x0
- * </pre>
- *
- * <p>So the log could not separate <em>"the click reached the carrier listener and the rule dropped it"</em>
- * from <em>"the click never reached the carrier listener"</em>, and neither world line could be matched to a
- * carrier line: the decline line did not print the hand or the item, and the carrier line did not print the
- * tick. Both facts are fixed here, and both are asserted offline because the game is not what decides them.
- *
- * <h2>What is pinned</h2>
- * <ol>
- *   <li><b>the pairing record</b>: a decline is remembered per (tick, position, hand), so a carrier line can
- *       say whether the world side declined this very delivery - and a different tick, position or hand is a
- *       different delivery, not a match;</li>
- *   <li><b>the same delivery answered in both directions</b>: both lines carry the tick, so a reader can
- *       pair them in a file even without the note;</li>
- *   <li><b>the line's own shape</b>: the held item and the hand are on the world line, which is what the
- *       P1.26 log was missing;</li>
- *   <li><b>the bound</b>: the record is capped and is cleared when the tick moves, so a click storm cannot
- *       grow it;</li>
- *   <li><b>the sentence the line writes about a component in hand</b>: it says this IS the placement click,
- *       because "the world declined a click holding a redstone component" is the one fact that tells a
- *       placement apart from a wrench click.</li>
- * </ol>
+ * <p>Pinned here: the pairing record remembers a decline per (tick, position, hand), so a different tick, position
+ * or hand is a different delivery and not a match; both lines carry the tick, so a reader can pair them even
+ * without the note; the world decline line carries the hand and the held item; the record is capped and cleared
+ * when the tick moves, so a click storm cannot grow it; and a click holding a redstone component is named as the
+ * placement click, which is the one fact that tells a placement apart from a wrench click.
  */
 class CarrierClickPairingTest {
 
@@ -188,11 +164,11 @@ class CarrierClickPairingTest {
     // --------------------------------------------------------------- the line --
 
     @Nested
-    @DisplayName("the world's decline line, which is the line P1.26 could not be read from")
+    @DisplayName("the world's decline line")
     class TheLine {
 
         @Test
-        @DisplayName("it carries the hand, the item and the tick - the three facts the old line was missing")
+        @DisplayName("it carries the hand, the item and the tick")
         void theLineCarriesWhatWasMissing() {
             String line = CarrierClickPairing.declineLine("s:650a149c local=20481032, 128, 20483080 "
                             + "world=-6, -60, -12", "20481032, 128, 20483080", 4242L,

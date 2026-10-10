@@ -20,43 +20,29 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the Sable-side claim's coordinate contract: <b>which world blocks a sub-level is holding, and
- * what their local coordinates are.</b>
+ * Tests the Sable-side claim's coordinate contract: which world blocks a sub-level is holding, and what their local
+ * coordinates are.
  *
- * <h2>Why this is the test that matters for the reported defect</h2>
- * The author's report was that a component in a physicalised structure does not follow the structure and
- * cannot be seen. The cause was that nothing on the Sable side ever claimed it. The fix is this
- * arithmetic, and the arithmetic has one property that has to be exactly right: a local coordinate
- * written into the carrier index must be one that the same structure's own pose transforms back to the
- * block the component came from. Half a block out and every carried component sits beside its block;
- * in the wrong space entirely and it is drawn twenty million blocks away - which is the failure the
- * attached log's {@code local (20481033.500, 132.000, 20485129.500)} is a record of.
+ * <p>The arithmetic has one property that has to be exactly right: a local coordinate written into the carrier index must
+ * be one that the same structure's own pose transforms back to the block the component came from. Half a block out and
+ * every carried component sits beside its block; in the wrong space entirely and it is drawn twenty million blocks away.
  *
- * <h2>What is pinned here</h2>
- * <ul>
- *   <li>the round trip {@code world -> local -> world} is the identity through a Sable-shaped pose
- *       (a nine-figure translation, a rotation point in the twenty-millions);</li>
- *   <li>a pose that does not round-trip is <b>refused</b>, not guessed at, because the alternative is
- *       filing a component under a coordinate that draws it somewhere else;</li>
- *   <li>the candidate enumeration is bounded by, and filtered from, the world store's own positions -
- *       never by walking the plot's millions of empty coordinates;</li>
- *   <li>nothing is claimed outside the sub-level's own world bounds, which is what stops a sub-level
- *       allocated over a house from taking the house's components out of it.</li>
- * </ul>
+ * <p>Pinned here: the {@code world -> local -> world} round trip is the identity through a Sable-shaped pose (a
+ * nine-figure translation, a rotation point in the twenty-millions); a pose that does not round-trip is <b>refused</b>
+ * rather than guessed at; the candidate enumeration is bounded by, and filtered from, the world store's own positions -
+ * never by walking the plot's millions of empty coordinates; and nothing is claimed outside the sub-level's own world
+ * bounds, which is what stops a sub-level allocated over a house from taking the house's components out of it.
  *
- * <p>Nothing here needs Sable: {@link SubLevelSpace} is deliberately made of a UUID, six integers,
- * six doubles and a {@link CarrierPose}.
+ * <p>Nothing here needs Sable: {@link SubLevelSpace} is made of a UUID, six integers, six doubles and a {@link CarrierPose}.
  */
 class SubLevelSpaceTest {
 
     private static final UUID SUB_LEVEL = UUID.fromString("4e5560da-1111-2222-3333-444455556666");
 
     /**
-     * A pose shaped like a real sub-level's: the kind of numbers the P1 diagnostics measured.
-     *
-     * <p>A translation of a few hundred blocks, a rotation point in the twenty-millions, and a local
-     * coordinate in the twenty-millions. This is the case that has to work, and the case that fails in a
-     * way nothing but a coordinate comparison can see.
+     * A pose shaped like a real sub-level's: a translation of a few hundred blocks, a rotation point in the
+     * twenty-millions, and a local coordinate in the twenty-millions. This is the case that has to work, and the case
+     * that fails in a way nothing but a coordinate comparison can see.
      */
     private static CarrierPose sablePose() {
         return new CarrierPose(
@@ -79,10 +65,9 @@ class SubLevelSpaceTest {
     @Test
     @DisplayName("the block a fractional world point falls in is rounded, so the round trip closes")
     void roundedBlockRecoversTheLocalCoordinate() {
-        // The convention this pins is the one a Sable pose forces. A sub-level's world positions are
-        // fractional (the measured example is -352.549), so a block's own corner can land at -319.5;
-        // flooring that names block -320, and the coordinate that comes back is then a whole block away
-        // from the one that produced it. Rounding keeps the round trip the identity, which is what the
+        // A Sable pose makes world positions fractional (-352.549), so a block's own corner can land at
+        // -319.5; flooring that names block -320, and the coordinate that comes back is then a whole block
+        // away from the one that produced it. Rounding keeps the round trip the identity, which is what the
         // claim's own verification rests on.
         var pose = sablePose();
         SubLevelSpace space = new SubLevelSpace(SUB_LEVEL,
@@ -113,10 +98,9 @@ class SubLevelSpaceTest {
     @Test
     @DisplayName("a local coordinate from another space is refused, not silently accepted")
     void wrongSpaceIsRefused() {
-        // The failure this refuses is the reported one: a plot coordinate used as if it were a world
-        // coordinate (or a pose from a different structure). Claiming through it would file the
-        // component under a coordinate that draws it twenty million blocks away - precisely the state
-        // the attached log's `local (20481033.500, 132.000, 20485129.500)` records.
+        // The failure this refuses: a plot coordinate used as if it were a world coordinate (or a pose
+        // from a different structure). Claiming through it would file the component under a coordinate
+        // that draws it twenty million blocks away.
         var pose = sablePose();
         SubLevelSpace space = new SubLevelSpace(SUB_LEVEL,
                 20_481_033, 132, 20_485_129, 20_481_033, 132, 20_485_129,
@@ -220,8 +204,8 @@ class SubLevelSpaceTest {
 
         // An in-bounds block with nothing in it is not a candidate either: the walk asks the caller for
         // every coordinate of the structure, and only the ones it says hold a component come back. The
-        // component at (11, 64, 10) - a real block of this structure - is deliberately absent from the
-        // set above, and it does not appear in the answer.
+        // component at (11, 64, 10) - a real block of this structure - is absent from the set above, and it
+        // does not appear in the answer.
         assertEquals(2, found.size());
 
         // A second structure one block over must not see any of them, so the filter is not simply
@@ -272,8 +256,7 @@ class SubLevelSpaceTest {
     @DisplayName("the carrier identity is the sub-level's UUID and nothing else")
     void carrierIsKeyedByTheSubLevelUuid() {
         // The anchor and the plot position are both positions, and both change: a sub-level that is taken
-        // apart and rebuilt keeps neither. A claim filed under either would be unreachable afterwards,
-        // which is exactly the "claimed but never drawn again" shape this whole round is about.
+        // apart and rebuilt keeps neither, so a claim filed under either would be unreachable afterwards.
         SubLevelSpace space = boxAt(new BlockPos(10, 64, 10), null);
         assertEquals(CarrierId.subLevel(SUB_LEVEL), space.carrier());
         assertTrue(space.carrier().isSubLevel());

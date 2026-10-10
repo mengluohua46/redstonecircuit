@@ -18,7 +18,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
@@ -26,18 +25,14 @@ import net.minecraft.world.level.saveddata.SavedData;
 /**
  * Per-dimension store for "redstone inside a block".
  *
- * <p>Data layout: {@code BlockPos.asLong() -> InnerRedstoneNode}, one node per host block holding
- * at most one component. The store deliberately lives next to the world instead of replacing the
- * host block, which is what allows redstone to sit inside untouched vanilla blocks such as stone.
+ * <p>Data layout: {@code BlockPos.asLong() -> InnerRedstoneNode}, one node per host block holding at most one
+ * component. The store lives next to the world instead of replacing the host block, which is what allows redstone to sit
+ * inside untouched vanilla blocks such as stone.
  *
- * <h2>Performance</h2>
- * Later stages call into this from redstone hot paths, so reads are guarded by two cheap levels
- * before the position map is touched:
- * <ol>
- *   <li>{@link #isEmpty()} - a single boolean while no redstone exists anywhere in the level;</li>
- *   <li>{@link #sectionHasNodes(int, int, int)} - a set of occupied 16x16x16 sections.</li>
- * </ol>
- * Only then does {@link #get(BlockPos)} consult the position map.
+ * <p>Redstone hot paths call into this, so a read passes two cheap guards before the position map is touched: {@link
+ * #isEmpty()}, a single boolean while no redstone exists anywhere in the level, and {@link
+ * #sectionHasNodes(int, int, int)}, a set of occupied 16x16x16 sections. Only then does {@link #get(BlockPos)} consult
+ * the position map.
  */
 public final class InnerRedstoneStore extends SavedData {
 
@@ -49,6 +44,34 @@ public final class InnerRedstoneStore extends SavedData {
     private final Long2ObjectMap<InnerRedstoneNode> nodes = new Long2ObjectOpenHashMap<>();
     /** Section keys ({@link SectionPos#asLong}) that contain at least one node. */
     private final LongSet occupiedSections = new LongOpenHashSet();
+
+    /**
+     * The settings of a device that cannot keep them in its own block state, by position.
+     *
+     * <p>时钟源 is the one such device: 秒(0-3600) × tick(20) × 强度(15) × 朝向(4) × 亮(2) is about <b>4.3 million</b>
+     * {@code BlockState} objects built at startup, so its three numbers live beside the block instead - see
+     * {@code ClockRule} and {@code ClockBlock}.
+     *
+     * <p>They live <b>here</b> rather than in a store of their own because this is already the level's saved home for
+     * "data beside a block that is not part of any block": written to the save file, keyed by position in one dimension,
+     * and - the part that matters - {@code StructureCapture#capture} already walks every position of a captured box and
+     * asks this store what belongs to it, so a clock's period travels with the structure it stands in. A second
+     * {@code SavedData} would have meant a second save format, a second registration and a second walk over the same box
+     * for no gain.
+     */
+    private final Long2ObjectMap<com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting> clocks =
+            new Long2ObjectOpenHashMap<>();
+
+    /**
+     * 信号延长器's two numbers, by position - the same kind of data as the clocks above, and here for the same reasons:
+     * 秒(0-3600) × 刻(20) × 朝向(4) × 亮(2) would be 576,160 block states if they lived in the state, and a captured
+     * structure has to carry them with it.
+     *
+     * <p>Only the settings: what is <em>left</em> of a hold is a fact about when an input left, which belongs to no
+     * block and survives no reload - {@code ExtenderDeadlines} holds that, and holds it outside the save file.
+     */
+    private final Long2ObjectMap<com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting> extenders =
+            new Long2ObjectOpenHashMap<>();
 
     private InnerRedstoneStore() {
     }
@@ -71,8 +94,7 @@ public final class InnerRedstoneStore extends SavedData {
 
     public static InnerRedstoneStore get(ServerLevel level) {
         return level.getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(InnerRedstoneStore::new, InnerRedstoneStore::load,
-                        DataFixTypes.LEVEL),
+                new SavedData.Factory<>(InnerRedstoneStore::new, InnerRedstoneStore::load, null),
                 DATA_NAME);
     }
 
@@ -80,7 +102,9 @@ public final class InnerRedstoneStore extends SavedData {
 
     /** Fastest possible guard: {@code true} while nothing at all is stored in this level. */
     public boolean isEmpty() {
-        return nodes.isEmpty();
+        // A clock counts. It holds no node, but it is work the level's tick has to do every tick (its pulse edges),
+        // so a level whose only content is one 时钟源 must not be skipped.
+        return nodes.isEmpty() && clocks.isEmpty();
     }
 
     public int size() {
@@ -105,7 +129,7 @@ public final class InnerRedstoneStore extends SavedData {
         return nodes.get(posKey);
     }
 
-    /** Shorthand for {@link #get(BlockPos)}, for the future network solver. */
+    /** Shorthand for {@link #get(BlockPos)}, for the solver and the network layer. */
     @Nullable
     public Slot slotAt(BlockPos pos) {
         InnerRedstoneNode node = nodes.get(pos.asLong());
@@ -115,7 +139,7 @@ public final class InnerRedstoneStore extends SavedData {
     /**
      * Signal strength this position should report to the outside world, or {@code 0}.
      *
-     * <p>Stage 5 wires this into {@code BlockState#getSignal}.
+     * <p>Wired into {@code BlockState#getSignal}.
      */
     public int getSignal(BlockPos pos) {
         if (nodes.isEmpty()) {
@@ -125,7 +149,7 @@ public final class InnerRedstoneStore extends SavedData {
         return node == null ? 0 : node.power();
     }
 
-    /** Every stored node; used by the debug command and by client sync in later stages. */
+    /** Every stored node; used by the debug command and by client sync. */
     public List<BlockPos> positions() {
         List<BlockPos> out = new ArrayList<>(nodes.size());
         for (long key : nodes.keySet()) {
@@ -169,6 +193,94 @@ public final class InnerRedstoneStore extends SavedData {
         setDirty();
     }
 
+    // ------------------------------------------------------------------- 时钟源 --
+
+    /**
+     * The clock settings stored at {@code pos}, or {@code null} when no clock stands there.
+     *
+     * <p>{@code null} rather than a default setting, because "there is no clock here" and "there is a clock here and it
+     * is set to the default" are different facts: the first must not be written into a captured structure, and the second
+     * must.
+     */
+    @Nullable
+    public com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting clockAt(BlockPos pos) {
+        return clocks.get(pos.asLong());
+    }
+
+    /** Stores one clock's settings, or forgets them when {@code setting} is {@code null}. */
+    public void putClock(BlockPos pos, @Nullable com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting setting) {
+        if (setting == null) {
+            forgetClock(pos);
+            return;
+        }
+        clocks.put(pos.asLong(), setting);
+        setDirty();
+    }
+
+    /** A clock left this position - broken, pushed away, or replaced by something that is not one. */
+    public void forgetClock(BlockPos pos) {
+        if (clocks.remove(pos.asLong()) != null) {
+            setDirty();
+        }
+    }
+
+    /** How many clocks this level holds, for the diagnostics. */
+    public int clockCount() {
+        return clocks.size();
+    }
+
+    /**
+     * The positions of every clock in this level, as raw keys.
+     *
+     * <p>What {@code ClockBlock#tickStanding} walks once per level tick: a clock's settings are the one place that knows
+     * where the level's clocks are, so the pass that has to ask them all every tick costs one map iteration and no list.
+     */
+    public LongSet clockKeys() {
+        return LongSets.unmodifiable(clocks.keySet());
+    }
+
+    // ---------------------------------------------------------------- 信号延长器 --
+
+    /**
+     * 信号延长器's settings at {@code pos}, or {@code null} when none stands there.
+     *
+     * <p>{@code null} for the same reason the clocks answer {@code null}: "there is no extender here" and "there is one
+     * here set to the default" are different facts, and only the second should travel with a captured structure.
+     */
+    @Nullable
+    public com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting extenderAt(BlockPos pos) {
+        return extenders.get(pos.asLong());
+    }
+
+    /** Stores one extender's settings, or forgets them when {@code setting} is {@code null}. */
+    public void putExtender(BlockPos pos,
+                            @Nullable com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting setting) {
+        if (setting == null) {
+            forgetExtender(pos);
+            return;
+        }
+        extenders.put(pos.asLong(), setting);
+        setDirty();
+    }
+
+    /** An extender left this position - broken, pushed away, or replaced by something that is not one. */
+    public void forgetExtender(BlockPos pos) {
+        if (extenders.remove(pos.asLong()) != null) {
+            setDirty();
+        }
+    }
+
+    /**
+     * The positions of every extender in this level, as raw keys.
+     *
+     * <p>What {@code ExtenderBlock#tickStanding} walks once per level tick: this table is the one place that knows where
+     * the level's extenders are, and each of them has to be asked every tick because a hold runs out on the clock rather
+     * than on a notification.
+     */
+    public LongSet extenderKeys() {
+        return LongSets.unmodifiable(extenders.keySet());
+    }
+
     private void pruneSectionIndex(BlockPos pos) {
         long sectionKey = SectionPos.asLong(pos);
         for (long key : nodes.keySet()) {
@@ -205,6 +317,23 @@ public final class InnerRedstoneStore extends SavedData {
                 store.occupiedSections.add(SectionPos.asLong(BlockPos.of(key)));
             }
         }
+
+        // And the clocks. A key that is not there at all is a save written before this device existed, which is exactly
+        // the empty list - so no data version bump is needed for the addition.
+        ListTag clockList = tag.getList("clocks", Tag.TAG_COMPOUND);
+        for (int i = 0; i < clockList.size(); i++) {
+            CompoundTag entry = clockList.getCompound(i);
+            store.clocks.put(entry.getLong("pos"),
+                    com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting.load(entry.getCompound("setting")));
+        }
+        // And the extenders, in their own list for the same reason - and with no version bump either.
+        ListTag extenderList = tag.getList("extenders", Tag.TAG_COMPOUND);
+        for (int i = 0; i < extenderList.size(); i++) {
+            CompoundTag entry = extenderList.getCompound(i);
+            store.extenders.put(entry.getLong("pos"),
+                    com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting
+                            .load(entry.getCompound("setting")));
+        }
         return store;
     }
 
@@ -220,6 +349,32 @@ public final class InnerRedstoneStore extends SavedData {
             list.add(nodeTag);
         }
         tag.put("nodes", list);
+
+        // The clocks, as their own list so a save written before this device existed reads back unchanged.
+        ListTag clockList = new ListTag();
+        for (Long2ObjectMap.Entry<com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting> entry
+                : clocks.long2ObjectEntrySet()) {
+            CompoundTag clockTag = new CompoundTag();
+            clockTag.putLong("pos", entry.getLongKey());
+            CompoundTag setting = new CompoundTag();
+            entry.getValue().save(setting);
+            clockTag.put("setting", setting);
+            clockList.add(clockTag);
+        }
+        tag.put("clocks", clockList);
+
+        // And the extenders' own list, written the same way.
+        ListTag extenderList = new ListTag();
+        for (Long2ObjectMap.Entry<com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting> entry
+                : extenders.long2ObjectEntrySet()) {
+            CompoundTag extenderTag = new CompoundTag();
+            extenderTag.putLong("pos", entry.getLongKey());
+            CompoundTag setting = new CompoundTag();
+            entry.getValue().save(setting);
+            extenderTag.put("setting", setting);
+            extenderList.add(extenderTag);
+        }
+        tag.put("extenders", extenderList);
         return tag;
     }
 }

@@ -1,5 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit.item;
 
+import com.jiangyuefengyu.redstonecircuit.RcTooltips;
+
 import java.util.List;
 
 import net.minecraft.ChatFormatting;
@@ -12,15 +14,10 @@ import net.minecraft.world.level.block.Block;
 /**
  * 超导红石粉 - the superconducting dust item.
  *
- * <h2>Two ways to place it, like redstone</h2>
- * A plain right-click puts the wire on the ground, exactly as vanilla redstone does - that is
- * {@link BlockItem}'s own behaviour, and the mod deliberately leaves that click alone. Shift-right-click
- * puts it <em>inside</em> a block, which the interaction handler claims first. So the two placements
- * follow the same rule the design gives every component, and this item adds nothing to either.
- *
- * <p>What it does add is the line that says what makes it different: an ordinary wire fades a step per
- * block, and this one does not. That is not visible from the outside of a block, so it has to be said
- * somewhere.
+ * <p>A plain right-click puts the wire on the ground, exactly as vanilla redstone does ({@link BlockItem}'s own
+ * behaviour), and a shift-right-click puts it <em>inside</em> a block, which the interaction handler claims first; the
+ * item adds nothing to either. What it does add is the line saying that an ordinary wire fades a step per block and
+ * this one does not - not visible from outside a block.
  */
 public class SuperconductingRedstoneItem extends BlockItem {
 
@@ -31,9 +28,9 @@ public class SuperconductingRedstoneItem extends BlockItem {
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
-        tooltip.add(Component.translatable("item.redstonecircuit.superconducting_redstone.tip.place")
-                .withStyle(ChatFormatting.GRAY));
-        tooltip.add(Component.translatable("item.redstonecircuit.superconducting_redstone.tip.lossless")
-                .withStyle(ChatFormatting.GOLD));
+        // One line by default, the how-to behind [Shift], like Create's wrench (RcTooltips).
+        RcTooltips.append(tooltip, flag, "item.redstonecircuit.superconducting_redstone.tip",
+                RcTooltips.detail("item.redstonecircuit.superconducting_redstone.tip.place"),
+                RcTooltips.detail("item.redstonecircuit.superconducting_redstone.tip.lossless", ChatFormatting.GOLD));
     }
 }

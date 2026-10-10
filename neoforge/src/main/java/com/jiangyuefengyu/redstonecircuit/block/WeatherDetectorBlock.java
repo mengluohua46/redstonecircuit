@@ -27,39 +27,28 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 /**
  * 天气探测器 - a block that keeps a redstone signal on while the weather matches its setting.
  *
- * <h2>What it is</h2>
- * The shape and the way it is used follow vanilla's daylight detector: a plate that answers with a
- * signal, and a right-click that walks the setting on to the next weather. Three settings, because the
- * sky has three states a player builds against: <b>晴天</b> (clear), <b>雨天</b> (raining, no thunder)
- * and <b>雷暴</b> (thundering). They are mutually exclusive - thunder only ever happens while it is
- * raining, so thunder is asked first and a plain shower never lights the 雷暴 setting.
+ * <p>The shape and the way it is used follow vanilla's daylight detector: a plate that answers with a signal, and a
+ * right-click that walks the setting on. Three settings, because the sky has three states a player builds against -
+ * <b>晴天</b> (clear), <b>雨天</b> (raining, no thunder) and <b>雷暴</b> (thundering) - and they are mutually exclusive,
+ * since thunder only ever happens while it is raining; thunder is therefore asked first. The answer does not depend on
+ * where the sun is and needs no view of the sky, only the level's weather, so it works inside a base as well as on a
+ * roof, and the strength is a plain fifteen.
  *
- * <p>Unlike the daylight detector its answer does not depend on where the sun is, and it does not need
- * to see the sky: only the level's weather is asked, so it works inside a base as well as on a roof.
- * The strength is a plain fifteen - there is nothing to grade.
- *
- * <h2>How the weather reaches the world</h2>
- * Consumers (lamps, dust, our own inner components) only re-read a block when something tells them to,
- * so the block has to notice the weather itself. It cannot do that from {@code getSignal}: nothing calls
- * it when the rain starts. Vanilla solves the same problem for the daylight detector with a ticker, and
- * this does the same with a scheduled tick: once a second it compares the weather with what it last
- * announced and, when they differ, writes the new answer into the block state - which notifies the
- * neighbours on its own, exactly like a lever being thrown.
- *
- * <p>The two properties are therefore about different things: {@link #WEATHER} is the setting the player
- * chose and is saved with the world, while {@link #ACTIVE} is what the block is announcing right now.
- * Keeping both is what makes "did anything change?" a single comparison.
+ * <p>Consumers only re-read a block when something tells them to, and nothing calls {@code getSignal} when the rain
+ * starts, so the block notices the weather itself with a scheduled tick: once a second it compares the weather with what
+ * it last announced and writes the new answer into the block state, which notifies the neighbours on its own, exactly
+ * like a lever being thrown. {@link #WEATHER} is the setting the player chose and is saved with the world, while
+ * {@link #ACTIVE} is what the block is announcing right now - keeping both is what makes "did anything change?" a
+ * single comparison.
  */
 public class WeatherDetectorBlock extends Block {
 
     public static final MapCodec<WeatherDetectorBlock> CODEC = simpleCodec(WeatherDetectorBlock::new);
 
     /**
-     * The three weathers a detector can watch, in the order a right-click walks them.
-     *
-     * <p>Declared in that order on purpose: an {@link EnumProperty} hands its values back in declaration
-     * order, and {@code BlockState#cycle} is what the plate's right-click uses, so this list <em>is</em>
-     * the cycle the player sees - 晴 → 雨 → 雷 → 晴.
+     * The three weathers a detector can watch, in the order a right-click walks them. An {@link EnumProperty} hands its
+     * values back in declaration order and {@code BlockState#cycle} is what the plate's right-click uses, so this list
+     * <em>is</em> the cycle the player sees - 晴 → 雨 → 雷 → 晴.
      */
     public enum Mode implements StringRepresentable {
         /** Clear: no precipitation at all. */

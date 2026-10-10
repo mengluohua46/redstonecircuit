@@ -24,21 +24,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests P4's projection table: where a carried host is in the world, and what the table says when the
- * world asks.
+ * The projection table: where a carried host is in the world, and what the table says when the world asks.
  *
- * <h2>The three contracts</h2>
- * <ol>
- *   <li><b>The arithmetic is the landing arithmetic.</b> An unturned structure's host at local
- *       {@code (1,0,2)} is at {@code anchor + (1,0,2)} - the half-block pivot cancels, which is the
- *       property that makes "where it is now" and "where it would be put down" the same question.</li>
- *   <li><b>A closed bridge answers nothing even though the table is built.</b> {@code begin(dir,false)}
- *       is what {@code carrierFreezeWorldIo = true} asks for, and the difference from "no table at all"
- *       must not be observable.</li>
- *   <li><b>The change pass reports exactly the positions whose projection moved, appeared, vanished or
- *       changed value.</b> That list is what the world is notified about, and a lamp that is never
- *       notified never lights - so an empty list where something moved is a silent failure.</li>
- * </ol>
+ * <p>The arithmetic is the landing arithmetic: an unturned structure's host at local {@code (1,0,2)} is at
+ * {@code anchor + (1,0,2)}, the half-block pivot cancelling - which is what makes "where it is now" and "where it
+ * would be put down" the same question.
+ *
+ * <p>A closed bridge answers nothing even though the table is built, and the change pass reports exactly the positions
+ * whose projection moved, appeared, vanished or changed value: a lamp that is never notified never lights, so an empty
+ * list where something moved is a silent failure.
  */
 class CarrierProjectionTest {
 

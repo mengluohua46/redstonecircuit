@@ -19,19 +19,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the world side of the two host transfers: <b>a landing has to tell the client the component is
- * a world host again, and a pick-up has to tell it the component is not one any more.</b>
+ * The world side of the two host transfers: a landing has to tell the client the component is a world host again, and
+ * a pick-up has to tell it the component is not one any more.
  *
- * <p>The defect these tests exist for is the one the author's log showed perfectly on the server half
- * and not at all on the client half: the put-down line said {@code LANDED origin=2775, 77, -1395
- * moved=1}, a later {@code /rc dump} found the component at that exact position, breaking the block
- * dropped it - and the component was never on screen again. The carrier half of the transfer had been
- * sent (the client was told the host stopped riding); the <em>world</em> half had not, so the client's
- * only record of where that component lives went out with the carrier.
- *
- * <p>What is pinned down here is the predicate and the order, both of which are pure functions of the
- * server's own store - which is the point: the whole argument is "the announcement is derived from the
- * world the server will go on answering for", and that is decidable offline.
+ * <p>Announcing only the carrier half leaves the client's own record of where a component lives stale, so the component
+ * is never drawn again. The predicate and the order are pure functions of the server's own store, which is what makes
+ * them decidable offline.
  */
 class WorldHostTransferTest {
 
@@ -185,9 +178,8 @@ class WorldHostTransferTest {
         BlockPos landedAt = pos(14, 64, 10);
         put(landedAt);
 
-        // The server may reach the announcement twice - two hosts released onto one block, a repeated
-        // callback that still wrote something. The messages must be the same ones, not a second write:
-        // the plan is a pure function of the store, which is what makes that true by construction.
+        // The announcement may be reached twice - two hosts released onto one block, a repeated callback. The
+        // messages must be the same ones, not a second write: the plan is a pure function of the store.
         assertEquals(WorldHostTransfer.broadcastsFor(landedAt, cameFrom, world),
                 WorldHostTransfer.broadcastsFor(landedAt, cameFrom, world));
     }
@@ -208,9 +200,8 @@ class WorldHostTransferTest {
     @Test
     @DisplayName("a real claim moves the data out, which is what makes the suppression correct")
     void aClaimLeavesTheStoreEmptyAtTheOrigin() {
-        // The end-to-end shape of the pick-up half, against the real index rather than a predicate: the
-        // claim moves the component into the carrier and out of the world, so "the store holds nothing
-        // here" is not an assumption but a consequence.
+        // The end-to-end shape of the pick-up half, against the real index: the claim moves the component into
+        // the carrier and out of the world, so "the store holds nothing here" is a consequence, not an assumption.
         CarriedHostIndex index = new CarriedHostIndex();
         BlockPos origin = pos(10, 64, 10);
         put(origin);
@@ -220,7 +211,7 @@ class WorldHostTransferTest {
 
         assertTrue(outcome.performed());
         assertTrue(WorldHostTransfer.suppressesWorldHost(world, origin),
-                "so the client is told to stop drawing a world host where the component used to be");
+                "so the client is told to stop drawing a world host where the component no longer is");
         assertFalse(WorldHostTransfer.restoresHost(world, origin));
     }
 

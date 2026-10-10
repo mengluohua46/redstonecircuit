@@ -4,39 +4,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * <b>What the Create-side carrier-tool hook registration actually did, as lines for
- * {@code /rc physics}.</b>
+ * What the Create-side carrier-tool hook registration actually did, as lines for {@code /rc physics}.
  *
- * <h2>The question this exists for</h2>
- * "A right-click with the wrench does nothing on a physicalised block" has two completely different
- * causes on a Create contraption, and until now the mod could only report one of them:
+ * <p>"A right-click with the wrench does nothing on a physicalised block" has two causes on a contraption: the
+ * block type was never given the hook - it never held a component - or the type was refused, because another
+ * mod had already registered a {@code MovingInteractionBehaviour} for it and the first-wins rule left it alone.
+ * The Sable entry point is unaffected.
  *
- * <ul>
- *   <li><b>the block type was never given the hook</b> - it has never held a component, so
- *       {@code CarrierToolHook#register} was never called for it, and Create's
- *       {@code Contraption.interactors} map holds nothing for it. Every click on it is Create's own
- *       business and nothing of ours ever runs;</li>
- *   <li><b>the block type was refused</b> - another mod had already registered a
- *       {@code MovingInteractionBehaviour} for it, and the first-wins rule (the same one
- *       {@code MovementHostHook} uses) deliberately left it alone. The Sable entry point is unaffected,
- *       so the symptom is "it works from a sub-level and not from a contraption".</li>
- * </ul>
- *
- * <p>The second one used to be reported exactly once, at registration time, in a log line that is easy to
- * miss; a report run an hour later could not see it at all. This ledger keeps the same facts - bounded,
- * insertion-ordered, and readable on demand - so {@code /rc physics} can print them beside the count.
- *
- * <h2>Why the count in that report is not this class's number</h2>
- * {@code CarrierToolHook#registeredCount()} answers with the number of block types <em>attempted</em>,
- * because that is what its dedupe set holds: a refused type is deliberately never retried. Keeping that
- * number unchanged means an operator can compare it against the log they already have, so this ledger
- * adds the breakdown ({@code hooked=}/{@code refused=}) instead of redefining it. The two numbers are
- * printed together and are only equal when nothing was refused.
- *
- * <h2>Bounds</h2>
- * Every list is capped at {@value #LIMIT} entries. A registration happens once per block type, so this
- * can never be a hot path, and a world with a hundred host block types cannot turn one command into
- * pages of output - it prints the first few and says how many more there were.
+ * <p>{@code CarrierToolHook#registeredCount()} counts every attempt; this adds the breakdown beside it. Every
+ * list is capped at {@value #LIMIT} entries.
  */
 public final class CarrierHookLedger {
 
@@ -52,29 +28,21 @@ public final class CarrierHookLedger {
     private int refusedTotal;
 
     /**
-     * Package-visible rather than private so the bounds and the text are pinned by offline unit tests
-     * that can build a ledger of their own; production uses the {@link #HOOKS} instance and nothing else.
+     * Package-visible rather than private so the bounds and the text can be pinned by offline unit tests;
+     * production uses the {@link #HOOKS} instance and nothing else.
      */
     CarrierHookLedger() {
     }
 
-    /**
-     * Records that the tool hook was registered for one block type.
-     *
-     * @param block the block type as {@code namespace:path}, so the line names what an operator can point
-     *     at rather than a class name
-     */
+    /** Records that the tool hook was registered for {@code block} ({@code namespace:path}). */
     public void hook(String block) {
         hookedTotal++;
         add(hooked, block);
     }
 
     /**
-     * Records that the hook was <b>not</b> registered, and why.
-     *
-     * @param block the block type as {@code namespace:path}
-     * @param reason a few words naming the guard - normally "another MovingInteractionBehaviour is
-     *     already registered for it"
+     * Records that the hook was not registered, and why: {@code reason} is a few words naming the guard,
+     * normally "another MovingInteractionBehaviour is already registered for it".
      */
     public void refuse(String block, String reason) {
         refusedTotal++;
@@ -102,9 +70,8 @@ public final class CarrierHookLedger {
     }
 
     /**
-     * The report lines for {@code /rc physics}: the breakdown, then every remembered refusal.
-     *
-     * <p>Empty when nothing was ever refused, so the ordinary case costs no output.
+     * The report lines for {@code /rc physics}: the breakdown, then every remembered refusal. Empty when
+     * nothing was ever refused, so the ordinary case costs no output.
      */
     public List<String> describe() {
         List<String> out = new ArrayList<>();
@@ -129,7 +96,7 @@ public final class CarrierHookLedger {
         return out;
     }
 
-    /** Forgets everything; the unit tests' own reset, so one test cannot leak into the next. */
+    /** Forgets everything. */
     public void clear() {
         hooked.clear();
         refused.clear();

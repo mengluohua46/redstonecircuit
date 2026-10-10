@@ -16,70 +16,16 @@ import net.minecraft.core.SectionPos;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>The client's memory of hosts a structure has put down.</b> A pure, copy-on-write map kept beside
- * {@link CarrierIndex} rather than inside it, because it answers a different question.
- *
- * <h2>The hole this fills</h2>
- * The carried path and the world path are two ways to draw the same component, and until now the
- * client had to pick one from two facts it could observe:
- *
- * <ul>
- *   <li><b>carried</b> - a carrier payload named this host, and the client holds a pose for that
- *       carrier. Drawn inside the structure.</li>
- *   <li><b>world host</b> - the ordinary host sync named this position. Drawn at the block - and only
- *       if a block is really there, because the world renderer deliberately refuses to draw a shell in
- *       mid-air (see {@code HostRenderPass#collect}).</li>
- * </ul>
- *
- * <p>Landing falls into neither. The server puts the component back into its world store
- * ({@code CarrierStore}'s put-down path), sends the world sync for the landing position, and then
- * announces the carrier's removal - and the carrier's host list is what the client had been drawing
- * from. The block itself is <b>not</b> guaranteed to be back: a structure's blocks are Create's or
- * Sable's business, and a machine that has come to rest where it started can leave the position the
- * component belongs to as air. When that happens the world path skips the host (there is no block to
- * draw over), the carried path has already been dropped with the carrier, and the component is
- * <b>invisible until something else touches that position</b> - which is exactly the defect this
- * class closes.
- *
- * <h2>What it holds, and why that is enough</h2>
- * One {@link CarrierIndex.CarriedView} per put-down host, taken from the carrier payload the client
- * already has. The view carries the host's landing position in its {@code at} field - the server sends
- * it in every carrier message, pose or no pose - so no new field, no new message and no protocol
- * version bump are needed: the information was already on the wire and was simply thrown away when the
- * pose went {@code null}.
- *
- * <p>A landed entry is a <em>candidate</em>, not a claim. The renderer draws it unless the ordinary
- * world path would really put something on screen there, and that question is answered in one place -
- * {@link #worldPathDraws} - by the same two facts the world renderer itself uses: a host the client's
- * host sync knows about, <b>and</b> a block standing at the position. Both are needed. A host the sync
- * has announced while the block is still air is precisely the state this class exists for, and a
- * candidate that yielded to the world path on the strength of the sync alone would be drawn by
- * <em>neither</em> path for those frames - invisible, with no skip counter to say why.
- *
- * <p>The record is forgotten only when the world path has actually taken the position over (same
- * predicate), or when the server says the position is not a host any more, or when the carrier itself
- * supplies a newer truth. See {@code LandedHosts#worldPathDraws} for the rule and the P1 document's
- * §11.7 for what residual records are <em>expected</em>.
- *
- * <h2>Purity and threading</h2>
- * A map keyed by world position plus a list per position, and nothing that names a level, a packet or
- * a renderer: the whole contract - what is stowed, what is dropped, what survives a re-claim - is
- * therefore decided by offline unit tests. {@code ClientHostCache} is the thin client-side wrapper.
- *
- * <p>Writes <b>replace the map rather than mutate it</b>. The render thread walks this while the client
- * thread can be applying a packet, and a live map under a concurrent walk is the one kind of bug that
- * would be both intermittent and invisible; rebuilding costs a handful of entries per put-down, which
- * happens a few times per disassembly.
+ * The client's memory of hosts a structure has put down: one {@link CarrierIndex.CarriedView} per put-down
+ * host, keyed by where it landed, in a pure copy-on-write map beside {@link CarrierIndex}. Landing falls
+ * into neither draw path - the carried path has gone with its carrier, and the world path refuses to draw
+ * in mid-air - so such a component would be invisible; a landed entry is a candidate, not a claim (see
+ * {@link #worldPathDraws}), and writes replace the map because the render thread walks it.
  */
 public final class LandedHosts {
 
-    /**
-     * One position such a host landed at -> the hosts put down there.
-     *
-     * <p>Keyed by position because that is the one question the hot paths ask: "is this world position
-     * one the carried path still owes a draw for". There really can be more than one view at one
-     * position - two structures can put hosts down on the same block - so the value is a list.
-     */
+    /** One position such a host landed at -> the hosts put down there. A list, because two structures
+     * can put hosts down on the same block. */
     private volatile Long2ObjectMap<List<CarrierIndex.CarriedView>> byPosition =
             new Long2ObjectOpenHashMap<>();
 
@@ -91,20 +37,8 @@ public final class LandedHosts {
 
     // ------------------------------------------------------------ writing --
 
-    /**
-     * Takes everything {@code carrier} was holding into this map, because the carrier is gone.
-     *
-     * <p>Called when a carrier message arrives with no pose: the server has taken the carrier back and
-     * the components are back in the world as far as it is concerned, so the client keeps them where
-     * they were put down rather than dropping them on the floor.
-     *
-     * <p>Idempotent per host: the same carrier announced gone twice (the server's release paths are
-     * deliberately chatty - idempotent in the data, never in the notice) leaves one entry, not two.
-     * A repeat is not rare: a removal notice is re-sent on every repeated {@code stopMoving} callback.
-     *
-     * @param hosts the views the carrier was holding; {@code null} or empty is a no-op
-     * @return how many views were newly taken in
-     */
+    /** Takes everything {@code carrier} was holding into this map, because the carrier is gone.
+     * Idempotent per host, so a re-sent removal notice leaves one entry, not two. */
     public int stow(@Nullable List<CarrierIndex.CarriedView> hosts) {
         if (hosts == null || hosts.isEmpty()) {
             return 0;
@@ -123,10 +57,8 @@ public final class LandedHosts {
             }
         }
         if (added > 0 || replaced) {
-            // One write for the whole call: the render thread sees the map it started with or the
-            // finished one, never a half-built list. A call that only replaced a view still has to
-            // write: the newer view is a new record (the in-structure solve mutates contents in place),
-            // and leaving the old one in the map would keep drawing the value from before the update.
+            // One write for the whole call: the render thread sees a whole map, or none of this one.
+            // A call that only replaced a view still has to write - the newer view is a new record.
             byPosition = next;
             if (added > 0) {
                 size += added;
@@ -136,11 +68,8 @@ public final class LandedHosts {
         return added;
     }
 
-    /**
-     * One view, keyed by its landing position and identified by carrier plus local coordinate.
-     *
-     * @return true when this is a host the map did not have, false when it replaced one it did
-     */
+    /** One view, keyed by its landing position and identified by carrier plus local coordinate.
+     * Returns true when this is a host the map did not have. */
     private static boolean put(Long2ObjectMap<List<CarrierIndex.CarriedView>> map,
                                CarrierIndex.CarriedView host) {
         long key = host.at().asLong();
@@ -156,8 +85,7 @@ public final class LandedHosts {
         for (CarrierIndex.CarriedView existing : bucket) {
             if (!replaced && existing.carrier().equals(host.carrier())
                     && existing.localPos().equals(host.localPos())) {
-                // The same host, announced gone again. The newer view wins - the slot may have been
-                // recomputed in flight - but it is not a new entry.
+                // The same host, announced gone again: the newer view wins, but it is not a new entry.
                 replacement.add(host);
                 replaced = true;
             } else {
@@ -171,16 +99,8 @@ public final class LandedHosts {
         return !replaced;
     }
 
-    /**
-     * Forgets every landed host standing at {@code worldPos}.
-     *
-     * <p>The two callers are the same fact seen from two sides: the ordinary host sync says this
-     * position is a world host again (the server put a component back there and the client has been
-     * told), or the position's contents changed underneath a landed entry. Either way the world path
-     * owns the position from now on and a landed candidate would be a second shell.
-     *
-     * @return how many views were dropped
-     */
+    /** Forgets every landed host standing at {@code worldPos}: the world path owns the position from
+     * now on, so a landed candidate there would be a second shell. */
     public int forgetAt(@Nullable BlockPos worldPos) {
         if (worldPos == null || byPosition.isEmpty()) {
             return 0;
@@ -278,14 +198,9 @@ public final class LandedHosts {
         return List.copyOf(out);
     }
 
-    /**
-     * {@code (carrier, local coordinate)} as one comparable key.
-     *
-     * <p>The carrier's full UUID rather than its short id, so two structures can never be mistaken for
-     * one another, and a string rather than a hash so a collision cannot silently swallow a host.
-     * Allocating here is deliberate and bounded: a carrier's host list is a handful of entries and this
-     * runs once per carrier message, not per frame.
-     */
+    /** {@code (carrier, local coordinate)} as one comparable key: the carrier's full UUID, so two
+     * structures can never be mistaken for one another, and a string, so a hash collision cannot
+     * silently swallow a host. */
     private static String identity(CarrierIndex.CarriedView view) {
         return view.carrier().uuid() + "@" + view.localPos().asLong();
     }
@@ -298,27 +213,13 @@ public final class LandedHosts {
     /**
      * <b>Why a host has left its carrier's list: put down, or destroyed.</b>
      *
-     * <h2>The defect this separates</h2>
-     * A carrier message replaces one structure's host list wholesale, so "not in the new list" was the
-     * only signal a client had - and it meant "put down", because that is what it almost always is. A
-     * host whose block was <b>destroyed</b> leaves by the same door, and the client then kept it as a
-     * landed record and went on drawing the component and the outline at the position the block used to
-     * occupy, for as long as the structure existed. That is the ghost the author reported, and it is
-     * not a drawing bug: the client was never told which of the two things had happened.
+     * <p>A carrier message replaces the host list wholesale, so "not in the new list" alone read as
+     * "put down" - and a host whose block was <em>destroyed</em> leaves by the same door, so the client
+     * went on drawing it as a landed record. The server therefore also names the hosts it
+     * <em>discarded</em> (a break, or the self-healing sweep), and those are dropped outright instead.
      *
-     * <p>So the server says it: {@code forgotten} is the set of hosts it has <em>discarded</em> (the
-     * record was removed without anything being written back - a break, or the self-healing sweep), and
-     * every one of them is dropped outright instead of being stowed.
-     *
-     * <h2>Pure, and one place</h2>
-     * The rule is decided offline by unit tests rather than inferred from a running client, exactly
-     * like {@link #departed}. A host named in both lists cannot exist - a record that was discarded is
-     * not in the carrier's live list either - and the forgotten set deliberately wins if one ever were:
-     * "this component is gone" is the answer that must never be softened into a ghost.
-     *
-     * @param wasHolding what the client held for this carrier before the message
-     * @param forgotten carrier plus local coordinate of every host the server discarded
-     * @return which of the held hosts must be dropped, and which are merely leaving the list
+     * <p>The forgotten set wins if a host is ever in both: "this component is gone" must never be
+     * softened into a ghost.
      */
     public record Forget(HashSet<String> keys, List<CarrierIndex.CarriedView> held) {
 
@@ -414,23 +315,9 @@ public final class LandedHosts {
         return out;
     }
 
-    /**
-     * Visits every landed host whose landing position is in a section near {@code center}.
-     *
-     * <p>The same section walk the other two indexes make, and for the same reason: the renderer asks
-     * once per frame, so it must walk occupied sections rather than every host in the level. The bucket
-     * key <em>is</em> the landing position here rather than the origin, because a landed host is drawn
-     * exactly where it was put down.
-     *
-     * <p>The section is worked out from the <b>block</b> position the key names
-     * ({@link BlockPos#of(long)}) rather than by asking {@link SectionPos} to decode the key. The two
-     * packings are different widths for the same three numbers - {@code SectionPos.asLong} is
-     * section coordinates, {@code BlockPos.asLong} is block coordinates - so reading one as the other
-     * silently produces wrong sections for every y and z. Decoding through {@code BlockPos} is the only
-     * spelling that is right by construction.
-     *
-     * @param action called once per landed host in range
-     */
+    /** Visits every landed host whose landing position is in a section near {@code center}. The bucket
+     * key is a block position, so the section comes from {@link BlockPos#of(long)} and never from
+     * reading that key as a {@link SectionPos} - the two packings are different widths. */
     public void forEachNear(@Nullable BlockPos center, int sectionRadius,
                             Consumer<CarrierIndex.CarriedView> action) {
         Long2ObjectMap<List<CarrierIndex.CarriedView>> map = byPosition;
@@ -463,53 +350,17 @@ public final class LandedHosts {
 
     // ------------------------------------------------- which path owns a position --
 
-    /**
-     * <b>Whether the ordinary world path draws a position at all</b> - the single judge both paths
-     * obey, expressed in facts rather than in a level so it can be unit-tested.
-     *
-     * <p>Two facts, and <em>both</em> are needed:
-     *
-     * <ul>
-     *   <li>{@code worldHost} - the client's ordinary host sync has a slot for this position, so this
-     *       client believes a component belongs there. Without it the world path has no component to
-     *       draw and, with no block needed either, it never looks at the position.</li>
-     *   <li>{@code blockPresent} - the block at that position is <b>not air</b>. This is the world
-     *       renderer's own gate: it deliberately refuses to draw a shell in mid-air, because a frosted
-     *       cube hanging in the sky reads as a bug in the world rather than in the data.</li>
-     * </ul>
-     *
-     * <h2>The defect this closes</h2>
-     * Those two facts do <b>not</b> arrive together. When a structure puts a component down the server
-     * broadcasts the world host immediately, while the block itself is put back by Create a moment
-     * later - so for a frame or two the client holds a world host at a position that is still air.
-     * Anything that decided "the world path owns this now" from the host sync alone therefore took the
-     * component away from the landed path while the world path was still refusing to draw: <b>neither
-     * path drew it and the component was invisible</b>. Asking the same two questions the renderer asks
-     * is what makes the geometry impossible rather than unlikely.
-     *
-     * <p>Delegates to {@link HostPathOwnership}, which owns the rule and is unit-tested on its own; the
-     * adapter is here because this is the class a reader following the landed story reaches first.
-     *
-     * @param worldHost the client's ordinary host sync holds a slot for this position
-     * @param blockPresent the block at this position is present, i.e. not air
-     */
+    /** Whether the ordinary world path draws this position at all - the single judge both paths obey.
+     * Both facts are needed, and the host sync is not enough: that alone takes the position from the
+     * landed path while the world path still refuses to draw it, which is the state that draws
+     * nothing. */
     public static boolean worldPathDraws(boolean worldHost, boolean blockPresent) {
         return HostPathOwnership.worldPathDraws(worldHost, blockPresent);
     }
 
-    /**
-     * <b>Whether a landed or carried candidate must draw itself rather than yield.</b>
-     *
-     * <p>The exact complement of {@link #worldPathDraws}, and written in one place for that reason: a
-     * host is drawn by the world path, or it is drawn by the carried path - never by both (two shells
-     * on one block) and never by neither, the shape that used to be invisible. See
-     * {@link HostPathOwnership} for the full argument, and use its {@code owner} when the answer is
-     * wanted as a decision rather than as a boolean.
-     *
-     * @param worldHost the client's ordinary host sync holds a slot for this position
-     * @param blockPresent the block at this position is present, i.e. not air
-     * @return true when this candidate must draw itself rather than yield
-     */
+    /** Whether a landed or carried candidate must draw itself rather than yield: the exact complement
+     * of {@link #worldPathDraws}, so a host is drawn by one path or the other and never by neither.
+     * Delegates to {@link HostPathOwnership}, which owns the rule and is tested on its own. */
     public static boolean fallbackDraws(boolean worldHost, boolean blockPresent) {
         return HostPathOwnership.fallbackDraws(worldHost, blockPresent);
     }

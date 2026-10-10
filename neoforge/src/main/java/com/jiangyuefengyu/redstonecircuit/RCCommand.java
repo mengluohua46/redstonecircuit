@@ -50,11 +50,11 @@ import org.jetbrains.annotations.Nullable;
  *   /rc clear [pos]                            remove the component stored in a block
  *   /rc list                                   list every block holding inner redstone
  *   /rc rules [pos]                            explain whether a block may host redstone
- *   /rc physics                                P1 diagnostics: what Sable/Create say about the
+ *   /rc physics                                diagnostics: what Sable/Create say about the
  *                                              looked-at block (no-op without those mods)
  *   /rc carrier                                what every moving structure is carrying, where
- *                                              it is, and (P2) what its in-structure solve has
- *                                              made of it (no-op without those mods)
+ *                                              it is, and what its in-structure solve made of
+ *                                              it (no-op without those mods)
  * </pre>
  */
 public final class RCCommand {
@@ -84,6 +84,14 @@ public final class RCCommand {
         root.then(Commands.literal("physics").executes(RCCommand::physics));
         root.then(Commands.literal("carrier").executes(RCCommand::carrier));
         root.then(placeSub());
+        root.then(sableHoldingSub());
+
+        // 红石结构方块's pocket: /rc pocket [list|selftest|clear], in its own class because a dedicated
+        // server is needed for it.
+        com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketCommand.attach(root);
+        // 红石结构方块's capture and its files: /rc structure ..., the driver for the phase before there
+        // is a screen to drive it from.
+        com.jiangyuefengyu.redstonecircuit.structure.StructureCommand.attach(root);
 
         dispatcher.register(root);
     }
@@ -155,10 +163,8 @@ public final class RCCommand {
     }
 
     /**
-     * {@code set <facing|delay|mode> <value> [pos]} - the properties of the component at a position.
-     *
-     * <p>Stands in for the wrench while it does not exist yet: a repeater's input side and delay, and
-     * a comparator's mode, all have to be settable to test them in game.
+     * {@code set <facing|delay|mode> <value> [pos]} - the properties of the component at a position: a
+     * repeater's input side and delay, and a comparator's mode.
      */
     private static LiteralArgumentBuilder<CommandSourceStack> setSub() {
         LiteralArgumentBuilder<CommandSourceStack> set = Commands.literal("set");
@@ -209,6 +215,41 @@ public final class RCCommand {
 
     private static BlockPos ownPos(CommandContext<CommandSourceStack> ctx) {
         return BlockPos.containing(ctx.getSource().getPosition());
+    }
+
+    /**
+     * {@code sable-holding purge <chunkX> <chunkZ>} - the repair for "Failed to load sub_level".
+     *
+     * <p>A structure Sable is not currently loading is filed as a pointer in a <b>per-chunk</b> holding
+     * record, and the message names that chunk. When the data behind the pointer is gone every world load
+     * reports it, and Sable's own pruning only removes holding chunks that are <b>empty</b> - which one with
+     * a dangling pointer is not.
+     *
+     * <p>The record is dropped from the storage file <b>and</b> from Sable's in-memory copy, because Sable
+     * writes that copy back out at the next save; both numbers are printed, so a "forgot 0" shows up rather
+     * than a silent failure. Check first that nothing still wanted is filed under that chunk.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> sableHoldingSub() {
+        RequiredArgumentBuilder<CommandSourceStack, Integer> chunkZ =
+                Commands.argument("chunkZ", IntegerArgumentType.integer());
+        chunkZ.executes(ctx -> purgeHoldingChunk(ctx, IntegerArgumentType.getInteger(ctx, "chunkX"),
+                IntegerArgumentType.getInteger(ctx, "chunkZ")));
+        RequiredArgumentBuilder<CommandSourceStack, Integer> chunkX =
+                Commands.argument("chunkX", IntegerArgumentType.integer());
+        chunkX.then(chunkZ);
+        return Commands.literal("sable-holding").then(Commands.literal("purge").then(chunkX));
+    }
+
+    private static int purgeHoldingChunk(CommandContext<CommandSourceStack> ctx, int chunkX, int chunkZ) {
+        String outcome = PhysicsCompat.purgeHoldingChunk(level(ctx), chunkX, chunkZ);
+        if (outcome == null) {
+            feedback(ctx, header("no Sable in this world, so there is no stored sub-level to repair"));
+            return 0;
+        }
+        feedback(ctx, header(outcome));
+        feedback(ctx, Component.literal("  quit and reload to confirm the \"Failed to load sub_level\" report is gone")
+                .withStyle(ChatFormatting.GRAY));
+        return 1;
     }
 
     private static ServerLevel level(CommandContext<CommandSourceStack> ctx) {
@@ -309,7 +350,7 @@ public final class RCCommand {
 
         feedback(ctx, header("placed " + type + " (" + slot.describe() + ") at " + pos.toShortString()));
 
-        // Diagnostic only, and only once per block type: see InnerRedstoneInteraction#tryPlace.
+        // Diagnostic only, and only once per block type.
         PhysicsCompat.hostBlockStored(level, pos, level.getBlockState(pos).getBlock());
         return 1;
     }
@@ -374,11 +415,9 @@ public final class RCCommand {
     }
 
     /**
-     * {@code toggle [pos]}: works what is stored inside a block, without a player click.
-     *
-     * <p>Goes through {@link InnerSwitches} - the same path the bare-hand click uses - so a lever, a
-     * button, a repeater's delay and a comparator's mode cannot behave differently depending on how they
-     * were operated.
+     * {@code toggle [pos]}: works what is stored inside a block, without a player click, through the
+     * same path the bare-hand click uses - so a lever, a button, a repeater's delay and a comparator's
+     * mode cannot behave differently depending on how they were operated.
      */
     private static int toggle(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
         ServerLevel level = level(ctx);
@@ -407,8 +446,7 @@ public final class RCCommand {
     private static int solve(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
         ServerLevel level = level(ctx);
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
-        // Go through the same queue-and-settle path the tick uses, so a command-driven solve sees
-        // the identical result a player would see (including the feedback from notifying the world).
+        // The same queue-and-settle path the tick uses, so a command-driven solve sees a player's result.
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         InnerRedstoneNetwork.settle(level);
 
@@ -440,8 +478,7 @@ public final class RCCommand {
             error(ctx, "no inner redstone at " + pos.toShortString());
             return 0;
         }
-        // Through the same path the wrench uses, so the command also re-solves the network and tells
-        // clients - without that the pin would only take effect the next time something else moved.
+        // Through the same path the wrench uses, which also re-solves the network and tells clients.
         WrenchLinks.setState(level(ctx), pos, direction, state);
 
         feedback(ctx, header("connection " + direction.getName() + " -> " + state
@@ -463,13 +500,10 @@ public final class RCCommand {
     }
 
     /**
-     * {@code probe [pos]}: where does this block's supply come from, side by side.
-     *
-     * <p>The one command that answers "something outside is keeping this block powered": it lists the
-     * block on each side, what the vanilla world reports ({@code raw}) and what the solver actually
-     * sees once our own output is suppressed ({@code solver}). A {@code raw} of 15 with a
-     * {@code solver} of 0 means the value was our own signal being read back; a {@code solver} of 15
-     * names a real block next door, and the line then says which one.
+     * {@code probe [pos]}: where does this block's supply come from, side by side - each side's block,
+     * what the vanilla world reports ({@code raw}) and what the solver actually sees once our own output
+     * is suppressed ({@code solver}). A {@code raw} of 15 with a {@code solver} of 0 means the value was
+     * our own signal being read back.
      */
     private static int probe(CommandContext<CommandSourceStack> ctx, BlockPos pos) {
         ServerLevel level = level(ctx);
@@ -553,20 +587,14 @@ public final class RCCommand {
     }
 
     /**
-     * {@code physics}: the P1 decision report, for the block the operator is looking at.
+     * {@code physics}: the structure diagnostics for the block the operator is looking at. Read-only.
      *
-     * <p>Read-only. It answers the four questions this layer exists to settle - where the
-     * block really is according to Sable, what {@code getContaining} says and what that means, every
-     * sub-level with its pose plus a world/local round trip, and the current store keys.
-     *
-     * <p>Everything it needs lives in the optional compat source set, which is not compiled at all
-     * when Sable's and Create's nested jars were not available at build time - and this class must
-     * therefore never link against it. {@link PhysicsCompat} is the only door, it resolves the compat
-     * half by name, and it returns an empty list when there is nothing behind it. That is the "no
-     * mods installed" answer, and it is an ordinary one.
-     *
-     * <p>Aimed at the looked-at block rather than the operator's feet on purpose: the interesting
-     * position is a block, and the four sub-reports only make sense for a block.
+     * <p>Everything it needs lives in the optional compat source set, which is not compiled at all when
+     * Sable's and Create's nested jars were not available at build time - so this class must never link
+     * against it. {@link PhysicsCompat} is the only door, it resolves the compat half by name, and it
+     * returns an empty list when there is nothing behind it, which is the ordinary "no mods installed"
+     * answer. Aimed at the looked-at block rather than the operator's feet, because the four sub-reports
+     * only make sense for a block.
      */
     private static int physics(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = level(ctx);
@@ -590,12 +618,9 @@ public final class RCCommand {
     /**
      * {@code carrier}: what moving structures are carrying right now, and where they are.
      *
-     * <p>The P1 acceptance command. Everything it prints comes from the server's own bookkeeping and
-     * from Create's and Sable's own transforms - never from what is on screen - so a line that
-     * disagrees with the picture is the bug, named.
-     *
-     * <p>Works with no optional mod installed, and then says so: with Sable and Create absent there is
-     * no carrier store and nothing can ever be in flight.
+     * <p>Everything it prints comes from the server's own bookkeeping and from Create's and Sable's own
+     * transforms - never from what is on screen - so a line that disagrees with the picture is the bug,
+     * named. Works with no optional mod installed, and then says so.
      */
     private static int carrier(CommandContext<CommandSourceStack> ctx) {
         ServerLevel level = level(ctx);
@@ -613,12 +638,11 @@ public final class RCCommand {
     }
 
     /**
-     * The block the operator is aiming at, or their own feet when there is no player behind the
-     * command (a command block, the console, a game test).
+     * The block the operator is aiming at, or their own feet when there is no player behind the command
+     * (a command block, the console, a game test).
      *
-     * <p>Uses the same ray trace vanilla uses for the block outline, with the player's own block
-     * interaction range, so "the block I am looking at" means exactly what it looks like. The
-     * position is nudged back a hundredth of a block off the hit face, which is what keeps a hit on a
+     * <p>The same ray trace vanilla uses for the block outline, with the player's own interaction range.
+     * The position is nudged back a hundredth of a block off the hit face, which is what keeps a hit on a
      * block boundary from rounding into the block behind it.
      */
     private static BlockPos lookedAtPos(CommandContext<CommandSourceStack> ctx) {
@@ -627,11 +651,9 @@ public final class RCCommand {
             return ownPos(ctx);
         }
         double reach = player.blockInteractionRange();
-        // player.pick returns HitResult, whose only positional member is getLocation(); the block
-        // and its face come from the BlockHitResult subclass, hence the pattern match.
+        // player.pick answers a HitResult; only the BlockHitResult subclass carries the face, hence the
+        // pattern match.
         if (player.pick(reach, 0.0F, false) instanceof BlockHitResult hit) {
-            // Step back a hundredth of a block off the hit face, so a hit exactly on a block
-            // boundary cannot round into the block behind it.
             return BlockPos.containing(hit.getLocation().subtract(
                     hit.getDirection().getStepX() * 0.01,
                     hit.getDirection().getStepY() * 0.01,

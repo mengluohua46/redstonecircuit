@@ -28,66 +28,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Taking a component out of a carried block: the message, and the ghost it used to leave behind
- * (P1.43).</b>
+ * Taking a component out of a carried block: the removal has to be announced, or the client keeps drawing
+ * the component it no longer has.
  *
- * <h2>The author's report</h2>
- * <em>"Taking the redstone component out of a physicalised block with a bare hand: the frame and the
- * component inside it are still displayed, breaking the block drops nothing, and they are still
- * displayed. The data is right - the component really is gone."</em> Two different things are in that
- * sentence and only one of them is a defect:
+ * <p>The carrier payload lists the hosts riding <b>with their components</b>, so an emptied host simply
+ * leaves the list - and absence already means "put down", which the client must keep drawing. The client
+ * cannot tell the two apart from absence alone, so the server names the removal in the existing
+ * {@code removed} list, the one a break fills ({@code CarriedInsert#removalNotice}).
  *
- * <ul>
- *   <li><b>breaking an emptied block drops nothing</b> - correct, and it must stay that way: there is
- *       nothing inside to drop. What was <em>not</em> correct is that the removal was never announced,
- *       which is why the same break left the ghost untouched;</li>
- *   <li><b>the frame and the component are still drawn</b> - the defect, and it is not a renderer bug.
- *       The server's record was riding and empty from the first tick (that is what
- *       {@code CarriedHostIndex#removeSlot} writes), the client's copy of it was never told, and the
- *       client is not allowed to guess: it was told nothing, and it had just been told the same shape
- *       means "put down".</li>
- * </ul>
- *
- * <h2>Why the two cases look identical on the wire, and why that is not fixable in the client</h2>
- * A carrier message replaces one structure's host list wholesale, and it lists the hosts that are riding
- * <b>with their components</b> - an empty host is left out of it on purpose
- * ({@code HostSync#carrierPayload}; {@code CarrierEmptyHostTest} pins that decision). So a host that
- * leaves the list has left for one of two reasons:
- *
- * <table>
- *   <caption>Absence means two different things</caption>
- *   <tr><th>why it left</th><th>where the component is</th><th>what the client must do</th></tr>
- *   <tr><td><b>put down</b> (a release)</td><td>back in the world, or on the ground where it landed</td>
- *       <td>keep the record as a <b>landed</b> one and draw it - even over air. This is what makes a
- *       component put down over nothing visible, and dropping it would bring that defect back</td></tr>
- *   <tr><td><b>emptied</b> (this report)</td><td>in the player's inventory</td>
- *       <td>draw it <b>nowhere</b>, and do not keep it under any other identity</td></tr>
- * </table>
- *
- * <p>The client cannot tell them apart from absence alone, so the server has to say it - and it already
- * had the field to say it with: P1.21's {@code removed} list, the one a break fills. A retrieval now
- * fills it too (see {@code CarriedInsert#removalNotice}), so nothing new goes on the wire and the client
- * needs no new branch.
- *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>The reproduction, in the client's own terms:</b> the message shape a retrieval used to send
- *       (host absent from the list, removal list empty) turns the host the client is holding into a
- *       landed record that still carries the component - the frame and the component are drawn from that
- *       one record, which is why the author saw both. This test passes on the code before the fix and
- *       after it, on purpose: it is the defect, stated where it can be read.</li>
- *   <li><b>The contract:</b> the same message with the host named as removed leaves nothing to draw - not
- *       in the carried index, not as a landed record, and not on the fallback list.</li>
- *   <li><b>The wiring:</b> the two production lines that make those two facts true are asserted against
- *       their own source (the idiom this repository already uses for a decision that cannot be reached
- *       without a running server - see {@code HostBufferTallyTest}). These two fail on the code before
- *       the fix.</li>
- * </ol>
- *
- * <p>Pure where it can be: {@link CarrierIndex} and {@link LandedHosts} name no level, no packet and no
- * renderer, so facts 1 and 2 are decided without a game. Fact 3 reads the source, which is a weaker form
- * of evidence and is labelled as such - what it proves is that the notice is plugged in, not that it
- * arrives.
+ * <p>A client told the removal drops the host from all three draw paths - the riding index, the landed
+ * records and the fallback list. The wiring guards assert that the production lines fill and carry the
+ * notice at all.
  */
 class CarrierEmptyHostNoticeTest {
 
@@ -120,15 +71,11 @@ class CarrierEmptyHostNoticeTest {
     // ------------------------------------------------------- the defect itself --
 
     /**
-     * <b>The ghost, reproduced.</b>
-     *
-     * <p>This is the message a retrieval <em>used</em> to send: the carrier payload names the hosts that
-     * are riding with their components, so the host the player just emptied is simply not in it, and the
-     * removal list is empty because only a break filled it. Everything below is the unchanged client
-     * reading that message - which is the point: the client did nothing wrong.
+     * The message shape a retrieval sends without a notice: the emptied host is absent from the host list
+     * and nothing is named as removed. The client reads that as "put down" and keeps drawing it.
      */
     @Test
-    @DisplayName("the message a retrieval used to send draws the component the player had just taken out")
+    @DisplayName("the message a retrieval sends without a notice draws the component the player had just taken out")
     void theOldMessageShapeDrawsWhatWasJustTakenOut() {
         CarrierIndex.CarriedView held = holdingTheComponent(LOCAL);
         CarrierIndex carriers = clientHolding(held);
@@ -140,19 +87,17 @@ class CarrierEmptyHostNoticeTest {
         List<CarrierIndex.CarriedView> stowed =
                 LandedHosts.departed(forget.kept(), hostsTheCarrierStillReports, false);
 
-        // The client reads "absent" as "put down": it keeps the record it holds, and that record is the
-        // one it was drawing the component from.
+        // The client reads "absent" as "put down" and keeps the record it was drawing the component from.
         assertEquals(1, stowed.size(), "the client keeps a put-down record of the host it was holding");
         assertEquals(held, stowed.get(0));
         assertNotNull(stowed.get(0).slot(),
-                "and the record still holds the component - that is the ghost: the frame and the "
+                "and the record still holds the component: the frame and the "
                         + "component are both emitted from this one view, so both stay on screen");
 
         LandedHosts landed = new LandedHosts();
         assertEquals(1, landed.stow(stowed));
 
-        // And it is drawn every frame, because the world path cannot draw over that position: the claim
-        // moved the component out of the world store, so there is no world host there at all.
+        // Drawn every frame: the claim moved the component out of the world store, so no world host is there.
         assertEquals(1, carriers.applyRemovals(CARRIER, List.of(LOCAL)),
                 "the carrier payload does drop it from the riding index, which is the half that worked");
         assertEquals(0, carriers.size());
@@ -161,18 +106,12 @@ class CarrierEmptyHostNoticeTest {
         assertEquals(1, drawn.size(), "so the landed record is what is left drawing there");
         assertTrue(drawn.get(0).landed(), "and it draws itself at the position the block came from");
         assertNotNull(drawn.get(0).view().slot(),
-                "with the component inside it: this is exactly the author's 'the frame and the component "
-                        + "are still displayed'");
+                "with the component inside it: the frame and the component are both still displayed");
     }
 
     /**
-     * <b>The contract the fix has to satisfy:</b> the same client, told the same thing a break tells it,
-     * keeps nothing - in any of the three places a component can be drawn from.
-     *
-     * <p>Those three are the whole of the "it is still on screen" surface: the carried index (still
-     * riding), the landed records (put down and drawn over air), and the fallback list (the carrier's
-     * pose went stale, so it is drawn at the block it came from - which is the position the player is
-     * standing at, the shape the author described).
+     * The same client, told what a break tells it, keeps nothing - in any of the three places a component
+     * can be drawn from: the carried index, the landed records, and the fallback list.
      */
     @Test
     @DisplayName("with the removal notice the same message leaves nothing to draw, in any of the three shapes")
@@ -181,8 +120,7 @@ class CarrierEmptyHostNoticeTest {
         CarrierIndex carriers = clientHolding(held);
         List<BlockPos> notice = List.of(LOCAL);
 
-        // `ClientHostCache#applyCarrier`, in its own order: the notice is applied to what the client was
-        // holding, the stow is filtered by it, and the wholesale replacement follows.
+        // ClientHostCache#applyCarrier's own order: the notice, then the stow, then the replacement.
         LandedHosts.Forget forget = LandedHosts.forget(List.of(held), notice, CARRIER);
         assertEquals(List.of(held), forget.forgotten(), "the emptied host is named, so it is dropped");
         assertTrue(forget.kept().isEmpty(), "and it is not one of the hosts that may be stowed");
@@ -192,9 +130,8 @@ class CarrierEmptyHostNoticeTest {
         assertEquals(1, carriers.applyRemovals(CARRIER, notice));
         assertEquals(0, carriers.size(), "gone from the riding index too");
 
-        // The landed half: nothing is stowed for it now, and a landed record of the same host left by an
-        // earlier message is cleared as well - that is what stops a host already kept as "put down" from
-        // surviving the notice that says it is not.
+        // A landed record of the same host left by an earlier message is cleared too, so "put down" cannot
+        // outlive the notice that says otherwise.
         LandedHosts landed = new LandedHosts();
         assertEquals(0, landed.stow(forget.kept()), "and there is nothing to land");
         LandedHosts keptFromBefore = new LandedHosts();
@@ -207,25 +144,15 @@ class CarrierEmptyHostNoticeTest {
                 "nothing at all is drawn at that coordinate: not the frame and not the component");
         assertTrue(keptFromBefore.all().isEmpty(),
                 "and the landed record that existed is gone too, so neither path can draw it");
-        // The third shape - the fallback list - is the caller's own, and the production path drops this
-        // carrier's named coordinates from it in the same call (ClientHostCache#applyForget, which is the
-        // one place all three deletions are made). An empty list here is therefore the honest state, not
-        // a gap in the test.
+        // The fallback list is the caller's own: ClientHostCache#applyForget drops this carrier's local
+        // coordinates from it in the same call, so an empty list here is the honest state.
     }
 
     // ----------------------------------------------------------- the wiring --
 
     /**
-     * <b>The production line that fills the notice for a retrieval.</b>
-     *
-     * <p>Read from the source because the decision is taken inside a click handler that needs a running
-     * server to reach, and this repository's answer to that is a wiring guard rather than a claim (see
-     * {@code HostBufferTallyTest}, {@code CarrierClickRecordFilingTest}). What it proves is narrow and
-     * worth stating: the notice is computed from the action and the host's <b>local</b> coordinate, and
-     * it is passed to the carrier broadcast - not to the world sync, which is keyed by the projected
-     * world position and can therefore never identify a carried host.
-     *
-     * <p><b>This is one of the two guards that fail before the fix.</b>
+     * Read from the source: the notice is computed from the action and the host's <b>local</b> coordinate
+     * and travels on the carrier message, not on the world sync, which is keyed by world position.
      */
     @Test
     @DisplayName("the retrieval is wired to the same host-level removal notice a break sends")
@@ -246,13 +173,8 @@ class CarrierEmptyHostNoticeTest {
     }
 
     /**
-     * <b>The production line that makes an empty record's removal announced.</b>
-     *
-     * <p>The break path's notice used to sit behind an early return on a null slot, so the one removal
-     * that could be left unannounced was exactly the one a retrieval had just created. The record is
-     * discarded either way; only the item is conditional.
-     *
-     * <p><b>This is the second guard that fails before the fix.</b>
+     * The record is discarded either way; only the item drop is conditional on a non-null slot, so an
+     * empty host's removal is announced like any other.
      */
     @Test
     @DisplayName("a discarded record is announced even when it held nothing to drop")
@@ -265,9 +187,8 @@ class CarrierEmptyHostNoticeTest {
         assertTrue(body.contains("if (slot != null)"),
                 "the item drop must be the conditional half: nothing is dropped from an empty host");
         assertFalse(body.contains("removed.slot() == null"),
-                "and the null slot must not be an early return: that is the line that left the host "
-                        + "the client still held unannounced, and it is why breaking an emptied block "
-                        + "left the ghost on screen");
+                "and the null slot must not be an early return: that is the line that left a removal "
+                        + "unannounced");
 
         int dropped = body.indexOf("Block.popResource");
         int announced = body.indexOf("List.of(destroyed.localPos())");
@@ -279,12 +200,8 @@ class CarrierEmptyHostNoticeTest {
     }
 
     /**
-     * <b>The one broadcast entry that can put a retrieval's notice on the wire.</b>
-     *
-     * <p>The two facts the client's whole behaviour turns on are "which carrier" and "which local
-     * coordinates", and both have to reach {@code HostSync} through the carrier payload - the same
-     * message the put-down and the break already use. This asserts the third argument is carried through
-     * rather than dropped on the way, which is the failure mode a signature-only guard would miss.
+     * The carrier payload is the one message the client reads a removal from, so the third argument must
+     * be carried through rather than dropped on the way - which a signature-only guard would miss.
      */
     @Test
     @DisplayName("the carrier broadcast carries the removal list through to the wire")
@@ -297,7 +214,7 @@ class CarrierEmptyHostNoticeTest {
                         + "carrier), removed"),
                 "the notice must be handed to the one carrier broadcast exit, not dropped: an overload "
                         + "that ignored its argument would compile, pass every other test here, and "
-                        + "leave the author's ghost exactly where it was");
+                        + "announce no removal at all");
     }
 
     // ------------------------------------------------------------------ helpers --
@@ -339,7 +256,7 @@ class CarrierEmptyHostNoticeTest {
             }
         }
         throw new IOException("could not find " + fileName + " from " + Path.of("").toAbsolutePath()
-                + " (tried " + relative + " and " + absolute + "); this guard reads the source on "
-                + "purpose, so it must not be skipped silently");
+                + " (tried " + relative + " and " + absolute + "); this guard reads the source, so it "
+                + "must not be skipped silently");
     }
 }

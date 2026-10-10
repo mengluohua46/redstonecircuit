@@ -13,16 +13,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Pure-logic tests for the inner-redstone data layer.
+ * Pure-logic tests for the inner-redstone data layer: save/load round-trips, one-component-per-block semantics, and the
+ * wrench's per-direction connection overrides.
  *
- * <p>These cover the parts that are easy to get subtly wrong and hard to notice in game:
- * save/load round-trips, one-component-per-block semantics, and the wrench's per-direction
- * connection overrides.
- *
- * <p>Deliberately free of any {@code Items.*} / {@code Blocks.*} access: those require vanilla
- * registries to be bootstrapped, which is unreliable outside a running NeoForge game
- * ({@code Bootstrap.bootStrap()} blows up in {@code BlockBehaviour$Properties.<init>}).
- * The item mapping in {@code HostRules} is verified in-game instead.
+ * <p>Free of any {@code Items.*} / {@code Blocks.*} access, because those need vanilla registries bootstrapped, which
+ * is unreliable outside a running NeoForge game ({@code Bootstrap.bootStrap()} blows up in
+ * {@code BlockBehaviour$Properties.<init>}). The item mapping in {@code HostRules} is verified in-game instead.
  */
 class InnerRedstoneDataTest {
 
@@ -169,8 +165,7 @@ class InnerRedstoneDataTest {
         node.slot().power = 13;
         assertEquals(13, node.power(), "dust reports its stored strength");
 
-        // Non-dust components use `powered`, not `power`, so they report 0 until stage 3 wires up
-        // their actual output.
+        // Non-dust components use `powered`, not `power`, so they report 0 until their output is wired up.
         InnerRedstoneNode torch = InnerRedstoneNode.of(ComponentType.TORCH);
         assertEquals(0, torch.power());
     }

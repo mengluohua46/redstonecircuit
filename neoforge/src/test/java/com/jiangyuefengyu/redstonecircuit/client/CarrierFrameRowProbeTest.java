@@ -15,17 +15,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>One worked frame, through both rows, checked end to end.</b>
+ * One worked frame, through both rows, checked end to end.
  *
- * <p>The rest of the frame row's tests assert the <em>keys</em>; this one asserts the <em>text</em> of a
- * single frame, because the two failures this round exists to fix were both text: a key written twice,
- * and a group that appeared on the small row. It is also the file a report quotes its two example lines
- * from - the lines are printed, so a reader can compare them against what the code produced rather than
- * against a hand-written sample.
+ * <p>The rest of the frame row's tests assert the <em>keys</em>; this one asserts the <em>text</em> of a single frame,
+ * because a key written twice and a group that appeared on the small row are both visible only in the text. The lines
+ * are printed, so a reader can compare them against what the code produced rather than against a hand-written sample.
  *
- * <p>A non-degenerate frame deliberately: {@code shellQuads=30 contentQuads=24 hostsDrawn=1} keeps the
- * geometry verdict empty, so every counter on the verbose row is written by the counter group and by
- * nothing else, and the five sight counts are non-zero so their values can be read back.
+ * <p>A non-degenerate frame: {@code shellQuads=30 contentQuads=24 hostsDrawn=1} keeps the geometry verdict empty, so
+ * every counter on the verbose row is written by the counter group and by nothing else, and the five sight counts are
+ * non-zero so their values can be read back.
  */
 class CarrierFrameRowProbeTest {
 
@@ -70,9 +68,8 @@ class CarrierFrameRowProbeTest {
         }
         assertTrue(compact.contains("frame drew 3"), compact);
         assertTrue(compact.contains("poseAge=3t/0.15s"), compact);
-        // The fixture tallies four answers - one drawn, one refused hit, one miss, one unknown target - so
-        // the sum is four. (The assertion said five and the fixture produced four; the four are what make
-        // each of the five single counters below readable, so the sum is what had to be corrected.)
+        // The fixture tallies four answers - one drawn, one refused hit, one miss, one unknown target - so the sum is
+        // four, and each of the five single counters below stays readable.
         assertTrue(compact.contains("sightChecked=4"), compact);
         assertTrue(compact.contains("sightDrawn=1"), compact);
         assertTrue(compact.contains("sightRefusedHit=1"), compact);

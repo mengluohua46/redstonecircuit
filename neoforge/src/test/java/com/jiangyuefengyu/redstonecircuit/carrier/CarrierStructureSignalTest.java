@@ -32,37 +32,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests P1.19's defect two: <b>the signal sources the structure itself is carrying count as an input
- * to the solve inside it.</b>
+ * The signal sources the structure itself is carrying count as an input to the solve inside it.
  *
- * <h2>The author's report, and what it turned out to be</h2>
- * <em>"The lever can be flicked but nothing inside wakes up."</em> The lever was carried and working -
- * it is a real block of the structure - but the inside solve only ever asked the <em>world</em> what
- * was on each side of a host block. For a machine in flight the world half projects the neighbour's
- * local coordinate through the pose and reads the air the machine is passing over, so a lever sitting
- * one block away inside the machine was never asked at all. (A redstone torch inside a host block is
- * modelled as a component, which is why that one always worked.)
- *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>The lever reaches the solve.</b> A raid on the same seams {@code CarrierSpaceTest} and
- *       {@code CarrierNetworksTest} use: a fake structure whose blocks answer a signal, a fake store, a
- *       counter for a clock. No game, and no {@code BlockState} - a unit test has no registry, so the
- *       fake returns {@code null} for a state and the shared rule continues with the signal getter's
- *       answer, which is exactly the branch the assertions are about.</li>
- *   <li><b>The two halves are combined as the larger, and the world half is untouched.</b> The switch
- *       {@code carrierFreezeWorldIo} still closes the world half only; a lever the machine carries is
- *       not part of the world and keeps feeding the inside.</li>
- *   <li><b>A structure that cannot be read costs the structure half and nothing else.</b> The world
- *       half still answers, no exception escapes, the failed view is not asked again in the same pass,
- *       and the warning is logged <b>once</b> for the process rather than once per structure per tick.</li>
- *   <li><b>The read is at the local neighbour, through the shared rule.</b> The coordinate asked of the
- *       structure is {@code host.relative(side)} in the machine's own frame and the direction is
- *       vanilla's "asker towards neighbour" - the same two arguments the world half uses, which is what
- *       makes "one rule, two views" true rather than aspirational.</li>
- *   <li><b>The switch restores the withdrawn behaviour.</b> With {@code carrierStructureSignals} off the
- *       structure half answers zero, which is what the reverted build did.</li>
- * </ol>
+ * <p>A carried lever is a real block of the structure and works, but a solve that only asks the <em>world</em> what is
+ * on each side of a host block projects the neighbour's local coordinate through the pose and reads the air the machine
+ * is passing over, so a lever one block away inside the machine is never asked. Pinned here: the lever reaches the
+ * solve; the world half and the structure half are combined as the larger, and {@code carrierFreezeWorldIo} closes only
+ * the world half; an unreadable structure costs its own half, warns once and is not asked again in the same pass; and
+ * {@code carrierStructureSignals} off restores the withdrawn behaviour.
  */
 class CarrierStructureSignalTest {
 
@@ -94,13 +71,10 @@ class CarrierStructureSignalTest {
     }
 
     /**
-     * The structure's own blocks: a signal per local coordinate, and a record of what was asked.
-     *
-     * <p>It answers {@code getSignal} and returns {@code null} from {@code getBlockState} on purpose.
-     * A unit test has no block registry - {@code Blocks.AIR.defaultBlockState()} throws before it
-     * returns - so a fake state is impossible. The shared rule treats a {@code null} state as "no state
-     * to inspect" (not a vanilla wire) and continues with the signal getter's answer, which is the
-     * branch a carried lever is read through in a real game as well.
+     * The structure's own blocks: a signal per local coordinate, and a record of what was asked. It returns {@code null}
+     * from {@code getBlockState} because a unit test has no block registry ({@code Blocks.AIR.defaultBlockState()}
+     * throws before it returns), so a fake state is impossible; the shared rule treats a {@code null} state as "no state
+     * to inspect" and continues with the signal getter's answer.
      */
     private static final class FakeStructure implements SignalGetter {
 
@@ -209,9 +183,8 @@ class CarrierStructureSignalTest {
     }
 
     /**
-     * The solve's "already solved this dimension at this clock value" guard is process-wide, so a test
-     * that reused a tick would silently assert nothing - the same reason {@code CarrierNetworksTest}
-     * resets it.
+     * The solve's "already solved this dimension at this clock value" guard is process-wide, so a test that reused a
+     * tick would silently assert nothing.
      */
     @org.junit.jupiter.api.BeforeEach
     void reset() {
@@ -243,11 +216,11 @@ class CarrierStructureSignalTest {
         CarrierNetworks.TickSummary summary = solveWithStructure(1L, id -> structure);
 
         assertEquals(15, wire.power,
-                "the inside solve read the machine's OWN lever - what the author's lever could not do");
+                "the inside solve read the machine's OWN lever");
         assertEquals(15, index.at(CARRIER, pos(1, 0, 0)).slot().power,
                 "and the answer is written back to the record the client and the renderer read");
         assertEquals(1, summary.solvedChanges(), "which is a real change");
-        assertEquals(List.of(CARRIER), recorder.writes, "told to the clients once, as P1 already does");
+        assertEquals(List.of(CARRIER), recorder.writes, "told to the clients once, as the carrier sync already does");
     }
 
     @Test
@@ -255,7 +228,7 @@ class CarrierStructureSignalTest {
     void bothHalvesAreCombinedAsTheLarger() {
         carry(pos(1, 0, 2), pos(10, 64, 10), ComponentType.DUST);
         FakeStructure structure = new FakeStructure().signal(pos(2, 0, 2), 15);
-        // The world, through P4's bridge, offers seven on the opposite side only.
+        // The world, through the bridge, offers seven on the opposite side only.
         CarrierWorldIo io = new CarrierWorldIo(CarrierPose.at(new Vector3d(10.0, 64.0, 10.0)),
                 (worldPos, worldDirection) -> worldDirection == Direction.WEST ? 7 : 0);
 
@@ -275,7 +248,7 @@ class CarrierStructureSignalTest {
         carry(pos(1, 0, 0), pos(10, 64, 10), ComponentType.DUST);
         FakeStructure structure = new FakeStructure().signal(pos(1, 0, 1), 11);
 
-        // No io at all: this is carrierFreezeWorldIo = true, the P1/P2 world boundary.
+        // No io at all: this is carrierFreezeWorldIo = true, the world boundary.
         CarrierNetworks.TickSummary summary = solveWithStructure(1L, id -> structure);
 
         assertEquals(11, index.at(CARRIER, pos(1, 0, 0)).slot().power,
@@ -370,7 +343,7 @@ class CarrierStructureSignalTest {
     // -------------------------------------------------------------- the escape hatch --
 
     @Test
-    @DisplayName("with the switch off the machine's own lever reaches nothing (the withdrawn behaviour)")
+    @DisplayName("with the switch off the machine's own lever reaches nothing")
     void theSwitchOffRestoresTheWithdrawnBehaviour() {
         carry(pos(1, 0, 0), pos(10, 64, 10), ComponentType.DUST);
         FakeStructure structure = new FakeStructure().signal(pos(1, 0, 1), 15);
@@ -378,7 +351,7 @@ class CarrierStructureSignalTest {
         CarrierSpace off = new CarrierSpace(CARRIER, index, world, id -> structure, null, false);
         off.setQueryPosition(pos(1, 0, 0));
         assertEquals(0, off.externalSignal(Direction.SOUTH),
-                "carrierStructureSignals=false must answer exactly what the reverted build answered");
+                "carrierStructureSignals=false must answer exactly zero");
         assertEquals(0, off.externalSignal(), "on every side, and in the omnidirectional form");
 
         CarrierSpace on = new CarrierSpace(CARRIER, index, world, id -> structure, null, true);

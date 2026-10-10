@@ -10,40 +10,21 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.core.BlockPos;
 
 /**
- * <b>{@code stopMoving} is not "the structure has put this block down".</b>
+ * {@code stopMoving} is not "the structure has put this block down": Create calls
+ * {@code MovementBehaviour#stopMoving} whenever an actor stands down, and an actor stands down for many
+ * reasons that are not a put-down.
  *
- * <h2>The defect this exists for</h2>
- * Create calls {@code MovementBehaviour#stopMoving} whenever an actor stands down - and an actor stands
- * down for many reasons that are not a put-down. The author's log is the measurement: a bearing at full
- * speed <b>reversed direction</b> ({@code +4.8°/tick} to {@code −4.8°/tick}), Create fired {@code
- * stopMoving}, the hook released the host on the spot, and the component vanished from the rotating block
- * - while the world block at the landing position was still {@code AIR} and the contraption entity was
- * <em>still present</em>:
- *
- * <pre>
- *   carrier c:ecef46f7 putdown contraption UNKNOWN_CARRIER origin=- local=0, 0, 0 landing=- moved=0
- *     … lastPose=pos=(2775.500, 77.500, -1394.500)
- *   carrier putdown contraption … worldState=Block{minecraft:air} (AIR)
- *     entity=ecef46f7-65de-4dee-99a0-2aabf4…            ← the entity is right there
- * </pre>
- *
- * <p>Both of the facts that would have justified a release were false. So the release is no longer taken
- * on {@code stopMoving}'s word: it is <b>deferred</b>, the host keeps riding, and it happens only when one
- * of three things is positively true - see {@link #decide}.
- *
- * <h2>Why the decision is a pure function</h2>
- * Everything it needs is a boolean or a tick count, so the whole rule can be a unit test. The alternative
- * - deciding inside the callback, with the level in hand - is what made the defect possible: every input
- * was available and none of it was written down.
+ * <p>The release is therefore <b>deferred</b>: the host keeps riding until one of the positive
+ * observations in {@link #decide} holds. The decision is a pure function of booleans and tick counts, so
+ * the whole rule is unit-testable.
  */
 final class PendingRelease {
 
     /**
-     * How long a deferred release waits for the structure to come back or go away, in level ticks.
-     *
-     * <p>Twenty ticks is one second: long enough to cover the reversal that caused the defect with room
-     * to spare, short enough that a component is never stranded for a noticeable time when the structure
-     * really has gone. The orphan sweep is the backstop beyond it.
+     * How long a deferred release waits for the structure to come back or go away, in level ticks: twenty
+     * is one second - long enough that a structure still being driven reports in, short enough that a
+     * component is never stranded for long when the structure really has gone. The orphan sweep is the
+     * backstop beyond it.
      */
     static final int GRACE_TICKS = 20;
 
@@ -83,20 +64,9 @@ final class PendingRelease {
     /**
      * Everything the decision depends on, as facts the caller can stand behind.
      *
-     * <p>Each one is a question the server can actually answer at the moment it is asked - which is the
-     * point: the defect was a release taken on no evidence at all.
-     *
-     * @param worldBlockBack whether the host's own world block is there again (not air). The one
-     *     observation that means "it really was put down"
-     * @param structureGone whether the structure is <b>positively</b> gone: no pose source, not a live
-     *     sub-level, and its entity no longer in the level. "I could not tell" must be {@code false}
-     * @param poseArrived whether the pose source answered for this carrier, or a pose was broadcast this
-     *     tick - the structure is being driven, so it has not stopped
-     * @param actorTicked whether Create's own {@code MovementBehaviour#tick} ran for this carrier since
-     *     the deferral: the actor is still moving the block, whatever {@code stopMoving} said
-     * @param structureAlive whether {@link CarrierStore#structureIsAlive} positively knows the structure
-     *     exists - the Sable half of the same idea
-     * @param ticksPending how many level ticks have passed since {@code stopMoving} asked to stand down
+     * <p>{@code structureGone} must be <b>positive</b> knowledge - no pose source, not a live sub-level and
+     * the entity no longer in the level; "I could not tell" is {@code false}. {@code ticksPending} counts
+     * level ticks since {@code stopMoving} asked to stand down.
      */
     record Evidence(boolean worldBlockBack, boolean structureGone, boolean poseArrived,
                     boolean actorTicked, boolean structureAlive, long ticksPending) {
@@ -119,24 +89,14 @@ final class PendingRelease {
     }
 
     /**
-     * <b>The rule, in order, with the two answers that are not "keep waiting" checked first.</b>
+     * The rule, in order: the world block is back - a put-down by definition, land there; the structure is
+     * positively gone - land on the last pose the client was told; anything says it is still driven (a
+     * pose, an actor tick, a live sub-level) - cancel; the grace expired with nothing to go on - release
+     * on the last known pose; otherwise wait.
      *
-     * <ol>
-     *   <li><b>The world block is back.</b> That is a put-down by definition, and the only observation
-     *       that is worth more than any amount of inference. Land on that block.</li>
-     *   <li><b>The structure is positively gone.</b> Entity absent, no pose, not a live sub-level. Land on
-     *       the last pose the client was told, because the block it came from may be a field away.</li>
-     *   <li><b>Anything says it is still there</b> - a pose, an actor tick, a live sub-level - and the
-     *       request to stand down was wrong or premature. <b>Cancel</b>, and the host keeps riding through
-     *       the direction change that produced the defect.</li>
-     *   <li><b>The grace has expired with nothing to go on.</b> Nothing has been heard for a second; the
-     *       honest reading is that the structure is not coming back. Release on the last known pose.</li>
-     *   <li>Otherwise wait.</li>
-     * </ol>
-     *
-     * <p>Ordering matters and is not arbitrary: 1 and 2 are positive observations of the world, while 3
-     * is evidence of continued activity. A structure that is being driven <em>and</em> whose block is back
-     * is a structure that put the block down and then carried on moving, which is a put-down.
+     * <p>Ordering is not arbitrary: the first two are observations of the world while the third is
+     * evidence of continued activity, and a structure that is both driven and whose block is back did put
+     * the block down and then carry on moving.
      */
     static Action decide(Evidence evidence) {
         if (evidence.worldBlockBack()) {
@@ -180,10 +140,10 @@ final class PendingRelease {
     /**
      * The hosts of one dimension whose release is waiting on evidence.
      *
-     * <p>A book rather than a field on {@link CarrierStore} so that the whole of the deferral - including
-     * its idempotence - can be driven by a unit test with no level, no entity and no tick loop. Create
-     * calls {@code stopMoving} four to five times for one motion; that is the reason a repeat must be a
-     * no-op rather than a fresh request.
+     * <p>A book rather than a field on {@link CarrierStore}, so the whole deferral - including its
+     * idempotence - can be driven by a unit test with no level, no entity and no tick loop. Create calls
+     * {@code stopMoving} four to five times for one motion, so a repeat must be a no-op rather than a
+     * fresh request.
      */
     static final class Book {
 
@@ -213,18 +173,16 @@ final class PendingRelease {
         }
 
         /**
-         * Notes that this host's structure asked to stand down.
-         *
-         * @return {@code true} when this is a new deferral, {@code false} when it was already pending -
-         *     in which case the original request time is kept, so five callbacks for one motion wait one
-         *     grace period rather than five
+         * Notes that this host's structure asked to stand down: {@code true} for a new deferral,
+         * {@code false} when one was already pending - the original request time is kept, so repeated
+         * callbacks for one motion still wait a single grace period.
          */
         boolean defer(CarrierId carrier, BlockPos localPos, BlockPos worldBlock, long now) {
             String key = key(carrier, localPos);
             Entry existing = entries.get(key);
             if (existing != null) {
-                // Deliberately NOT re-dated. Idempotence has to mean "one request", or a structure that
-                // repeats the callback every tick could postpone its own release forever.
+                // Not re-dated: idempotence has to mean "one request", or a structure repeating the
+                // callback every tick could postpone its own release forever.
                 entries.put(key, new Entry(existing.carrier(), existing.localPos(), worldBlock,
                         existing.requestedAt(), existing.evidence()));
                 return false;

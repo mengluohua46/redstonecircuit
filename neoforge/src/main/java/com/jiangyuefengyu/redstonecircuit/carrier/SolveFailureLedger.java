@@ -10,45 +10,19 @@ import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>The one fallback under the in-carrier solve: it counts every failure and says each kind once.</b>
+ * The one fallback under the in-carrier solve: it counts every failure and says each kind once.
  *
- * <h2>Why the old catch was wrong twice over</h2>
- * {@code CarrierNetworks#solveAll} wraps each structure's pass in a {@code try/catch} so that one bad
- * structure cannot take the server tick down. That part is right and stays. What it did with the
- * exception was not: it called {@code LOGGER.warn("carrier {} solve failed: {}", …)} on <b>every</b>
- * failure. The author's P1.24 log has <b>53 identical lines</b> from one emptied host on one moving
- * structure - one per tick for as long as the structure stayed in flight:
+ * <p>{@code CarrierNetworks#solveAll} wraps each structure's pass in a {@code try/catch} so that one bad structure
+ * cannot take the server tick down; what it did with the exception was the problem, since it warned on <b>every</b>
+ * failure - one line per tick for as long as a structure stayed in flight. And a naive "warn once" would be worse: one
+ * process-lifetime flag would let the first {@code NullPointerException} silence a later, unrelated
+ * {@code IllegalStateException}, which is how a real defect hides behind a known one.
  *
- * <pre>
- *   [redstonecircuit] carrier s:aa684475 solve failed: java.lang.NullPointerException:
- *       Cannot read field "type" because "slot" is null
- * </pre>
- *
- * <p>Two failures of that design, and they pull in opposite directions:
- *
- * <ol>
- *   <li><b>It floods.</b> A defect that happens every tick for a minute is thousands of lines, and the
- *       log the author has to read becomes unreadable exactly when it matters.</li>
- *   <li><b>And a naive "warn once" would be worse.</b> A single process-lifetime flag on this catch
- *       would let the first {@code NullPointerException} silence a later, unrelated
- *       {@code IllegalStateException} - which is how a real defect hides behind a known one.</li>
- * </ol>
- *
- * <p>So the rule here is <b>once per exception KIND</b>, with the count kept for every kind and the
- * whole ledger bounded. "Kind" is the exception's own class: {@code NullPointerException} and
- * {@code IllegalStateException} are different defects and each gets its own line; a hundred
- * {@code NullPointerException}s get one line and a count.
- *
- * <h2>Bounded, and honest about its own ceiling</h2>
- * At most {@link #MAX_KINDS} kinds are remembered. The first kind that does not fit is still
- * <b>reported once</b> - otherwise the ceiling itself would become the blind spot it exists to prevent -
- * and the fact that kinds are being pooled is stated in the report rather than dropped. The table is
- * process-lifetime, never grows past the ceiling, and is cleared with the rest of the carrier state when
- * the server stops.
- *
- * <h2>Never itself a failure</h2>
- * Nothing here throws: a diagnostics line must not be able to turn a contained failure into an
- * uncontained one, so the log call and every lookup are wrapped.
+ * <p>So the rule is <b>once per exception KIND</b> - the exception's own class - with the count kept for every kind and
+ * the whole ledger bounded by {@link #MAX_KINDS}. The first kind that does not fit is still <b>reported once</b>, and
+ * the fact that kinds are being pooled is stated in the report rather than dropped. Nothing here throws: a diagnostics
+ * line must not be able to turn a contained failure into an uncontained one, so the log call and every lookup are
+ * wrapped.
  */
 public final class SolveFailureLedger {
 
@@ -73,14 +47,10 @@ public final class SolveFailureLedger {
     }
 
     /**
-     * Records one solve failure: counts it, and warns the first time <b>this kind</b> is seen.
-     *
-     * <p>The message names the structure, the exception's class and its own message, and says outright
-     * that repeats are counted rather than printed - so a reader who sees one line knows a second one is
-     * not coming and does not have to guess whether the solve recovered.
-     *
-     * @param carrier the structure whose pass threw, or {@code null} when it is not known
-     * @param failed what it threw; the class is the kind, the message is kept for the first of each
+     * Records one solve failure: counts it, and warns the first time <b>this kind</b> is seen. The message names the
+     * structure, the exception's class and its own message, and says outright that repeats are counted rather than
+     * printed - so a reader who sees one line knows a second one is not coming and does not have to guess whether the
+     * solve recovered.
      */
     public static synchronized void fail(@Nullable CarrierId carrier, Throwable failed) {
         failures++;
@@ -188,7 +158,7 @@ public final class SolveFailureLedger {
         try {
             RCConfig.LOGGER.warn("[redstonecircuit] {}", line);
         } catch (RuntimeException | LinkageError ignored) {
-            // Contained on purpose: see the class comment.
+            // Contained: see the class comment.
         }
     }
 }

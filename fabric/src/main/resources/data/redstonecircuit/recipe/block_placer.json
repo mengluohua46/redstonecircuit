@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "C": { "item": "minecraft:cobblestone" },
+    "P": { "tag": "minecraft:planks" },
+    "I": { "item": "minecraft:iron_ingot" }
+  },
+  "pattern": [ "CPC", "PIP", "CPC" ],
+  "result": { "count": 1, "id": "redstonecircuit:block_placer" }
+}

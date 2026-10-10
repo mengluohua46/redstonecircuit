@@ -10,58 +10,25 @@ import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
 /**
- * <b>The one place that decides whether a world block is inside a Sable sub-level, and what its
- * coordinate inside that sub-level is.</b>
+ * The one place that decides whether a world block is inside a Sable sub-level, and what its coordinate inside that
+ * sub-level is.
  *
- * <h2>Why this is a separate class, and why it names no Sable type</h2>
- * This is the arithmetic the whole Sable-side claim rests on, so it has to be checkable without a game
- * and without Sable installed. It therefore takes plain numbers - a sub-level's UUID, its local-space
- * bounds, its world-space bounds and its pose - instead of a {@code SubLevel}. The compat half is what
- * fills those in from Sable; everything else here is {@code BlockPos} and JOML.
+ * <p>It takes plain numbers - a sub-level's UUID, its local bounds, its world bounds and a pose - rather than a
+ * {@code SubLevel}, so the arithmetic the whole Sable-side claim rests on is checkable without a game and without
+ * Sable installed.
  *
- * <h2>The two spaces, which is the whole subject of this class</h2>
- * A Sable sub-level has <b>two</b> coordinate systems and they are not interchangeable:
+ * <p>A sub-level has <b>two</b> coordinate systems and they are not interchangeable: <b>local (plot) space</b>, the
+ * enormous coordinates its own blocks are stored under and the space {@code logicalPose()} is defined on
+ * ({@code world = position + orientation * (local - rotationPoint) * scale}), and <b>world space</b>, where the
+ * structure currently is. A Create contraption has no such split - its local coordinates are small and relative to
+ * its anchor - so the only thing that makes either kind correct is that the local coordinate and the pose came from
+ * <em>the same</em> structure. {@link #localFor} and {@link #worldFor} are exact inverses of each other and {@link
+ * #verify} proves the round trip on the spot.
  *
- * <ol>
- *   <li><b>Local (plot) space.</b> The coordinate the sub-level's own blocks are stored under. A Sable
- *       plot is a fixed piece of a private grid, so these numbers are enormous - a real one measured at
- *       {@code (20481033, 132, 20485129)}. {@code logicalPose()} is defined on <em>this</em> space:
- *       {@code world = position + orientation * (local - rotationPoint) * scale}.</li>
- *   <li><b>World space.</b> Where the structure currently is, which is what
- *       {@code SubLevel#boundingBox()} reports and what a player's block coordinates mean.</li>
- * </ol>
- *
- * <p>A Create contraption has no such split: its local coordinates are small and relative to its
- * anchor. So the two carriers carry genuinely different kinds of local coordinate, and the only thing
- * that makes either correct is that the local coordinate and the pose came from <em>the same</em>
- * structure. {@link #localFor} and {@link #worldFor} are the pair that guarantees it: one is the exact
- * inverse of the other, both go through the structure's own pose, and {@link #verify} proves it on the
- * spot.
- *
- * <h2>The half block</h2>
- * {@link CarrierPose#blockCentre} is the method that names where a <em>block</em> is (its local
- * coordinate names its corner). Sable's pose transforms block <b>corners</b> - {@code logicalPose} of a
- * block's coordinate lands on that block's corner in the world, which is what makes
- * {@code plot.getBoundingBox()} transformed by the pose equal {@code SubLevel#boundingBox()} - so the
- * conversions here use {@link CarrierPose#transformPosition} rather than
- * {@link CarrierPose#blockCentre}. Using the block-centre form here would put every claimed component
- * half a block away from the block Sable is carrying, which is small enough to look like a rendering
+ * <p>Sable's pose transforms block <b>corners</b>, which is why the conversions here use
+ * {@link CarrierPose#transformPosition} rather than {@link CarrierPose#blockCentre}: the block-centre form would put
+ * every claimed component half a block away from the block Sable is carrying - small enough to look like a rendering
  * wobble and large enough to be wrong.
- *
- * @param uuid the sub-level's own UUID: the stable half of the carrier identity
- * @param localMinX the local-space bounds, inclusive
- * @param localMinY see {@code localMinX}
- * @param localMinZ see {@code localMinX}
- * @param localMaxX the local-space bounds, inclusive
- * @param localMaxY see {@code localMaxX}
- * @param localMaxZ see {@code localMaxX}
- * @param worldMinX the world-space bounds of the structure, i.e. the local bounds through the pose
- * @param worldMinY see {@code worldMinX}
- * @param worldMinZ see {@code worldMinX}
- * @param worldMaxX see {@code worldMinX}
- * @param worldMaxY see {@code worldMinX}
- * @param worldMaxZ see {@code worldMinX}
- * @param pose the structure's own {@code logicalPose()}, or {@code null} when it could not be read
  */
 public record SubLevelSpace(java.util.UUID uuid,
                                  int localMinX, int localMinY, int localMinZ,
@@ -71,11 +38,9 @@ public record SubLevelSpace(java.util.UUID uuid,
                                  @Nullable CarrierPose pose) {
 
     /**
-     * The carrier identity for this sub-level.
-     *
-     * <p>One line, but it is the definition: the UUID alone, never the anchor and never the plot
-     * position. A sub-level that is taken apart and rebuilt keeps neither of the latter, and a claim
-     * filed under either would be unreachable afterwards.
+     * The carrier identity for this sub-level: the UUID alone, never the anchor and never the plot position. A
+     * sub-level taken apart and rebuilt keeps neither of the latter, so a claim filed under either would be
+     * unreachable afterwards.
      */
     public CarrierId carrier() {
         return CarrierId.subLevel(uuid);
@@ -89,10 +54,9 @@ public record SubLevelSpace(java.util.UUID uuid,
     /**
      * Whether a world block's <b>centre</b> is inside the structure's world bounds.
      *
-     * <p>The centre, not the corner, because a block belongs to the structure if the structure covers
-     * the block - and a block whose corner is just outside can still be half inside. Sable's own
-     * bounds are reported with the max side plus one (see its {@code updateBoundingBox}), so the box
-     * this is given is already a half-open block range, and the centre test is the one that matches it.
+     * <p>The centre, not the corner, because a block belongs to the structure if the structure covers the block - and
+     * a block whose corner is just outside can still be half inside. Sable's own bounds are reported with the max side
+     * plus one, so the box this is given is already a half-open block range and the centre test is what matches it.
      */
     public boolean containsWorld(BlockPos worldPos) {
         if (worldPos == null) {
@@ -121,22 +85,21 @@ public record SubLevelSpace(java.util.UUID uuid,
     }
 
     /**
-     * The local coordinate a world block sits at inside this structure, or {@code null} when there is
-     * no pose to work it out with.
+     * The local coordinate a world block sits at inside this structure, or {@code null} when there is no pose to work
+     * it out with.
      *
-     * <p><b>Rounded, not floored, and that is a real decision.</b> {@code BlockPos.containing} floors,
-     * and flooring is wrong here for a reason that only shows up on a Sable pose: the world coordinates
-     * of a sub-level's blocks are genuinely fractional (the measured example is {@code -352.549}), so a
-     * block's own corner can land at {@code -319.5}, floor to block {@code -320}, and then transform
-     * back to a local coordinate one whole block away from the one that produced it. A round trip
-     * through such a mapping is not the identity, which would make every claim fail its own verification
-     * and leave the components exactly where they started.
+     * <p><b>Rounded, not floored, and that is a real decision.</b> {@code BlockPos.containing} floors, and flooring is
+     * wrong here for a reason that only shows up on a Sable pose: a sub-level's blocks have genuinely fractional world
+     * coordinates, so a block's own corner can land at {@code -319.5}, floor to block {@code -320}, and then transform
+     * back to a local coordinate one whole block away from the one that produced it. A round trip through such a
+     * mapping is not the identity, which would make every claim fail its own verification and leave the components
+     * exactly where they started.
      *
-     * <p>Rounding to the nearest integer keeps the sub-block offset instead of discarding it by up to a
-     * block. What the carrier index is keyed by is then "the integer coordinate nearest to the block,
-     * plus the structure's own fractional offset" - a slight translation of the key, invisible in game
-     * (a component is drawn at its key and the block it sits in is half a block wide), and it is what
-     * makes {@link #verify} pass for the blocks that really are inside the structure.
+     * <p>Rounding to the nearest integer keeps the sub-block offset instead of discarding it by up to a block. What the
+     * carrier index is keyed by is then "the integer coordinate nearest to the block, plus the structure's own
+     * fractional offset" - a slight translation of the key, invisible in game (a component is drawn at its key and the
+     * block it sits in is half a block wide), and it is what makes {@link #verify} pass for the blocks that really are
+     * inside the structure.
      */
     @Nullable
     public BlockPos localFor(BlockPos worldPos) {
@@ -164,16 +127,13 @@ public record SubLevelSpace(java.util.UUID uuid,
     }
 
     /**
-     * The local coordinate a world position maps to, or {@code null} unless the pose round trip puts
-     * it back within {@code tolerance} blocks of where it started.
+     * The local coordinate a world position maps to, or {@code null} unless the pose round trip puts it back within
+     * {@code tolerance} blocks of where it started.
      *
-     * <p>This is the guard the claim runs before it moves anything. A pose that does not round-trip is
-     * a pose this code cannot reason about - a scale of zero, a structure whose pose is being written
-     * while it is read - and claiming through such a pose would file the component under a local
-     * coordinate that lands somewhere else entirely, which is precisely the failure the Sable path is
-     * being fixed for. Refusing costs one pass; guessing costs the component.
-     *
-     * @param tolerance how far the round trip may land from the original world position
+     * <p>This is the guard the claim runs before it moves anything. A pose that does not round-trip is a pose this code
+     * cannot reason about - a scale of zero, a structure whose pose is being written while it is read - and claiming
+     * through such a pose would file the component under a local coordinate that lands somewhere else entirely.
+     * Refusing costs one pass; guessing costs the component.
      */
     @Nullable
     public BlockPos localForVerified(BlockPos worldPos, double tolerance) {
@@ -203,21 +163,16 @@ public record SubLevelSpace(java.util.UUID uuid,
     /**
      * The local coordinate of every block of this structure that currently holds a component.
      *
-     * <h2>What it is for, and what it deliberately is not</h2>
-     * This is the <b>read-only</b> half of the claim: it answers "if I took this sub-level's blocks,
-     * which world positions would stand where a component is?" without moving anything. The claim
-     * itself decides separately whether the block has really left the world (see
-     * {@code SableCarrierClaim}), because for a sub-level that has merely been allocated over terrain -
-     * an airship's balloon created before it lifts - the block is still in the world and taking the
-     * component out of it would be a lie the player could see.
+     * <p>This is the <b>read-only</b> half of the claim: it answers "if I took this sub-level's blocks, which world
+     * positions would stand where a component is?" without moving anything. The claim itself decides separately whether
+     * the block has really left the world (see {@code SableCarrierClaim}), because for a sub-level that has merely been
+     * allocated over terrain - an airship's balloon created before it lifts - the block is still in the world and
+     * taking the component out of it would be a lie the player could see.
      *
-     * <p>The walk is over the structure's own local bounds, which is its block count. That is bounded
-     * by the plot a sub-level is given and is a one-off per sub-level, not a per-tick cost.
-     *
-     * @param hasComponent answers "does the block at this world position hold a redstone component?",
-     *     so this class never has to know about the store
-     * @param limit the most candidates to return, so a pathological structure cannot make one claim
-     *     pass unbounded
+     * <p>The walk is over the structure's own local bounds, which is its block count: bounded by the plot a sub-level
+     * is given, and a one-off per sub-level rather than a per-tick cost. {@code hasComponent} answers whether a world
+     * position holds a component, so this class never has to know about the store, and {@code limit} caps the
+     * candidates so a pathological structure cannot make one claim pass unbounded.
      */
     public List<BlockPos> worldPositionsWithComponents(ComponentLookup hasComponent, int limit) {
         List<BlockPos> found = new ArrayList<>();

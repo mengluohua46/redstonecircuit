@@ -29,58 +29,31 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The spin: a solve that is fed by its own neighbour notifications, and the tick-boundary flush that
- * stops it.</b>
+ * The spin: a solve that is fed by its own neighbour notifications, and the tick-boundary flush that stops it.
  *
- * <h2>The defect, as the author's log measured it</h2>
- * One host in one tick was recomputed fifteen times, the same DUST transition repeating 862 times a
- * second, and {@code MAX_ROUNDS_PER_TICK} turning "never converges" into "32 rounds, every tick, for
- * ever":
+ * <p>The mechanism is re-entrancy, and it is vanilla's own shape: {@code RedStoneWireBlock#neighborChanged} calls
+ * {@code updatePowerStrength} synchronously, so a notification sent from inside the solve runs the neighbour's
+ * whole re-derivation on the current stack and comes straight back in - two halves of one circuit passing a value
+ * back and forth inside one tick, which spends the whole round budget every tick.
  *
- * <pre>
- *   DUST at -79,-60,16 power 14 -&gt; 13 (supply=13, externalSignal=13, from=north Block{minecraft:redstone_wire}=13)
- *   ... -&gt; 1 -&gt; 0 (supply=0, externalSignal=0, from=none) -&gt; 0 -&gt; 14 -&gt; ...
- * </pre>
- *
- * <p>The mechanism is re-entrancy, and it is vanilla's own shape. {@code RedStoneWireBlock#neighborChanged}
- * calls {@code updatePowerStrength} <b>synchronously</b>, so a notification sent from inside the solve
- * runs the neighbour's whole re-derivation on the current stack, and that neighbour's own
- * {@code updateNeighborsAt} comes straight back into the solve as {@code NeighborNotifyEvent} &rarr;
- * {@code markDirty}. A host block that a vanilla wire reads and that reads that wire is therefore two
- * halves of one circuit passing a value back and forth <em>inside one tick</em>.
- *
- * <h2>What this class pins, and how</h2>
- * The loop below is production's shape: a dirty set, a recompute per queued position that collects the
- * positions whose power changed, and a notification per changed position. The <b>values</b> are
- * {@link PowerSolver}'s own rule through a real {@link PowerEnvironment}, and the <b>notification
- * path</b> is the real {@link SolverNotifications} - turned on and off with the same switch the config
- * file has. The only thing modelled is the neighbour on the other side of the notification: a vanilla
- * wire, re-derived synchronously from the host's emitted power and notifying back, exactly as
- * {@code RedStoneWireBlock} does.
- *
- * <p>So the two claims are asserted against the same arithmetic with one boolean changed:
- *
- * <ol>
- *   <li><b>with the switch off</b> - the behaviour before this round - the loop is fed by its own
- *       notifications and needs many rounds for one logical change;</li>
- *   <li><b>with the switch on</b> - the default - it reaches the same fixpoint in one round, and a second
- *       tick finds nothing to do.</li>
- * </ol>
+ * <p>The test drives production's shape - a dirty set, a recompute per queued position, a notification per changed
+ * position - with {@link PowerSolver}'s own rule over a real {@link PowerEnvironment} and the real
+ * {@link SolverNotifications} for the notification path, modelling only the neighbour on the other side: a vanilla
+ * wire re-derived synchronously, exactly as {@code RedStoneWireBlock} does. With the switch off the loop is fed by
+ * its own notifications; with it on the flush tells the world and the next tick finds nothing to do.
  */
 class SolverNotificationsTest {
 
-    /** Where the host block is, in the structure's own frame - the author's own shape, one hop apart. */
+    /** Where the host block is, in the structure's own frame, one hop from the wire. */
     private static final BlockPos HOST = new BlockPos(0, 0, 0);
     private static final Direction TOWARDS_WIRE = Direction.NORTH;
 
     /**
-     * The host block's inside, plus the one vanilla wire beside it that reads it and is read by it.
-     *
-     * <p>A real {@link PowerEnvironment} over real {@link Slot}s, so the arithmetic that decides the
-     * host's power is {@link PowerSolver}'s and not this test's. The wire is a single integer, which is
-     * all the environment needs: {@code externalSignal(north)} is "what the wire offers on that side",
-     * already attenuated by the one-hop rule the world reader applies to a
-     * {@code minecraft:redstone_wire} neighbour.
+     * The host block's inside, plus the one vanilla wire beside it that reads it and is read by it: a real
+     * {@link PowerEnvironment} over real {@link Slot}s, so the arithmetic deciding the host's power is
+     * {@link PowerSolver}'s and not this test's. The wire is one integer, which is all the environment needs:
+     * {@code externalSignal(north)} is what the wire offers on that side, already attenuated by the one-hop rule
+     * the world reader applies to a {@code minecraft:redstone_wire} neighbour.
      */
     private static final class HostAndWire implements PowerEnvironment {
 
@@ -158,12 +131,10 @@ class SolverNotificationsTest {
         }
 
         /**
-         * What the world offers this host on one side - already through the one-hop rule.
-         *
-         * <p>The decrement lives <b>here</b> rather than in {@link #supply()}: the environment is the
-         * thing that knows it is reading a vanilla wire, and production applies the rule in exactly this
-         * place ({@code InnerRedstoneNetwork#readSignal} &rarr; {@code neighbourSignal}). Applying it twice
-         * would make the model's arithmetic the test's rather than {@link PowerSolver}'s.
+         * What the world offers this host on one side, already through the one-hop rule. The decrement lives here
+         * rather than in {@link #supply()} because the environment is the thing that knows it is reading a vanilla
+         * wire, which is where production applies the rule too; applying it twice would make the model's arithmetic
+         * the test's rather than {@link PowerSolver}'s.
          */
         @Override
         public int externalSignal(Direction direction) {
@@ -182,17 +153,10 @@ class SolverNotificationsTest {
         }
 
         /**
-         * <b>One notification, delivered the way the world delivers it: synchronously.</b>
-         *
-         * <p>The wire re-derives from what the host now emits - vanilla's own
-         * {@code max(neighbours) - 1} for a wire, with the host's power as the source - and if that is a
-         * change, it tells its neighbours, which is the host. Marking the host dirty again is what the
-         * real {@code updateNeighborsAt} &rarr; {@code NeighborNotifyEvent} &rarr; {@code markDirty} path
-         * does, and it happens <em>inside</em> the notification.
-         *
-         * @param pos the position the notification is about
-         * @param dirty the queue a re-notified host goes back into
-         * @return the wire's new power, or -1 when it did not change (nothing to notify back)
+         * One notification, delivered the way the world delivers it: synchronously. The wire re-derives from what
+         * the host now emits - vanilla's own {@code max(neighbours) - 1} for a wire, with the host's power as the
+         * source - and if that is a change it tells its neighbours, which is the host: that marks the host dirty
+         * again, inside the notification. A -1 return means nothing changed and nothing is notified back.
          */
         int deliver(BlockPos pos, Set<BlockPos> dirty) {
             if (insideNotification) {
@@ -218,27 +182,14 @@ class SolverNotificationsTest {
     }
 
     /**
-     * One tick of the solver: drain the queue, recompute each position, notify what changed.
+     * One tick of the solver: drain the queue, recompute each position, notify what changed. Production's shape -
+     * the notification goes through the real {@link SolverNotifications}, so which of the two policies is in force
+     * is decided by the production code and not by this loop.
      *
-     * <p>Production's shape, one line at a time: {@code DIRTY} &rarr; {@code recompute} (which is
-     * {@code relax} plus a notification per changed position) &rarr; whatever those notifications did is
-     * already in the queue when the round ends. The notification goes through the real
-     * {@link SolverNotifications}, so which of the two policies is in force is decided by the production
-     * code and not by this loop.
-     *
-     * <h2>The two policies, both through the same door</h2>
-     * <ul>
-     *   <li><b>switch on</b>: a real session is opened on the caller's dimension, so
-     *       {@code notifyOutputChanged} <em>collects</em> and the world is told by the flush - which the
-     *       caller performs with {@link SolverNotifications#end}, after this loop has returned. The wire's
-     *       synchronous answer therefore lands in the <b>next</b> tick's queue, which is exactly the
-     *       "one tick of lag, no spin" the fix buys.</li>
-     *   <li><b>switch off</b>: no session, so the notification is delivered inline - vanilla's own
-     *       synchronous re-derivation - and its answer re-enters this very loop.</li>
-     * </ul>
-     *
-     * @param session the open coalescing session, or {@code null} when the switch is off
-     * @return how many rounds the tick needed
+     * <p>With the switch on a real session is opened, so {@code notifyOutputChanged} collects and the caller's
+     * flush tells the world after the loop returns: the wire's synchronous answer lands in the next tick's queue,
+     * which is the "one tick of lag, no spin" the fix buys. With the switch off there is no session, so the
+     * notification is delivered inline and its answer re-enters this very loop.
      */
     private static int tick(HostAndWire world, Set<BlockPos> dirty,
                             @Nullable SolverNotifications.Session session) {
@@ -246,8 +197,7 @@ class SolverNotificationsTest {
         while (!dirty.isEmpty()) {
             rounds++;
             if (rounds > 64) {
-                // The round budget, standing in for MAX_ROUNDS_PER_TICK: "it did not converge" has to be
-                // reachable in the test, or a regression would look like a slow test rather than a hang.
+                // The round budget stands in for MAX_ROUNDS_PER_TICK, so a runaway fails rather than hangs.
                 break;
             }
             List<BlockPos> positions = new ArrayList<>(dirty);
@@ -273,11 +223,9 @@ class SolverNotificationsTest {
     }
 
     /**
-     * One tick plus its flush, which is the production tick: open a session, drain, end it.
-     *
-     * <p>The flush's notification is the real one - the wire beside the host re-derives from what the host
-     * now emits and tells the host back. That answer arrives <b>after</b> the drain has finished, so it is
-     * the next tick that sees it: one tick of lag, and never a re-entrant round.
+     * One tick plus its flush, which is the production tick: open a session, drain, end it. The flush's
+     * notification arrives after the drain has finished, so it is the next tick that sees it - one tick of lag,
+     * and never a re-entrant round.
      */
     private static int tickAndFlush(HostAndWire world, Set<BlockPos> dirty, long tick) {
         SolverNotifications.Session session = SolverNotifications.open(TEST_DIMENSION, pos -> { });
@@ -298,8 +246,8 @@ class SolverNotificationsTest {
     }
 
     /**
-     * The coalescer's state is per dimension and process-lifetime by design, so one test must not see
-     * another's open session or statistics - the same reset the production code does on a level unload.
+     * The coalescer's state is per dimension and process-lifetime, so one test must not see another's open session
+     * or statistics: the same reset the production code does on a level unload.
      */
     @BeforeEach
     void clearCoalescer() {
@@ -310,14 +258,10 @@ class SolverNotificationsTest {
     // ------------------------------------------------------------ the spin --
 
     /**
-     * <b>The defect: with the switch off, the solve is re-fed by its own notifications while it runs.</b>
-     *
-     * <p>This is the red half of the pair. The wire re-derives synchronously from the host and tells it
-     * back <em>inside the notification</em>, so the round the solve is in the middle of changes the input
-     * the next round reads - which is why an unbuffered circuit costs more than one round per tick and why
-     * the author measured fifteen recomputes of one host inside a single tick.
-     *
-     * <p>The value must not change because of it: a real spin is a defect of <em>cost</em>.
+     * The red half of the pair: with the switch off the solve is re-fed by its own notifications while it runs.
+     * The wire re-derives synchronously and tells the host back inside the notification, so the step the solve is
+     * in the middle of changes the input the next one reads. The value must not change because of it: a real spin
+     * is a defect of cost.
      */
     @Test
     @DisplayName("without coalescing, a tick is fed by its own notifications while it runs")
@@ -336,12 +280,9 @@ class SolverNotificationsTest {
     }
 
     /**
-     * <b>The fix: with the switch on, one tick is one round, and nothing can move under the solve.</b>
-     *
-     * <p>This is the claim the next log has to be able to check ({@code round(s)/solve} close to one, and
-     * no spin warning). The wire's answer is delivered by the flush at the end of the tick, so it cannot
-     * re-enter the solve that caused it: the circuit still settles - one step per tick, which is vanilla's
-     * own pace for a wire hop - but no tick ever performs more than one round of work.
+     * The fix: with the switch on one tick is one round and nothing can move under the solve. The wire's answer is
+     * delivered by the flush at the end of the tick, so it cannot re-enter the solve that caused it - the circuit
+     * still settles, one step per tick, which is vanilla's own pace for a wire hop.
      */
     @Test
     @DisplayName("with coalescing, every tick is one round and the value still converges")
@@ -349,16 +290,15 @@ class SolverNotificationsTest {
         HostAndWire world = new HostAndWire(0, 13);
         Set<BlockPos> dirty = queue();
 
-        // Tick one: one round, the host takes the wire's offer (13 - 1 hop = 12), and the flush tells the
-        // wire once - which drops the wire to the host's power minus one, and that is the change the next
-        // tick will see.
+        // Tick one: one round, the host takes the wire's offer (13 - 1 hop = 12), and the flush tells the wire
+        // once - which drops it to the host's power minus one, the change the next tick will see.
         int first = tickAndFlush(world, dirty, 1L);
         assertEquals(1, first, "a tick of the solver is one round when nothing can move under it");
         assertEquals(12, world.host.power, "the host reads the wire's offer: a wire hop costs one");
         assertEquals(11, world.wire, "and the flush told the wire, which dropped one step below the host");
 
-        // Tick two: the wire's answer arrives through the notification it caused, and it is one round
-        // again. This is the "one tick of lag" the fix buys, not a lost update.
+        // Tick two: the wire's answer arrives through the notification it caused, one round again - the "one tick
+        // of lag" the fix buys, not a lost update.
         dirty.add(HOST);
         int second = tickAndFlush(world, dirty, 2L);
         assertEquals(1, second, "and so is the next tick");
@@ -380,8 +320,7 @@ class SolverNotificationsTest {
         assertTrue(ticks < 40, "the pair reaches its fixpoint rather than stepping for ever");
         assertEquals(0, world.wire, "and the fixpoint is 'nobody is powering anybody'");
 
-        // ...and one more tick with nothing queued does nothing at all: this is the state the author's
-        // summary line has to show (no solve, no rounds, no changes).
+        // ...and one more tick with nothing queued does nothing at all: no solve, no rounds, no changes.
         List<BlockPos> quietFlush = new ArrayList<>();
         SolverNotifications.Session quiet = SolverNotifications.open(TEST_DIMENSION, quietFlush::add);
         int quietRounds = tick(world, new LinkedHashSet<>(), quiet);
@@ -392,21 +331,10 @@ class SolverNotificationsTest {
     }
 
     /**
-     * <b>The two policies, side by side: the same total work, spread over ticks instead of packed into
-     * one.</b>
-     *
-     * <p>This is the sharpest statement of what the fix does, and it is the one that shows it does not
-     * lose anything. A host and a wire that read each other step down one hop at a time either way; what
-     * differs is how much of that happens <b>inside a single tick</b>:
-     *
-     * <ul>
-     *   <li><b>unbuffered</b>: every hop is a round of the tick that started it - fifteen rounds of one
-     *       solve, which is the author's fifteen recomputes;</li>
-     *   <li><b>coalesced</b>: one round per tick, with the hop arriving as next tick's input.</li>
-     * </ul>
-     *
-     * <p>Nothing is skipped and nothing is invented: the pair walks the same sequence of values, and the
-     * test asserts the coalesced run never exceeds one round in any tick while the unbuffered run does.
+     * The two policies side by side: the same total work, spread over ticks instead of packed into one. A host and
+     * a wire that read each other step down one hop at a time either way; what differs is how much of that happens
+     * inside a single tick - unbuffered, every hop is a round of the tick that started it; coalesced, one round per
+     * tick with the hop arriving as next tick's input. Nothing is skipped and nothing is invented.
      */
     @Test
     @DisplayName("the same work, spread over ticks: the coalesced run never exceeds one round per tick")
@@ -441,13 +369,10 @@ class SolverNotificationsTest {
     }
 
     /**
-     * A circuit that genuinely needs several rounds still gets them: the coalescing removes the
-     * <em>re-entrancy</em>, not the propagation.
-     *
-     * <p>Two components in a row is the shape "more rounds are the right answer": each one has to be
-     * relaxed for the value to travel. The point of the distinction is that those rounds see a
-     * <b>frozen</b> world, so they terminate at the circuit's own length rather than at the round budget -
-     * and the budget is what the author's run was hitting thirty-two times a tick.
+     * A circuit that genuinely needs several rounds still gets them: coalescing removes the re-entrancy, not the
+     * propagation. Two components in a row is the shape "more rounds are the right answer" - each one has to be
+     * relaxed for the value to travel - and those rounds see a frozen world, so they terminate at the circuit's own
+     * length rather than at the round budget.
      */
     @Test
     @DisplayName("a circuit that needs to propagate still takes its rounds, and stops")
@@ -507,23 +432,20 @@ class SolverNotificationsTest {
     }
 
     /**
-     * The flush drains <b>before</b> the first notification is sent, so a notification that re-enters the
-     * solver cannot offer new positions to a set the flush is walking.
-     *
-     * <p>This is the one place the coalescer itself could be re-entered, and the reason the pending set is
-     * copied rather than iterated.
+     * The flush drains before the first notification is sent, so a notification that re-enters the solver cannot
+     * offer new positions to a set the flush is walking: the one place the coalescer itself could be re-entered, and
+     * the reason the pending set is copied rather than iterated.
      */
     @Test
     @DisplayName("a notification that offers more positions during the flush cannot extend it")
     void theFlushIsNotExtendedByWhatItNotifies() {
         List<BlockPos> sent = new ArrayList<>();
         SolverNotifications.Session[] holder = new SolverNotifications.Session[1];
-        // The session is registered under the test dimension, and its flush callback reaches it through
-        // the array - the same "the world tells the solver back" shape the spin test uses.
+        // The session is registered under the test dimension and reached through the array: the same "the world
+        // tells the solver back" shape the spin test uses.
         SolverNotifications.Session session = SolverNotifications.open(TEST_DIMENSION, pos -> {
             sent.add(pos);
-            // The world reacts to the first notification by changing something else: the classic
-            // synchronous re-entry. It must not add a second round to this flush.
+            // The world's reaction is the classic synchronous re-entry: no second round may be added here.
             holder[0].notify(HOST.relative(Direction.UP));
         });
         holder[0] = session;
@@ -580,11 +502,8 @@ class SolverNotificationsTest {
     }
 
     /**
-     * Every changed position is notified once, in the order the solve found them.
-     *
-     * <p>Asserted on the <em>order</em> as well as the count, because "all six neighbours notified in some
-     * order" and "notified in the order the solve found them" are the same thing to the world and a
-     * different thing to a reader of the log - and a duplicate is the smallest version of the storm.
+     * Every changed position is notified once, in the order the solve found them: the order matters to a reader of
+     * the log though not to the world, and a duplicate is the smallest version of the storm.
      */
     @Test
     @DisplayName("every changed position is notified once, in the order the solve found them")
@@ -622,12 +541,9 @@ class SolverNotificationsTest {
     }
 
     /**
-     * The map of open sessions holds at most one per dimension, and ending a session twice sends nothing
-     * the second time.
-     *
-     * <p>The pairing is what matters: a solve that ends a session it did not open, or ends its own twice,
-     * must not notify the world about positions it has already notified it about - that would be one
-     * change announced twice, which is the smallest version of the storm.
+     * The map of open sessions holds at most one per dimension, and ending a session twice sends nothing the second
+     * time: a solve that ends a session it did not open, or ends its own twice, must not announce a change it has
+     * already announced.
      */
     @Test
     @DisplayName("ending a session twice sends nothing the second time")
@@ -670,10 +586,8 @@ class SolverNotificationsTest {
     }
 
     /**
-     * {@code begin}'s switch is the config's, and the config's default is on.
-     *
-     * <p>Read through the production accessor rather than a private field, so a default that was flipped
-     * by accident would fail here rather than silently restoring the old behaviour for everyone.
+     * {@code begin}'s switch is the config's, and the config's default is on. Read through the production accessor
+     * rather than a private field, so an accidentally flipped default fails here.
      */
     @Test
     @DisplayName("the coalescing switch is on by default, which is what begin() reads")
@@ -702,11 +616,9 @@ class SolverNotificationsTest {
     }
 
     /**
-     * The arithmetic the model is built on, stated once with {@link PowerSolver} itself: the host's power
-     * is {@code max(supply, every neighbour after its hop)}.
-     *
-     * <p>This is what makes the two policy tests below meaningful - they are comparing two runs of this
-     * function, not two runs of a test's own arithmetic.
+     * The arithmetic the model is built on, stated once with {@link PowerSolver} itself: the host's power is
+     * {@code max(supply, every neighbour after its hop)}. This is what makes the two policy tests below meaningful -
+     * they compare two runs of this function, not of a test's own arithmetic.
      */
     @Test
     @DisplayName("the model's value is PowerSolver's own rule")
@@ -751,16 +663,13 @@ class SolverNotificationsTest {
         assertEquals(12, world.host.power, "and the solve still produced the right value");
     }
 
-    // ------------------------------------------- P1.36: the structure-frame pass --
+    // ------------------------------------------- the structure-frame pass --
 
     /**
-     * <b>The second half of a carried host's neighbourhood: once per coordinate per tick.</b>
-     *
-     * <p>The notification pass asks for this tick's pass, offers every changed host's structure
-     * coordinate, and the pass sends the first offer of each coordinate and nothing else. "Per tick"
-     * rather than "per call" is a property of this class: the pass is keyed by the level's own clock and
-     * the next tick replaces it, so a second driver in the same tick cannot double-send and a later tick
-     * can send the same coordinate again when it really changed again.
+     * The second half of a carried host's neighbourhood: once per coordinate per tick. The pass sends the first
+     * offer of each coordinate and nothing else, and "per tick" rather than "per call" is a property of this class:
+     * it is keyed by the level's own clock and the next tick replaces it, so a second driver in the same tick cannot
+     * double-send while a later tick can send the same coordinate again when it really changed again.
      */
     @Test
     @DisplayName("a structure-frame pass sends a coordinate once per tick, and the next tick is news again")
@@ -800,12 +709,10 @@ class SolverNotificationsTest {
     }
 
     /**
-     * <b>Off is off: no pass at all, so the caller offers nothing and the world sees the old build.</b>
-     *
-     * <p>The boolean the production factory computes is {@code solverCoalesceNotifications() &&
-     * carrierNotifyStructureNeighbours()} - the §24 coalescing switch this rule belongs to, and the
-     * capability switch a player can turn off on its own. Either one being false has to mean "no pass",
-     * because that is what the caller tests for.
+     * Off is off: no pass at all, so the caller offers nothing and the world keeps the previous build. The boolean
+     * the production factory computes is {@code solverCoalesceNotifications() && carrierNotifyStructureNeighbours()}
+     * - the coalescing switch this rule belongs to and the capability switch a player can turn off on its own - and
+     * either one being false has to mean "no pass", because that is what the caller tests for.
      */
     @Test
     @DisplayName("with either switch off there is no structure-frame pass, so nothing new is sent")

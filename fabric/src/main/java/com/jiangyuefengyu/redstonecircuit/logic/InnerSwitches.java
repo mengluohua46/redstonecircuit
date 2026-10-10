@@ -19,20 +19,9 @@ import net.minecraft.sounds.SoundSource;
 /**
  * Working a component inside a block by hand: switches, and the two settings a diode has.
  *
- * <p>Separate from the interaction handler because none of this is player-specific - the player's bare
- * hand, the {@code /rc toggle} command and the game tests all have to go through exactly the same state
- * change, and the only difference between them is what the player hears and reads.
- *
- * <pre>
- *   lever       flips, and stays where it is put
- *   button      the same, with a release scheduled one second later (vanilla's stone button)
- *   repeater    steps its delay 1 -> 2 -> 3 -> 4 -> 1, as a right-click does in vanilla
- *   comparator  swaps compare and subtract mode, as a right-click does in vanilla
- * </pre>
- *
- * <p>The two diodes are here rather than in {@code InnerRedstoneInteraction} for the usual reason:
- * "the delay is now three" has to mean one thing, and it is the same thing whether it came from a click,
- * a command or a test.
+ * <p>A lever and a button are their own state, so a bare hand may work them without the goggles; a repeater's
+ * delay and a comparator's mode only mean something once they can be read. A click, {@code /rc toggle} and the
+ * game tests all make the same state change here, and differ only in what the player hears and reads.
  */
 public final class InnerSwitches {
 
@@ -55,10 +44,35 @@ public final class InnerSwitches {
     }
 
     /**
-     * Works whatever is inside the block at {@code pos}.
+     * What a bare hand can do to a component - the one place that decides it.
      *
-     * <p>Pressing a button that is already held down is a no-op rather than an early release, which
-     * matches vanilla.
+     * <p>The rule is about the <em>gesture</em>, not about the component: a lever and a button <em>are</em> their
+     * state, so a player who cannot see inside still knows what flipping one does, while a repeater's delay or a
+     * comparator's mode is a value that only means something once it can be read. {@link #toggle} switches on this
+     * same classification, so the whitelist and the actions cannot drift apart.
+     */
+    public enum Gesture {
+        /** Nothing a bare hand can do: a wire, a torch, a plate. */
+        NONE,
+        /** A person flips it: a lever, a button. Worked without the goggles. */
+        SWITCH,
+        /** A person tunes it: a repeater's delay, a comparator's mode, a controller's four settings. Needs the goggles. */
+        SETTING
+    }
+
+    /** Which of the three gestures this component has. */
+    public static Gesture gestureOf(ComponentType type) {
+        return switch (type) {
+            case LEVER, BUTTON -> Gesture.SWITCH;
+            case REPEATER, RETAINING_REPEATER, DOUBLE_REPEATER, DOUBLE_RETAINING_REPEATER,
+                 COMPARATOR, CONTROLLER, TRANSFORMER, CLOCK, EXTENDER -> Gesture.SETTING;
+            default -> Gesture.NONE;
+        };
+    }
+
+    /**
+     * Works whatever is inside the block at {@code pos}, by the component's gesture. Pressing a button that is
+     * already held down is a no-op rather than an early release, which matches vanilla.
      */
     public static Result toggle(ServerLevel level, BlockPos pos) {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
@@ -67,32 +81,45 @@ public final class InnerSwitches {
             return Result.NONE;
         }
         Slot slot = node.slot();
-        return switch (slot.type) {
-            case LEVER, BUTTON -> flip(level, pos, slot);
-            case REPEATER, RETAINING_REPEATER, DOUBLE_REPEATER, DOUBLE_RETAINING_REPEATER ->
-                    cycleDelay(level, pos, slot);
-            case COMPARATOR -> toggleMode(level, pos, slot);
-            default -> Result.NONE;
+        return switch (gestureOf(slot.type)) {
+            case SWITCH -> flip(level, pos, slot);
+            case SETTING -> switch (slot.type) {
+                case COMPARATOR -> toggleMode(level, pos, slot);
+                // 控制器's SETTING gesture is its screen, not a step - a bare hand opens it
+                // (InnerRedstoneInteraction#tryToggle). The same holds for 红石变压器, 时钟源 and 信号延长器.
+                case CONTROLLER -> Result.NONE;
+                case TRANSFORMER -> Result.NONE;
+                case CLOCK -> Result.NONE;
+                case EXTENDER -> Result.NONE;
+                default -> cycleDelay(level, pos, slot);
+            };
+            case NONE -> Result.NONE;
         };
     }
 
     /** True when a bare hand can do something with this component. */
     public static boolean isWorkable(ComponentType type) {
-        return type == ComponentType.LEVER || type == ComponentType.BUTTON
-                || type.isRepeater() || type == ComponentType.COMPARATOR;
+        return gestureOf(type) != Gesture.NONE;
     }
 
     /**
-     * The new state, as one line of text.
+     * Whether working this component is "a person flips it" rather than "a person tunes it".
      *
-     * <p>Exists because an inner component has no visible state of its own: the host block looks
-     * identical before and after a click, so the only feedback a player gets without the goggles is
-     * what they are told and what they hear.
+     * <p>The switch kinds are worked without the goggles and the setting kinds are not;
+     * {@code logic.InnerAccess} is where that becomes a decision.
+     */
+    public static boolean isHandSwitch(ComponentType type) {
+        return gestureOf(type) == Gesture.SWITCH;
+    }
+
+    /**
+     * The new state, as one line of text: an inner component has no visible state of its own, so without the
+     * goggles the only feedback a player gets is what they are told and what they hear.
      */
     public static MutableComponent describe(Slot slot) {
         return switch (slot.type) {
-            // All four repeaters step through the same four settings; the ticks reported are the ones
-            // the type actually takes, so a double repeater reads 4/8/12/16 where a plain one reads 2/4/6/8.
+            // All four repeaters step through the same four settings; the reported ticks are the type's own
+            // (a double repeater reads 4/8/12/16, a plain one 2/4/6/8).
             case REPEATER, RETAINING_REPEATER, DOUBLE_REPEATER, DOUBLE_RETAINING_REPEATER ->
                     Component.translatable("message.redstonecircuit.switch.repeater",
                             Component.literal(Integer.toString(slot.delay)),
@@ -134,15 +161,14 @@ public final class InnerSwitches {
     }
 
     /**
-     * Steps a repeater's delay, exactly as right-clicking one on the ground does.
-     *
-     * <p>The output is deliberately left alone: the new delay applies to the next re-evaluation, which
-     * is what vanilla does too - changing the setting does not cut an in-flight pulse short.
+     * Steps a repeater's delay, exactly as right-clicking one on the ground does. The output is left alone: the
+     * new delay applies to the next re-evaluation, as in vanilla - changing the setting does not cut an
+     * in-flight pulse short.
      */
     private static Result cycleDelay(ServerLevel level, BlockPos pos, Slot slot) {
         slot.delay = slot.delay >= 4 ? 1 : slot.delay + 1;
-        // Vanilla's repeater is silent here, but an inner component shows nothing on the outside of its
-        // block, so without a click the player has no way to tell the click even landed.
+        // Vanilla's repeater is silent here, but an inner component shows nothing on its block's outside,
+        // so without a click the player cannot tell the click landed.
         changed(level, pos, slot, SoundEvents.COMPARATOR_CLICK, 0.3F, 0.5F);
 
         if (RCConfig.debugLog()) {
@@ -168,11 +194,9 @@ public final class InnerSwitches {
     // ---------------------------------------------------------- bookkeeping --
 
     /**
-     * Everything a change of one component's own state needs.
-     *
-     * <p>No block state changed, so the world has to be told explicitly, the network has to be
-     * re-derived, and clients have to be told because the drawing shows the delay pips and the mode
-     * mark. The sound is played from here so it cannot be forgotten at one of the three callers.
+     * Everything a change of one component's own state needs: no block state changed, so the world has to be told
+     * explicitly, the network re-derived, and clients told, because the drawing shows the delay pips and the mode
+     * mark. The sound plays from here so it cannot be forgotten at one of the three callers.
      */
     private static void changed(ServerLevel level, BlockPos pos, Slot slot, SoundEvent sound,
                                 float volume, float pitch) {

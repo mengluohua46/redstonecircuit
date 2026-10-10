@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "C": { "item": "minecraft:clock" },
+    "G": { "item": "minecraft:gold_ingot" },
+    "Q": { "item": "minecraft:quartz" }
+  },
+  "pattern": [ " Q ", "GCG", " Q " ],
+  "result": { "count": 1, "id": "redstonecircuit:clock" }
+}

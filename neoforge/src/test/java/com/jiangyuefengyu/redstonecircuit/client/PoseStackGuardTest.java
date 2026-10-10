@@ -14,24 +14,21 @@ import org.junit.jupiter.api.Test;
 /**
  * The pose-stack rule a stage lives by: whatever it pushes, it gives back.
  *
- * <p>This exists because that rule was broken and the game went down for it. Vanilla's
- * {@code LevelRenderer#checkPoseStack} finishes a frame with {@code if (!poseStack.clear()) throw new
- * IllegalStateException("Pose stack not empty")} - the accept/reject decision is literally the return
- * value of {@link PoseStack#clear()}, so the tests below ask vanilla's own question instead of a
- * paraphrase of it. A stage that pushes and never pops leaves the stack deeper than its base, which is
- * the state that fails the check; a frame with no hosts returns before the push, which is why the crash
- * waited for the first frame that actually drew something - the frame a redstone torch is placed inside
- * a block.
+ * <p>Vanilla's {@code LevelRenderer#checkPoseStack} finishes a frame with {@code if (!poseStack.clear()) throw new
+ * IllegalStateException("Pose stack not empty")} - the accept/reject decision is literally the return value of
+ * {@link PoseStack#clear()} - so the tests below ask vanilla's own question instead of a paraphrase of it. A stage that
+ * pushes and never pops leaves the stack deeper than its base, which fails the check, while a frame with no hosts
+ * returns before the push.
  *
- * <p>Driven with a real {@link PoseStack} rather than a stand-in: the whole question is what the real
- * stack does, and {@code last()} is object identity rather than a depth.
+ * <p>Driven with a real {@link PoseStack} rather than a stand-in: the whole question is what the real stack does, and
+ * {@code last()} is object identity rather than a depth.
  */
 class PoseStackGuardTest {
 
     /**
-     * The pose a stage enters on: the frame's own base, i.e. the one level a {@link PoseStack} is built
-     * with and the level vanilla's end-of-frame {@code clear()} is happy to see. A stage is handed the
-     * stack in exactly this state - it is the stage's own push that has to be given back.
+     * The pose a stage enters on: the frame's own base, i.e. the one level a {@link PoseStack} is built with, which is
+     * the state vanilla's end-of-frame {@code clear()} is happy to see. A stage is handed the stack in exactly this
+     * state, and it is the stage's own push that has to be given back.
      */
     private static PoseStack entering() {
         PoseStack pose = new PoseStack();
@@ -43,7 +40,7 @@ class PoseStackGuardTest {
     @DisplayName("without the guard, one unmatched push is the state vanilla throws on")
     void theCrashIsReproduced() {
         PoseStack pose = entering();
-        // Exactly the shape of the defect: push, draw, and never pop.
+        // The shape that fails vanilla's check: push, draw, and never pop.
         pose.pushPose();
         pose.translate(-2775.5F, -77.5F, 1394.5F);
 

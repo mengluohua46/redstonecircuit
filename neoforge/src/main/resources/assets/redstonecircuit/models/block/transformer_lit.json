@@ -1,0 +1,24 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "redstonecircuit:block/transformer_top_lit",
+    "top": "redstonecircuit:block/transformer_top_lit",
+    "side": "redstonecircuit:block/transformer_side_lit",
+    "front": "redstonecircuit:block/transformer_front_lit",
+    "back": "redstonecircuit:block/transformer_back_lit"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 2, 16],
+      "faces": {
+        "up": { "texture": "#top" },
+        "down": { "texture": "#top" },
+        "south": { "texture": "#front" },
+        "north": { "texture": "#back" },
+        "east": { "texture": "#side" },
+        "west": { "texture": "#side" }
+      }
+    }
+  ]
+}

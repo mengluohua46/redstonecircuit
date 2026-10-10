@@ -34,36 +34,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.26, defect two: the wrench's selection exists and the link step cannot read it.</b>
+ * The wrench's link step, decided against a pick that may live in another structure.
  *
- * <h2>The author's log, and what it settles</h2>
- * Fifteen {@code select} lines, and every {@code link} answered the same sentence:
- *
- * <pre>
- *   carrier s:d315200a: select RETAINING_REPEATER facing east at local=20481032, 127, 20481032   x15
- *   carrier s:f3b2d036: link refused: nothing picked yet, at local=20481032, 128, 20483080
- *   carrier s:d315200a: link refused: nothing picked yet, at local=20481032, 127, 20481032
- * </pre>
- *
- * <p>The pick was not missing. It was recorded per player the moment the select ran, and it was still
- * there when the link ran - in <b>another carrier</b>. Two clicks on two blocks standing next to each
- * other landed in two different sub-levels ({@code s:d315200a} and {@code s:f3b2d036}), and the caller's
- * rule - a line only ever runs inside one structure - was enforced by answering <em>"nothing picked
- * yet"</em>, which is the one thing that was not true.
- *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>The three answers of a link, table-driven:</b> a pick in this structure and an adjacent
- *       click links; a pick in another structure is refused <em>by name</em>, naming both structures and
- *       both coordinates; no pick says so, and says nothing about a pick that exists;</li>
- *   <li><b>the ledger's four facts</b>: the pick, the target, the side, and the state after the click, so
- *       the next log can be read without a second run;</li>
- *   <li><b>the ledger is per player and survives ticks and carriers</b> - the two facts whose absence
- *       would explain the author's line even if the code were otherwise right;</li>
- *   <li><b>the link really changes the solve</b>: a line cut with the wrench stops the power that the
- *       in-structure solver would otherwise carry along it. A connection that is written to the record
- *       and not read by the solve is a connection that only looks connected.</li>
- * </ol>
+ * <p>Pins the three answers of a link, table-driven: a pick in this structure and an adjacent click links; a pick in
+ * another structure is refused <em>by name</em>, naming both structures and both coordinates; no pick says so, and
+ * says nothing about a pick that exists. It also pins the ledger's four facts - the pick, the target, the side and the
+ * state after the click - that the pick is per player and survives ticks and carriers, and that the link really
+ * changes the solve: a line the wrench cut stops the power the in-structure solver would otherwise carry along it. A
+ * connection written to the record and not read by the solve is a connection that only looks connected.
  */
 class CarrierLinkPlanTest {
 
@@ -131,12 +109,10 @@ class CarrierLinkPlanTest {
 
     // ------------------------------------------------ the entry points, called by name --
     //
-    // THE REASON THIS FILE USES REFLECTION FOR THREE CALLS, and it is the red half of this round's
-    // evidence: the pick-aware link (`CarriedTool#linkFrom`), the plan (`CarrierInteraction#planWrench`)
-    // and the judgement line (`CarrierLinkLedger`) did not exist before this round, so a direct call
-    // compiles only against the fixed tree. Asked by name, this file compiles and RUNS against the
-    // previous build - where each of these answers null - and then every assertion about which answer a
-    // gesture gets fails with a plain message. That is exactly the author's report reproduced offline.
+    // The pick-aware link, the plan and the judgement line are asked for reflectively: a direct call would
+    // compile only against one tree, while by name this file compiles and RUNS where they are absent - each
+    // answering null - and then every assertion about which answer a gesture gets fails with a plain message
+    // rather than with a compile error.
 
     @Nullable
     @SuppressWarnings("unchecked")
@@ -169,9 +145,8 @@ class CarrierLinkPlanTest {
                 new Class<?>[] {CarriedTool.Action.class, CarriedHostIndex.class, CarrierId.class,
                         BlockPos.class, CarrierId.class, BlockPos.class},
                 action, index, picked, pickedLocalPos, carrier, localPos);
-        // The previous build's answer to "what did the link do" is a `CarriedTool.Action` and nothing
-        // else: no line was ever built, so there is nothing to read and every assertion below fails on the
-        // empty text, which is exactly the defect.
+        // A tree without the ledger answers with the action and builds no line at all, so there is nothing to
+        // read and every assertion below fails on the empty text.
         return line == null ? "" : String.valueOf(describe(line));
     }
 
@@ -193,12 +168,8 @@ class CarrierLinkPlanTest {
     }
 
     /**
-     * {@code CarriedSelection#select(UUID, ResourceKey, CarrierId, BlockPos, BlockPos)} - the pick,
-     * recorded per player.
-     *
-     * <p>By name for the same reason as the three above: the player-keyed overloads are part of this
-     * round, and asking for them reflectively is what lets this file run against the previous build - in
-     * which they are simply absent, so no pick is ever recorded and every gesture below gets the old
+     * The pick, recorded per player. Asked by name for the same reason as the three above: the player-keyed
+     * overloads may be simply absent, and then no pick is ever recorded and every gesture below gets the old
      * answer.
      */
     private static void pickFor(UUID player, ResourceKey<Level> dimension, CarrierId carrier,
@@ -226,10 +197,8 @@ class CarrierLinkPlanTest {
     }
 
     /**
-     * {@code CarriedTool#linkFrom} - the pick-aware link this round adds.
-     *
-     * <p>Falls back to {@link #link} when the method is absent, which is the previous build's behaviour
-     * and is what makes the red run a real run rather than a compile failure.
+     * {@code CarriedTool#linkFrom} - the pick-aware link. Falls back to {@link #link} when the method is absent,
+     * so a run against a tree without it is a real run rather than a compile failure.
      */
     private static CarriedTool.Action linkFrom(CarriedHostIndex index, CarrierId carrier, BlockPos near,
                                                boolean picked, @Nullable CarrierId pickedCarrier,
@@ -270,17 +239,16 @@ class CarrierLinkPlanTest {
         void aPickInAnotherStructureIsNamed() {
             carry(MINE, A, ComponentType.DUST);
             carry(THEIRS, B, ComponentType.DUST);
-            // P1.27: two blocks in two structures that really are neighbours in the world are LINKED now
-            // (see TheSameHostTwice's sibling, `aCrossStructurePairOfNeighboursIsLinked`). What is left for
-            // this refusal is the genuine "wrong machine, and nowhere near this one", which is what the
-            // sentence has to keep saying.
+            // Two blocks in two structures that really are neighbours in the world are LINKED (see the sibling
+            // test `aCrossStructurePairOfNeighboursIsLinked`). What is left for this refusal is the genuine
+            // "wrong machine, and nowhere near this one", which is what the sentence has to keep saying.
             CarrierPose pose = CarrierPose.of(new Vector3d(0.0, 0.0, 0.0), new Quaterniond());
 
             CarriedTool.Action action = plan(pick(MINE, A, new BlockPos(100, 64, 100)), index, THEIRS, B,
                     new BlockPos(109, 64, 109), pose);
 
-            // Asserted through the description, by name: the answer this round adds is a NEW record type,
-            // and naming the type here would stop this file compiling against the previous build.
+            // Asserted through the description, by name: the answer is a record type of its own, and naming the
+            // type here would tie this file to one tree.
             String refused = described(action);
             assertTrue(refused.contains("the pick is in ANOTHER structure"), refused);
             assertTrue(refused.contains("s:d315200a local=1, 0, 0"),
@@ -291,8 +259,7 @@ class CarrierLinkPlanTest {
                     "and the two blocks are not beside each other either, which is why there is no line to "
                             + "draw: " + refused);
             assertFalse(refused.contains("nothing picked yet"),
-                    "the defect in one assertion: the old line denied a pick that existed. The new line "
-                            + "names it: " + refused);
+                    "the refusal must not deny a pick that exists - it names the pick instead: " + refused);
             assertEquals(ConnectionState.AUTO, stateTowards(MINE, A, B), "and nothing was written");
             assertEquals(ConnectionState.AUTO, stateTowards(THEIRS, B, A));
         }
@@ -302,9 +269,8 @@ class CarrierLinkPlanTest {
         void aCrossStructurePairOfNeighboursIsLinked() {
             carry(MINE, A, ComponentType.DUST);
             carry(THEIRS, B, ComponentType.DUST);
-            // The author's own machine: two blocks standing side by side in the world, each assembled into
-            // its own sub-level. Since P1.27 this is the gesture it looks like, and NOT a paragraph about
-            // structures.
+            // Two blocks standing side by side in the world, each assembled into its own sub-level: this is the
+            // gesture it looks like, and NOT a paragraph about structures.
             CarrierPose pose = CarrierPose.of(new Vector3d(0.0, 0.0, 0.0), new Quaterniond());
             BlockPos mineWorld = new BlockPos(100, 64, 100);
             BlockPos theirsWorld = new BlockPos(101, 64, 100);
@@ -415,7 +381,7 @@ class CarrierLinkPlanTest {
             assertTrue(line.startsWith("link linked"),
                     "a line was really written, and the line says so: " + line);
             assertTrue(line.contains("picked=s:d315200a local=1, 0, 0"),
-                    "the old line could not say WHICH block was picked - this one starts with it: " + line);
+                    "the line names WHICH block was picked: " + line);
             assertTrue(line.contains("on=s:d315200a local=2, 0, 0"), "the clicked block: " + line);
             assertTrue(line.contains("side=east"), "the side, in the structure's own frame: " + line);
             assertTrue(line.contains("state=ON"), "and what the connection became: " + line);
@@ -480,10 +446,9 @@ class CarrierLinkPlanTest {
             UUID player = UUID.randomUUID();
             pickFor(player, DIMENSION, MINE, A, new BlockPos(100, 64, 100));
 
-            // Nothing in the ledger is keyed on a tick or a game time: the only things that can end a
-            // gesture are another pick, the same block cleared, the level going away, or the player
-            // leaving. This is what "闂?tick" means here, and it is the fact the author's fifteen selects
-            // and fifteen refusals turn on.
+            // Nothing in the ledger is keyed on a tick or a game time: the only things that can end a gesture are
+            // another pick, the same block cleared, the level going away, or the player leaving. This is what "one
+            // tick later" means here, and it is the fact a run of selects and refusals turns on.
             CarriedSelection.Selection still = pickOf(player, DIMENSION);
             assertNotNull(still);
             assertEquals(MINE, still.carrier());
@@ -566,8 +531,8 @@ class CarrierLinkPlanTest {
         private CarrierSpace spaceWithTwoWires() {
             carry(MINE, A, ComponentType.DUST);
             carry(MINE, B, ComponentType.DUST);
-            // The supply goes on the record the SOLVE reads: `claim` snapshots the slot into the index,
-            // so writing to the world store's copy afterwards would be writing to a slot nobody reads.
+            // The supply goes on the record the SOLVE reads: a claim snapshots the slot into the index, so
+            // writing to the world store's copy afterwards would be writing to a slot nobody reads.
             index.at(MINE, A).slot().injectedPower = 15;
             return new CarrierSpace(MINE, index, new MapWorld(world), null, null);
         }
@@ -608,12 +573,11 @@ class CarrierLinkPlanTest {
             assertEquals(14, levelAt(space, B),
                     "locked ON conducts, so the lock is a connection and not a display");
 
-            // Move the route. A lock means "this line and nothing else", so the way a player takes the
-            // line away from B is to drop every override and then lock A onto another side - and that is
-            // exactly what the solve has to follow: A is locked onto a side that is NOT the one between
-            // the wires, so the side between them is cut by the lock's own rule (`Slot#isClosed`).
-            // Both ends are cleared, because the world's own wrench gives a lock to BOTH hosts and
-            // `clear` is per block: leaving B's lock standing would keep it emitting at its neighbour.
+            // Move the route. A lock means "this line and nothing else", so the way a player takes the line away
+            // from B is to drop every override and then lock A onto another side - and that is exactly what the
+            // solve has to follow: A is locked onto a side that is NOT the one between the wires, so the side
+            // between them is cut by the lock's own rule. Both ends are cleared, because a lock is given to BOTH
+            // hosts and a clear is per block: leaving B's lock standing would keep it emitting at its neighbour.
             CarriedTool.clear(index, MINE, A);
             CarriedTool.clear(index, MINE, B);
             BlockPos northOfA = A.relative(Direction.NORTH);
@@ -636,9 +600,9 @@ class CarrierLinkPlanTest {
             assertFalse(afterLock.nodeAt(A.getX(), A.getY(), A.getZ()).open(Direction.EAST),
                     "the NODE the solver is handed says the side is closed - which is the only view the "
                             + "solve reads: " + index.at(MINE, A).slot().describe());
-            // The production driver seeds every live host of the structure (`CarrierNetworks#solve` walks
-            // `index.liveHostsOf`), so both wires are offered: with the cut in place they are two
-            // components, and the one that no longer has a supply is re-derived to nothing.
+            // The production driver seeds every live host of the structure, so both wires are offered: with the
+            // cut in place they are two components, and the one that no longer has a supply is re-derived to
+            // nothing.
             new CarrierLightNetwork(64).solve(afterLock, java.util.List.of(A, B), 0L);
             assertEquals(0, levelAt(afterLock, B),
                     "and the solve reads that: the second wire has nothing to read any more. This is what "
@@ -652,9 +616,9 @@ class CarrierLinkPlanTest {
             carry(THEIRS, B, ComponentType.DUST);
             index.at(MINE, A).slot().injectedPower = 15;
 
-            // P1.27: two blocks that ARE world neighbours are linked now, both records written (see
-            // CarrierCrossLinkTest). What this test keeps is the other half - there is no shared face at
-            // all, so there is no side to write on either end, and the click is refused by name.
+            // Two blocks that ARE world neighbours are linked, both records written. What this test keeps is the
+            // other half - there is no shared face at all, so there is no side to write on either end, and the
+            // click is refused by name.
             CarriedTool.Action action = plan(
                     pick(MINE, A, new BlockPos(100, 64, 100)), index, THEIRS, B,
                     new BlockPos(140, 64, 100), null);

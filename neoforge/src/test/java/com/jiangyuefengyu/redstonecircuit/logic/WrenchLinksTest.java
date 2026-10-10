@@ -17,12 +17,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the rules the redstone wrench applies, without a level.
+ * The rules the redstone wrench applies, without a level.
  *
- * <p>The interesting half of the wrench is the state machine and the way a link is pinned on both
- * sides; the other half is a click, which a game test covers. Getting the cycle wrong would be easy to
- * miss in game - a player would just click again and get a state they did not expect - so it is pinned
- * here, including the fact that it returns to where it started after three clicks.
+ * <p>The interesting half of the wrench is the state machine and the way a link is pinned on both sides; the other half
+ * is a click, which a game test covers. Getting the cycle wrong would be easy to miss in game - a player would just
+ * click again and get a state they did not expect - so it is pinned here, including the fact that it returns to where it
+ * started after three clicks.
  */
 class WrenchLinksTest {
 

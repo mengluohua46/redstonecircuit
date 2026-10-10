@@ -11,6 +11,7 @@ import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerAccess;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
 import com.jiangyuefengyu.redstonecircuit.logic.RotationRod;
@@ -38,28 +39,20 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 
 /**
- * Placement, retrieval and operation of inner redstone.
+ * Placement, retrieval and operation of inner redstone: shift + right-click a block stores the held
+ * component inside it with the clicked side as its input side, shift + right-click with an empty hand takes
+ * it back out, and a plain empty-hand click works a lever or a button.
  *
- * <ul>
- *   <li>{@code shift + right-click} a block holding a component - store a component inside it. A block
- *       holds at most one component, and the clicked side becomes the component's input side.</li>
- *   <li>{@code shift + right-click} with an empty hand - take the component back out.</li>
- *   <li>{@code right-click} with an empty hand on a block holding a lever or button - work it.</li>
- * </ul>
- *
- * <p>Anything that does not qualify falls through untouched, so vanilla behaviour (including
- * vanilla shift-right-click functions) is preserved.
+ * <p>Anything that does not qualify falls through untouched, so vanilla behaviour is preserved.
  */
 public final class InnerRedstoneInteraction {
 
     /**
      * Tick/hand/position of the last processed interaction.
      *
-     * <p>Right-clicking a block dispatches once for the main hand and once for the off hand, in the
-     * same tick and at the same position. Acting on both would place a component with one hand and
-     * immediately take it back out with the other, so the first hand to be processed "owns" the
-     * click and the second hand is ignored - <em>regardless of whether the first hand succeeded</em>,
-     * because the dispatch order between the two hands is not something we should depend on.
+     * <p>A right-click dispatches once for the main hand and once for the off hand, in the same tick and at
+     * the same position. Acting on both would place a component with one hand and immediately take it back
+     * out with the other, so the first hand processed owns the click regardless of whether it succeeded.
      */
     private long lastHandledTick = Long.MIN_VALUE;
     private BlockPos lastHandledPos = BlockPos.ZERO;
@@ -68,8 +61,8 @@ public final class InnerRedstoneInteraction {
     // ---------------------------------------------------------------- wrench --
 
     /**
-     * <b>What the world's own wrench did with one click - three answers, because since P1.35 there is a
-     * third one that is neither "mine" nor "not mine".</b>
+     * What the world's own wrench did with one click - three answers, because there is a third one that is
+     * neither "mine" nor "not mine".
      *
      * @param KEEP the click is not about this wrench at all: the event is left exactly as it arrived, and
      *     vanilla and every other listener keep it (a chest still opens, a door still works)
@@ -84,7 +77,7 @@ public final class InnerRedstoneInteraction {
     }
 
     /**
-     * The redstone wrench: pick a component, then point the line at a neighbour (R7).
+     * The redstone wrench: pick a component, then point the line at a neighbour.
      *
      * <ul>
      *   <li>{@code right-click} a block holding a component - make it the selected one. Only a block with
@@ -100,30 +93,9 @@ public final class InnerRedstoneInteraction {
      * door still works: the second half of the gesture is claimed when the clicked block is next to the
      * selection (or holds a component, so a mistaken far-away click still says why it did nothing).
      *
-     * <h2>P1.35: the third answer, and why it is asked HERE</h2>
-     * The carrier layer keeps <b>its own</b> near end ({@code CarriedSelection}, a host riding a
-     * structure), and this listener runs <b>before</b> the carrier's. So a player who picked a host inside
-     * a machine and then shift-clicked a world block beside it had their click taken by <em>this</em>
-     * method's "shift-click the selected block drops every override" rule whenever the world's own ledger
-     * happened to name that block - which is the author's own session, thirteen times:
-     *
-     * <pre>
-     *   carrier s:0c184903: picked the near end of a line local=20481032, 127, 20481032   (the pick)
-     *   wrench clear at -16, -60, -15 -&gt; CLEARED                                          (this method, one tick later)
-     * </pre>
-     *
-     * <p>with 「已清除…」 on the action bar, {@code carrier lock attempt? = 0} in the whole log, and the
-     * carrier's gesture never entered at all. The question "whose click is this" is
-     * {@code CarrierClickPriority#theCarrierPickOwnsThisShiftClick}, and it is asked at the one point where
-     * the two facts it needs are already in hand: <b>after</b> this method has decided the click is
-     * wrench-shaped at all ({@code adjacent || holdsComponent}, i.e. exactly the clicks this method would
-     * otherwise act on) and <b>before</b> the goggles gate, because the goggles sentence belongs to the
-     * world's gesture and this click is not it. Every click this method would hand back to vanilla anyway
-     * ({@code KEEP}) is untouched: a chest with a live carrier pick still opens, byte for byte, because that
-     * is a click this method never claimed.
-     *
-     * <p>And the world's own line stays reachable: picking a world block forgets the carrier pick (see the
-     * select half below), so "the last pick wins" and a world pick hands this gesture straight back.
+     * <p>The carrier layer keeps <b>its own</b> near end ({@code CarriedSelection}, a host riding a
+     * structure) and this listener runs <b>before</b> the carrier's, so the "whose click is this" question
+     * has to be asked here - see the handover below.
      *
      * @return what the caller should do with the event - see {@link WrenchOutcome}
      */
@@ -141,19 +113,13 @@ public final class InnerRedstoneInteraction {
                 return WrenchOutcome.CONSUMED;
             }
             WrenchSelection.select(player, pos);
-            // ONE LIVE PICK PER PLAYER (P1.35). The world's select half is the statement "this world block
-            // is now the near end", and the carrier's ledger has to hear it: otherwise a pick made inside a
-            // machine earlier in the session would keep answering the wrench's shift half (see the handover
-            // above) and the world's own line would be unreachable for the rest of the session. Dropped here
-            // rather than there because THIS is the click that renames the near end; the carrier's own
-            // select does not have to forget the world's, because a carrier pick is by construction the
-            // most recent one.
+            // One live pick per player: the world's select half names a new near end, so the carrier's ledger
+            // has to forget its own - otherwise a pick made inside a machine would keep answering the wrench's
+            // shift half and the world's own line would be unreachable. Only this direction is needed: a
+            // carrier pick is by construction the most recent one.
             CarriedSelection.clear(player);
-            // P1.29: the player-facing name is the BLOCK LABEL built from translation keys, not
-            // `WrenchLinks#describe` - which spells the component as its enum constant
-            // (`RETAINING_REPEATER facing south`) and is the "English original name" the author saw in the
-            // middle of a Chinese sentence. The log keeps the constant: `WrenchLinks#describe` says so in
-            // its own note, and every judgement line still prints it.
+            // The player-facing name is the block label from translation keys, not the component's enum
+            // constant; the log keeps the constant.
             message(player, Component.translatable("message.redstonecircuit.wrench.selected",
                     Component.literal(pos.toShortString()),
                     WrenchLinks.label(slot)).withStyle(ChatFormatting.YELLOW));
@@ -169,11 +135,9 @@ public final class InnerRedstoneInteraction {
         }
         if (CarrierClickPriority.theCarrierPickOwnsThisShiftClick(player,
                 RCRegistry.isWrench(player.getItemInHand(hand)), RCConfig.carriedWrench())) {
-            // THE NEAR END IS THE CARRIER'S, SO THIS SHIFT-CLICK IS THE CARRIER'S (P1.35). The world's own
-            // answer for this click would be about a block the player is not pointing at any more - the
-            // author's 「已清除…」 - so the world stands down and lets the carrier's listener answer it, by
-            // name. `CARRIER` and not `KEEP`: the action fields are set FALSE as well, so nothing can act on
-            // the click underneath, exactly as the coordinate gate above does it.
+            // The near end is the carrier's, so this shift-click is the carrier's: the world stands down and
+            // lets the carrier's listener answer it (both action fields FALSE as well, so nothing acts on the
+            // click underneath).
             return WrenchOutcome.CARRIER;
         }
         if (refuseWithoutGoggles(player)) {
@@ -213,11 +177,24 @@ public final class InnerRedstoneInteraction {
     }
 
     /**
-     * 方向转向杆 - the rotation rod: point the component at the face that was clicked.
+     * True when what is inside a block may not be worked because the goggles are not being worn: the rule is
+     * {@code InnerAccess}, one decision shared with the render question, and it is <b>silent</b> because a
+     * lever or a button is worked without the goggles anyway and a message about the rest would be about a
+     * value the player cannot read. The click is still consumed.
      *
-     * <p>One click, one turn, and the turn itself is decided in {@code logic.RotationRod}: input side on
-     * the clicked face, then output side on it, then back again. A block holding nothing is not our
-     * click at all, so a door or a chest still works with the rod in hand.
+     * <p>{@code handSwitch} is the whitelist and comes from {@code InnerSwitches#isHandSwitch}, the same
+     * classification {@code InnerSwitches#toggle} acts on, so exemption and action cannot drift apart. Asked
+     * by both bare-hand doors there are: this class's world host and {@code CarrierInteraction}'s carried one.
+     */
+    public static boolean refuseInnerAdjust(ServerPlayer player, boolean handSwitch) {
+        return !InnerAccess.mayAdjust(RCConfig.innerAdjustNeedsGoggles(), wearsGoggles(player), handSwitch);
+    }
+
+    /**
+     * 方向转向杆 - the rotation rod: point the component at the clicked face. One click, one turn, and the
+     * turn itself ({@code logic.RotationRod}) cycles the clicked face through input side, output side, input
+     * side again. A block holding nothing is not our click, so a door or a chest still works with the rod
+     * in hand.
      *
      * @return whether the click was ours to consume
      */
@@ -295,8 +272,7 @@ public final class InnerRedstoneInteraction {
      *
      * <p>The same question - "is this click ours?" - is answered by {@link HostRules#claimsClick} and by
      * {@code ClientPlacementGuard}, which uses it to stop the client predicting a block placement for a
-     * click that will not place one. That gate is applied here too, so the two sides cannot drift: a
-     * click the client decided against is a click the server leaves to vanilla, and vice versa.
+     * click that will not place one. That gate is applied here too, so the two sides cannot drift.
      */
     @SubscribeEvent
     public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
@@ -315,62 +291,44 @@ public final class InnerRedstoneInteraction {
 
         // ---------------------------------------------------------------- the one exception --
         //
-        // A coordinate a structure OWNS belongs to the carrier side, and the world side stands down
-        // before it claims anything. This is deliberately before HostRules#claimsClick: the world path
-        // does not merely skip its action, it never claims the click, so nothing can write the world
-        // store at a structure's own coordinate.
+        // A coordinate a structure OWNS belongs to the carrier side, and the world side stands down before
+        // it claims anything: the world path does not merely skip its action, it never claims the click, so
+        // nothing can write the world store at a structure's own coordinate.
         //
-        // WHY IT HAS TO EXIST. A Sable sub-level's blocks are level blocks at their own local
-        // coordinates, so a click on a physicalised block arrives here carrying a position that is both
-        // "a level position" and "a host's coordinate inside a structure" - and this handler cannot tell
-        // those apart. It used to win the click and write the component into the world store at the plot
-        // coordinate, which is why the author saw a component that Jade displayed, that the overlay did
-        // not draw, and that nothing outside the machine could connect to.
+        // WHY IT HAS TO EXIST. A Sable sub-level's blocks are level blocks at their own local coordinates,
+        // so a click on a physicalised block arrives here carrying a position that is both "a level
+        // position" and "a host's coordinate inside a structure", and this handler cannot tell those apart;
+        // writing the component into the world store there leaves something Jade shows, the overlay does not
+        // draw, and nothing outside the machine can connect to.
         //
         // HOW NARROW IT IS. Only "the carrier layer can name a live host at this position" declines
         // anything - one read-only query, no write, no drop, nothing consumed. Every other world position
-        // (including a carried host's origin, and a host that has been put down) is answered null and
-        // behaves exactly as it did before.
+        // (including a carried host's origin, and a host that has been put down) answers null and behaves
+        // exactly as it did before.
         //
-        // P1.34: AND OWNING THE COORDINATE IS STILL NOT ENOUGH. The narrowing above is about a POSITION;
-        // what has to be decided is whether this CLICK is ours, and the two differ. Every click on a
-        // structure's cell used to stand the world down, which stopped vanilla's own `Item#useOn` - the
-        // act of placing a block - so the author could not put a piston onto a physicalised machine
-        // ("物理方块上面活塞都不能放了"), and the log says the same thing in numbers: 19 of 38 declines in
-        // one session were a piston in hand. `CarrierClickPriority#weOwnThisClick` is the one predicate
-        // that decides it now, and the gesture and the clicked cell's own contents are its inputs.
+        // OWNING THE COORDINATE IS NOT ENOUGH: what has to be decided is whether this CLICK is ours, and the
+        // two differ. Declining every click on a structure's cell also stops vanilla's own `Item#useOn` -
+        // the act of placing a block - so a plain placement (a piston, a plank, an unsneaked lever) must
+        // still reach vanilla. `CarrierClickPriority#weOwnThisClick` decides it from the gesture and the
+        // clicked cell's own contents.
         //
-        // P1.29: STANDING DOWN NOW INCLUDES THE ITEM, AND THAT IS NOT A WIDENING. P1.26 declined without
-        // touching the event, and the NeoForge server path then ran vanilla's own item use on the same
-        // click: with a retaining repeater in hand that is `Item#useOn`, i.e. a block placement at the
-        // plot coordinate. So the world still acted there - just not through this mod - which is the same
-        // defect wearing a different hat. `standDown` sets the event's two action fields to FALSE, which
-        // stops `onItemUseFirst`, the block's use AND the item's useOn (see CarrierClickPriority#standDown
-        // for the exact source lines), while leaving the event UNCANCELLED so the carrier's listener - a
-        // default `receiveCanceled=false` listener - is still called. Cancelling here would delete that
+        // Standing down now includes the item: with a component in hand the NeoForge server path would
+        // otherwise run vanilla's own `Item#useOn` on the same click and place a block at the plot
+        // coordinate. `standDown` sets both action fields to FALSE, which stops `onItemUseFirst`, the
+        // block's use AND the item's useOn, while leaving the event UNCANCELLED so the carrier's listener -
+        // a default `receiveCanceled=false` listener - is still called; cancelling here would delete that
         // delivery, which is the one thing this gate exists to hand over.
-        // P1.34: WHICH CLICK THIS IS, BEFORE THE COORDINATE IS EVEN ASKED ABOUT. P1.26 declined every
-        // click on a coordinate a structure owns, and that is a fact about the POSITION, not about the
-        // click. The author's own log is the defect: thirty-eight declines in one session, nineteen of
-        // them holding a piston - an ordinary block this layer has no gesture for - and vanilla's own
-        // `Item#useOn`, which is how a block gets placed, never ran. So the gesture and the clicked cell's
-        // own contents are read first, and `CarrierClickPriority#weOwnThisClick` is the ONE predicate that
-        // decides whether the world stands down at all. Same rule the carrier's entry point agrees with,
-        // asked in one place so the two cannot drift.
-        // P1.35: AND THE KIND ALONE IS STILL NOT ENOUGH FOR A PLACEMENT. `CarrierGesture` has ONE kind
-        // for "a component is in hand", because the sneak key only chooses which half of that gesture it
-        // is - store it in the machine's record, or let vanilla put the item down as a block. The predicate
-        // now reads the sneak state beside the gesture, so the plain half is not ours: a lever, a torch or a
-        // repeater in hand with no sneak key puts a BLOCK on a physicalised machine again (the author's
-        // "拉杆放不上去了"; 19 of the 41 declines in their log were exactly that click). The direction is a
-        // narrowing: one row of the table stops standing the world down, and no row starts.
         CarrierGesture.Kind carrierGesture = CarrierGesture.of(player, event.getHand());
         CarrierClickPriority.Owned carrierOwns = CarrierClickPriority.owner(serverLevel, pos);
         if (carrierOwns != null) {
+            // The clicked block's own rule is part of the click: this side copies the world path's answer for
+            // that block (whether it may hold a component at all), so the two halves agree and vanilla puts
+            // the component down as an ordinary block instead of predicting a placement that never runs.
             CarrierClickPriority.StandDown standDown = CarrierClickPriority.standDown(carrierOwns,
                     carrierGesture, CarrierGesture.Hold.of(stack), player.isSecondaryUseActive(),
                     CarrierStore.hostHasComponent(serverLevel, carrierOwns.carrier(),
                             carrierOwns.localPos()),
+                    CarrierStore.hostAcceptsComponent(carrierOwns.carrier(), carrierOwns.localPos()),
                     RCConfig.carriedInsert(), RCConfig.carriedWrench(), RCConfig.carriedSwitches());
             if (standDown.useBlock() && standDown.useItem()) {
                 // NOT OURS: the event is left exactly as it arrived, which is what puts a piston, a plank
@@ -381,10 +339,9 @@ public final class InnerRedstoneInteraction {
             event.setUseBlock(net.neoforged.neoforge.common.util.TriState.FALSE);
             event.setUseItem(net.neoforged.neoforge.common.util.TriState.FALSE);
             long tick = serverLevel.getGameTime();
-            // THE PAIRING RECORD AND THE LINE, IN THAT ORDER. The record is what lets the carrier's own
-            // trace say "the world side declined this very delivery" instead of leaving the two halves of
-            // one click to be matched by eye; the line carries the hand, the item and the tick, which is
-            // what the previous build's decline line was missing.
+            // The record and the line, in that order: the record is what lets the carrier's own trace say
+            // "the world side declined this very delivery", and the line carries the hand, the item and the
+            // tick.
             CarrierClickPairing.noteWorldDecline(tick, pos, event.getHand(), stack);
             CarrierClickPairing.logDecline(carrierOwns.describe(), pos, tick, event.getHand(), stack,
                     standDown.useBlock(), standDown.useItem(), event.isCanceled());
@@ -419,11 +376,9 @@ public final class InnerRedstoneInteraction {
             if (outcome == WrenchOutcome.CONSUMED) {
                 event.setCanceled(true);
             } else if (outcome == WrenchOutcome.CARRIER) {
-                // THE CARRIER'S OWN SHIFT-CLICK (P1.35). Both action fields FALSE and NOT cancelled: the
-                // carrier's listener is registered after this one and is a default `receiveCanceled=false`
-                // listener, so it is still called and is the one that answers this click - by name. This is
-                // the same shape as the coordinate gate at the top of this method, and for the same reason:
-                // "not mine" and "nobody's" are different answers.
+                // The carrier's own shift-click: both action fields FALSE and NOT cancelled, so the carrier's
+                // listener - registered after this one and `receiveCanceled=false` - is still called and is
+                // the one that answers the click. "Not mine" and "nobody's" are different answers.
                 event.setUseBlock(net.neoforged.neoforge.common.util.TriState.FALSE);
                 event.setUseItem(net.neoforged.neoforge.common.util.TriState.FALSE);
             }
@@ -533,27 +488,61 @@ public final class InnerRedstoneInteraction {
     // --------------------------------------------------------------- switches --
 
     /**
-     * Works whatever is hidden inside a block: toggles a lever, presses a button, steps a repeater's
-     * delay, or swaps a comparator's mode.
+     * Works whatever is hidden inside a block: toggles a lever, presses a button, steps a repeater's delay,
+     * or swaps a comparator's mode.
      *
-     * <p>Only ever reached with a bare hand, so a player holding anything still gets vanilla's
-     * behaviour. It is safe to take the bare-hand click because a host block is always a full opaque
-     * cube, and vanilla has no bare-hand action on one - every block that does have an interaction
-     * (chest, crafting table, bed, ...) is already excluded from holding redstone.
+     * <p>Only ever reached with a bare hand, so a player holding anything still gets vanilla's behaviour. It
+     * is safe to take the bare-hand click because a host block is always a full opaque cube, and vanilla has
+     * no bare-hand action on one - every block that does have an interaction (chest, crafting table, bed,
+     * ...) is already excluded from holding redstone. The setting is reported on the action bar because
+     * nothing on the outside of the block changes: without the goggles on, "the delay is now three" is
+     * otherwise invisible.
      *
-     * <p>The setting is reported on the action bar because nothing on the outside of the block changes:
-     * without the goggles on, "the delay is now three" is otherwise invisible.
+     * <p>The goggles gate stands here, above the state change, because this method is the only door a bare
+     * hand has into a world host: every component this mod ships, and every one it ever adds, is worked
+     * through it - see {@link #refuseInnerAdjust}. It is asked only for a component that has a bare-hand
+     * action at all - a host holding a wire must stay "not our click", or another mod's interaction on it
+     * would be eaten by a rule about a delay setting that is not there.
      */
     private boolean tryToggle(ServerLevel level, ServerPlayer player, BlockPos pos) {
+        Slot slot = WrenchLinks.slotAt(level, pos);
+        if (slot != null && InnerSwitches.isWorkable(slot.type)) {
+            if (refuseInnerAdjust(player, InnerSwitches.isHandSwitch(slot.type))) {
+                // The click was ours to take - a host block has no vanilla bare-hand action - so it is
+                // consumed and answered with nothing: the two whitelisted components never reach this line.
+                return true;
+            }
+            // 控制器's bare-hand gesture IS its screen - opening it is the adjustment - so it is claimed here
+            // rather than stepped by InnerSwitches#toggle, which has nothing to step for it.
+            if (slot.type == com.jiangyuefengyu.redstonecircuit.data.ComponentType.CONTROLLER) {
+                com.jiangyuefengyu.redstonecircuit.block.ControllerBlock.sendHostView(player, level, pos, true);
+                return true;
+            }
+            // 红石变压器's gesture is the same screen with one number on it.
+            if (slot.type == com.jiangyuefengyu.redstonecircuit.data.ComponentType.TRANSFORMER) {
+                com.jiangyuefengyu.redstonecircuit.block.TransformerBlock.sendHostView(player, level, pos, true);
+                return true;
+            }
+            // 时钟源's is 秒 / tick / 强度 on the same screen, and the same open-not-step shape.
+            if (slot.type == com.jiangyuefengyu.redstonecircuit.data.ComponentType.CLOCK) {
+                com.jiangyuefengyu.redstonecircuit.block.ClockBlock.sendHostView(player, level, pos, true);
+                return true;
+            }
+            // 信号延长器's is 秒 / 刻 on the same screen, opened the same way.
+            if (slot.type == com.jiangyuefengyu.redstonecircuit.data.ComponentType.EXTENDER) {
+                com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.sendHostView(player, level, pos, true);
+                return true;
+            }
+        }
         // The state change itself lives in InnerSwitches so that the player click, the /rc toggle
         // command and the game tests cannot drift apart.
         InnerSwitches.Result result = InnerSwitches.toggle(level, pos);
         if (result == InnerSwitches.Result.NONE) {
             return false;
         }
-        Slot slot = WrenchLinks.slotAt(level, pos);
-        if (slot != null) {
-            message(player, InnerSwitches.describe(slot).withStyle(ChatFormatting.YELLOW));
+        Slot after = WrenchLinks.slotAt(level, pos);
+        if (after != null) {
+            message(player, InnerSwitches.describe(after).withStyle(ChatFormatting.YELLOW));
         }
         return true;
     }
@@ -561,23 +550,10 @@ public final class InnerRedstoneInteraction {
     // ------------------------------------------------------------- retrieval --
 
     private boolean tryRetrieve(ServerLevel level, ServerPlayer player, BlockPos pos) {
-        InnerRedstoneStore store = InnerRedstoneStore.get(level);
-        InnerRedstoneNode node = store.get(pos);
-        if (node == null || node.isEmpty()) {
+        InnerRedstoneNode removed = forget(level, pos);
+        if (removed == null) {
             return false;
         }
-
-        InnerRedstoneNode removed = store.remove(pos);
-        if (removed == null || removed.isEmpty()) {
-            return false;
-        }
-
-        // Removing a component can cut power to its neighbours, so re-derive the local network.
-        InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
-        notifyNeighbours(level, pos);
-        HostSync.broadcast(level, pos, null);
-        // A block that no longer holds anything cannot be either half of a wrench link.
-        WrenchSelection.clearIf(level, pos);
 
         if (!player.getAbilities().instabuild) {
             ItemStack back = HostRules.itemFor(removed.type());
@@ -611,19 +587,39 @@ public final class InnerRedstoneInteraction {
 
     /** Clears the store for a position and drops its contents into the world. */
     public static void cleanup(ServerLevel level, BlockPos pos) {
-        InnerRedstoneStore store = InnerRedstoneStore.get(level);
-        InnerRedstoneNode node = store.remove(pos);
-        if (node == null || node.isEmpty()) {
+        InnerRedstoneNode node = forget(level, pos);
+        if (node == null) {
             return;
         }
-        // The host is going away, so whatever coupled to it must re-derive its power.
+        Block.popResource(level, pos, HostRules.itemFor(node.type()));
+        debug("dropped {} from broken host {}", node.type(), pos.toShortString());
+    }
+
+    /**
+     * <b>Taking a component out of a position without dropping it - and telling the clients.</b>
+     *
+     * <p>The one place that answers "something left this block, nobody is picking it up, and the client
+     * still believes it is there". The client's copy is a copy of the store, not of the payload, so a
+     * removal nobody names on the wire leaves a component that is invisible in air, does nothing, drops
+     * nothing when that block is broken, and survives until the player relogs. The mirror half of the rule
+     * is the broadcast when a component is <em>put</em> back (see {@code StructureRelease}).
+     *
+     * @return what was there, or {@code null} when the position held nothing - so a caller can drop it, hand it to a
+     *     player, or (a cut capture) simply leave it in the payload it was copied into
+     */
+    @Nullable
+    public static InnerRedstoneNode forget(ServerLevel level, BlockPos pos) {
+        InnerRedstoneNode node = InnerRedstoneStore.get(level).remove(pos);
+        if (node == null || node.isEmpty()) {
+            return null;
+        }
+        // Removing a component can cut power to its neighbours, so re-derive the local network.
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
         HostSync.broadcast(level, pos, null);
         // A block that no longer holds anything cannot be either half of a wrench link.
         WrenchSelection.clearIf(level, pos);
-        Block.popResource(level, pos, HostRules.itemFor(node.type()));
-        debug("dropped {} from broken host {}", node.type(), pos.toShortString());
+        return node;
     }
 
     // ----------------------------------------------------------------- utils --

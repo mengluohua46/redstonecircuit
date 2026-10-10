@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=north": { "model": "redstonecircuit:block/block_placer" },
+    "facing=east": { "model": "redstonecircuit:block/block_placer", "y": 90 },
+    "facing=south": { "model": "redstonecircuit:block/block_placer", "y": 180 },
+    "facing=west": { "model": "redstonecircuit:block/block_placer", "y": 270 },
+    "facing=up": { "model": "redstonecircuit:block/block_placer", "x": 270 },
+    "facing=down": { "model": "redstonecircuit:block/block_placer", "x": 90 }
+  }
+}

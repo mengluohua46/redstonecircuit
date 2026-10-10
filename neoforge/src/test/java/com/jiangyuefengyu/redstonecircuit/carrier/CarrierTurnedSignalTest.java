@@ -27,37 +27,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * The author's report, pinned down: <em>"a redstone torch inside a block has one face that does not
- * output, so when the structure turns, one face has no signal - that is good; but after it has turned
- * past, the signal does not come back."</em>
+ * A structure that turns on the spot re-publishes its hosts: which way a carried block emits is a question
+ * about the structure's orientation, and a pass that compared only positions would see nothing change
+ * while the world was never woken.
  *
- * <h2>What is a defect here and what is not</h2>
- * The dead face is the component, not a bug: {@link PowerSolver#emitsToward} keeps a torch from
- * signalling into the block it hangs on, and the tests below assert that it stays dead at every angle.
- * The defect was one layer out. Which way a carried host emits is a question about the structure's
- * <b>orientation</b>, and the pass that announces a projection to the world compared only positions,
- * values, local coordinates and carriers. A structure that turns about its own pivot puts every host
- * back onto the world position it already occupied - a one-block bearing carrying one host block, which
- * is the fixture in the author's log ({@code computedWorld=(2774.500, 77.500, -1394.500)} at every
- * angle, {@code delta=0.000}) - so nothing in that comparison ever moved, the world was never woken, and
- * a lamp that had latched onto a zero stayed dark after the live face had been turned back onto it.
- *
- * <h2>The three shapes this file holds</h2>
- * <ol>
- *   <li><b>The turned projection is re-published.</b> Position, local coordinate, carrier and value
- *       identical; only the angle differs; the world position must be reported - at 0°→90°, at 90°→180°,
- *       and at 90°→0°, which is the "come back" half.</li>
- *   <li><b>The latched consumer sees the signal return.</b> A small model of a redstone lamp - it holds
- *       a number and only re-reads it when it is notified - is put next to the machine, and the machine
- *       turns its dead face onto it and then back off it.</li>
- *   <li><b>The in-carrier solve and the world read follow the pose.</b> Driven both ways through
- *       {@link CarrierNetworks} and {@link CarrierSpace} at 0°, at 90° and back at 0°, with the
- *       projection's world position asserted to be the same throughout.</li>
- * </ol>
- *
- * <p>A fake index, a map for the store, a counter for the clock and a recording write-back: no game
- * anywhere - the same seams {@link CarrierNetworksTest}, {@link CarrierSpaceTest} and
- * {@link CarrierProjectionTest} already use.
+ * <p>The dead face of a torch is the component, not a defect: a torch does not signal into the block it
+ * hangs on.
  */
 class CarrierTurnedSignalTest {
 
@@ -67,12 +42,8 @@ class CarrierTurnedSignalTest {
             ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse("redstonecircuit:test"));
 
     /**
-     * The structure's pivot, and the centre of its single host block.
-     *
-     * <p>They are the same point on purpose: that is what "turns on the spot" means for a bearing, and
-     * it is the reason the projected world position cannot move however far it turns. The block's local
-     * coordinate is {@code (0, 0, 0)}, so its centre is the pivot exactly and
-     * {@link CarrierProjection#project} is the pose's position at every angle.
+     * The structure's pivot, which is also the centre of its single host block: the projected world
+     * position therefore cannot move however far it turns.
      */
     private static final Vector3d PIVOT = new Vector3d(10.0, 64.0, 10.0);
     private static final BlockPos LOCAL = new BlockPos(0, 0, 0);
@@ -160,7 +131,7 @@ class CarrierTurnedSignalTest {
         return index.at(CONTRAPTION, LOCAL).slot();
     }
 
-    /** One pass of P2's driver over this level, with P4's bridge open on the given pose. */
+    /** One pass of the tick driver over this level, with the world bridge open on the given pose. */
     private CarrierNetworks.TickSummary solve(long gameTime, CarrierPose pose,
                                               CarrierWorldSignals signals) {
         CarrierStore.TickContext context = new CarrierStore.TickContext(
@@ -171,10 +142,7 @@ class CarrierTurnedSignalTest {
 
     // ------------------------------------------------- the turned projection --
 
-    /**
-     * Requirement ① and ③, in the shape the author's log has: the same host block, in the same world
-     * position, with the same power, at four different angles.
-     */
+    /** The same host block, in the same world position, with the same power, at four different angles. */
     @Test
     @DisplayName("a structure that turns on the spot re-publishes its host, because the world must "
             + "re-read which way it emits")
@@ -186,14 +154,13 @@ class CarrierTurnedSignalTest {
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, flat(), torch));
         assertEquals(List.of(WORLD), changes(projection), "the host appeared");
 
-        // The same pose again: a parked machine says nothing. This is the rule the turn must not break,
-        // and the reason the defect was invisible in a diff of positions.
+        // The same pose again: a parked machine says nothing.
         projection.begin(DIMENSION, true);
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, flat(), torch));
         assertTrue(changes(projection).isEmpty(), "nothing changed, so the world is not woken");
 
-        // A right angle. The position does not move, the value does not move, and yet the answer to
-        // "which way does this block emit" is a different answer.
+        // A right angle: the position does not move and the value does not move, but the emitted
+        // direction does.
         projection.begin(DIMENSION, true);
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, turned(90.0), torch));
         assertEquals(List.of(WORLD), changes(projection),
@@ -204,8 +171,7 @@ class CarrierTurnedSignalTest {
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, turned(180.0), torch));
         assertEquals(List.of(WORLD), changes(projection), "still turning, still worth a notification");
 
-        // ...and back to where it started. This is the half that was missing: without it the world
-        // keeps whatever it last latched onto for ever.
+        // ...and back to where it started: without it the world keeps whatever it last latched onto.
         projection.begin(DIMENSION, true);
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, turned(90.0), torch));
         assertEquals(List.of(WORLD), changes(projection), "turning back from the half turn");
@@ -214,7 +180,7 @@ class CarrierTurnedSignalTest {
         assertEquals(List.of(WORLD), changes(projection),
                 "turning back is a change too - the signal has to be able to come back");
 
-        // Requirement ③, stated outright: the projected position is the same all the way round.
+        // The projected position is the same all the way round.
         assertEquals(CarrierProjection.project(flat(), LOCAL),
                 CarrierProjection.project(turned(90.0), LOCAL),
                 "the block's world position does not move while the bearing turns on the spot");
@@ -226,12 +192,9 @@ class CarrierTurnedSignalTest {
     }
 
     /**
-     * The turn report itself: one line per structure per tick, naming both orientations, even when the
-     * structure carries more than one host.
-     *
-     * <p>The two hosts are on the structure's own vertical axis, which is the axis a half turn about
-     * {@code Y} leaves alone - so both of them stay exactly where they are while the structure turns,
-     * and the only thing that differs between the two passes is the pose.
+     * The turn report itself: one line per structure per tick, naming both orientations - the two hosts
+     * sit on the axis a half turn about {@code Y} leaves alone, so only the pose differs between the two
+     * passes.
      */
     @Test
     @DisplayName("the turn report names the two orientations, once per structure and not once per host")
@@ -268,9 +231,8 @@ class CarrierTurnedSignalTest {
     // -------------------------------------------------- the latched consumer --
 
     /**
-     * What the world reads from the host: exactly the three lines {@code BlockStateSignalMixin} runs -
-     * the query direction is flipped once into the emission direction, turned back into the structure's
-     * own frame through the pose, and answered by the component's own rules.
+     * What the world reads from the host: the query direction is flipped once into the emission
+     * direction, turned into the structure's own frame through the pose, and answered by the component.
      */
     private static int readsFromTheBlockNorth(Slot slot, CarrierPose pose) {
         Direction emittedWorld = Direction.SOUTH.getOpposite();
@@ -279,9 +241,8 @@ class CarrierTurnedSignalTest {
     }
 
     /**
-     * Requirement ②, as the author describes it. The lamp is a number that only changes when the world
-     * tells it to re-read - which is what a real redstone lamp does, and the reason the missing
-     * notification showed up as "the signal never came back" rather than as a wrong answer.
+     * The lamp is a number that only changes when the world tells it to re-read, as a real redstone lamp
+     * is - which is why a missing notification shows up as a signal that never comes back.
      */
     @Test
     @DisplayName("the block beside a machine that turned its dead face past it sees the signal come back")
@@ -289,8 +250,7 @@ class CarrierTurnedSignalTest {
         CarrierProjection projection = new CarrierProjection();
         Slot torch = torch();
 
-        // The block north of the host starts out lit: the torch's dead face is the one it hangs on, and
-        // at a half turn that face points south.
+        // The block north of the host starts out lit; at a half turn the dead face points south.
         int[] lamp = {readsFromTheBlockNorth(torch, turned(180.0))};
         assertEquals(15, lamp[0], "a torch lights everything except its attachment face");
 
@@ -298,8 +258,7 @@ class CarrierTurnedSignalTest {
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, turned(180.0), torch));
         changes(projection);
 
-        // Half a turn: the dead face swings onto the lamp. It must go dark - and that is the component
-        // working as designed, not a defect to remove.
+        // The dead face swings onto the lamp: it goes dark, which is the component working as designed.
         projection.begin(DIMENSION, true);
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, turned(0.0), torch));
         List<BlockPos> told = changes(projection);
@@ -310,8 +269,7 @@ class CarrierTurnedSignalTest {
         assertEquals(0, lamp[0],
                 "a torch does not signal into the block it hangs on; the dead face stays dead");
 
-        // Half a turn back. Same position, same power, nothing different about the world except the
-        // angle - and this is the step that used to be skipped, leaving the lamp dark for ever.
+        // Half a turn back: same position and same power, and only the angle differs.
         projection.begin(DIMENSION, true);
         projection.put(DIMENSION, projected(CONTRAPTION, LOCAL, turned(180.0), torch));
         told = changes(projection);
@@ -334,9 +292,8 @@ class CarrierTurnedSignalTest {
             worldPos.equals(WORLD.north()) && worldDirection == Direction.NORTH ? 15 : 0;
 
     /**
-     * Requirements ① and ② for the half the author's words are about ("which way the structure reads
-     * the world"), driven at 0°, at 90° and back at 0° through {@link CarrierNetworks}: the torch
-     * follows the world it is really against, and it comes back when the structure turns back.
+     * Driven at 0°, at 90° and back at 0°: the torch follows the world it is really against, and it comes
+     * back when the structure turns back.
      */
     @Test
     @DisplayName("the in-carrier solve follows the pose, and a turn back restores the value it had")
@@ -345,8 +302,8 @@ class CarrierTurnedSignalTest {
         recorder.writes.clear();
         Slot torch = carryTorch();
 
-        // 0 degrees: the source is against the torch's input face, so the torch is put out - after its
-        // delay, which is what a torch does.
+        // At 0 degrees the source is against the torch's input face, so the torch is put out after its
+        // delay.
         solve(1L, flat(), NORTH_SOURCE);
         assertEquals(15, torch.power, "a torch does not follow its input in the same tick");
         assertEquals(1, CarrierNetworks.reportOf(CONTRAPTION).pendingFlips(), "its flip is waiting");
@@ -356,8 +313,7 @@ class CarrierTurnedSignalTest {
         assertEquals(List.of(CONTRAPTION), recorder.writes,
                 "and the new value was re-published once");
 
-        // A right angle, with the world exactly where it was. The pass runs again, the source no longer
-        // reaches the input face, and the torch lights again.
+        // A right angle, with the world where it was: the source no longer reaches the input face.
         CarrierNetworks.TickSummary atRightAngle = solve(5L, turned(90.0), NORTH_SOURCE);
         assertEquals(1, atRightAngle.carriers(), "the structure is still solved after a turn with no move");
         assertEquals(1, CarrierNetworks.reportOf(CONTRAPTION).pendingFlips(),
@@ -376,18 +332,15 @@ class CarrierTurnedSignalTest {
         assertEquals(6, CarrierNetworks.reportOf(CONTRAPTION).solves(),
                 "the solve ran on every pass, turn or no turn: it is not gated on the pose");
 
-        // Requirement ③, measured rather than assumed: nothing about the position changed at any point.
+        // Nothing about the position changed at any point.
         assertEquals(CarrierProjection.project(flat(), LOCAL),
                 CarrierProjection.project(turned(90.0), LOCAL),
                 "the whole sequence happened without the host moving a single block");
     }
 
     /**
-     * The bridge's other direction, and the second hypothesis this round had to settle: is there a
-     * per-carrier cache of the world read that a turn would leave stale? There is not - a bridge is
-     * built from a pose, and the same local side is read at the world position that pose puts it at, in
-     * the world direction that pose gives it. The queries themselves are recorded, so "turning back
-     * reads the same block again" is checked against where the read really went.
+     * The bridge's other direction: there is no per-carrier cache of the world read - a bridge is built
+     * from a pose, so the same local side is read again at the world position that pose names.
      */
     @Test
     @DisplayName("the structure reads the world through the pose it has now, and turning back reads it again")
@@ -406,7 +359,7 @@ class CarrierTurnedSignalTest {
                 readInput(flat(), powered),
                 "and turning back reads the same block again: nothing about the read is cached per carrier");
 
-        // Requirement ③ again: all three reads happened without the host block moving.
+        // All three reads happened without the host block moving.
         assertEquals(CarrierProjection.project(flat(), LOCAL),
                 CarrierProjection.project(turned(90.0), LOCAL));
     }

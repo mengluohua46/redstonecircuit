@@ -34,28 +34,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.20, defect one: the first break of a carried block must drop, and the ghost must not survive.</b>
- *
- * <h2>The author's report</h2>
- * <em>"Breaking a physicalised block does not drop the first time; put it back and break it again and it
- * drops - but the outline and the components are still drawn until physicalisation is turned off."</em>
- *
- * <h2>What this class pins, and why each piece is a different failure</h2>
- * <ol>
- *   <li><b>The first break drops, exactly once.</b> A break event is delivered <em>before</em> the block
- *       is removed, so the structure's own view still reports the block at that moment. The acceptance
- *       rule is therefore evidence-based ({@link CarriedBlockRemoval#accepts}): a hit the projection
- *       table answered is positive identification and does not need the view to agree, while a hit found
- *       by searching the structure's own storage does.</li>
- *   <li><b>The world path is untouched.</b> A position with no carried host answers {@code null} in one
- *       lookup, whatever the structure's view happens to say about it.</li>
- *   <li><b>A release is not a destruction.</b> A landed record is a world host again.</li>
- *   <li><b>"Cannot tell" is never "gone".</b> An unreadable view leaves the record alone, for ever if
- *       need be.</li>
- *   <li><b>The self-healing sweep is bounded and rotates.</b> The one thing about it that cannot be
- *       checked by reading it: with a per-tick budget smaller than a machine's host count, every host is
- *       examined exactly once per full rotation, and never more than the budget in one tick.</li>
- * </ol>
+ * The carried-block removal rules, one failure mode apiece: the first break drops exactly once, the world
+ * path stays untouched, a release is not a destruction, and "cannot tell" is never "gone".
+ * <p>A break event is delivered <em>before</em> the block is removed, so the structure's view still reports
+ * it; acceptance is therefore evidence-based - a hit the projection table answered needs no view to agree.
+ * <p>The self-healing sweep is bounded and rotates, so every host is examined once per full rotation.
  */
 class CarriedBlockRemovalTest {
 
@@ -89,13 +72,8 @@ class CarriedBlockRemovalTest {
     }
 
     /**
-     * A structure whose own view answers a state per local coordinate.
-     *
-     * <p>{@code air} is what "the block is gone" means to the read rule, and a unit test has no block
-     * registry, so this cannot build a real {@code BlockState}. What it <em>can</em> do is count the reads
-     * and answer {@code null} - which the production read maps to {@code UNREADABLE}, the third answer -
-     * so "how many hosts did the sweep look at" and "did it try to act on a view it could not read" are
-     * both assertable without a game.
+     * A structure whose own view answers reads. A unit test has no block registry, so it cannot build a
+     * real {@code BlockState} and answers {@code null} - which production reads as UNREADABLE.
      */
     private static final class FakeStructure implements CarrierAccess {
 
@@ -166,9 +144,7 @@ class CarriedBlockRemovalTest {
     @Test
     @DisplayName("a break the projection table answered is accepted even though the view still reports the block")
     void theFirstBreakIsAcceptedWhileTheStructureStillReportsTheBlock() {
-        // The defect in one assertion: this is the moment a BreakEvent arrives, and the structure's own
-        // view legitimately still has the block there. The old rule required GONE and therefore did
-        // nothing at all.
+        // A break event arrives here, and the structure's view legitimately still has the block there.
         assertTrue(CarriedBlockRemoval.accepts(CarriedBlockRemoval.StructureViewState.PRESENT,
                         CarriedBlockRemoval.ViewRequirement.PROJECTION_IS_PROOF),
                 "a projected hit IS the identification: the view is not the evidence, the table is");
@@ -513,10 +489,8 @@ class CarriedBlockRemovalTest {
     @Test
     @DisplayName("the pose round trip is the guard on the structure-frame coordinate")
     void theStructureFrameCoordinateIsVerifiedThroughThePose() {
-        // The pose maps local -> world at the BLOCK CORNER (SubLevelSpace documents this, and it is why
-        // plot.getBoundingBox() through the pose equals SubLevel#boundingBox), while
-        // CarrierProjection#project names a block by its CENTRE and floors it. Those two conventions
-        // are half a block apart, and the resolver has to have both right at once.
+        // The pose maps local -> world at the BLOCK CORNER, while the projection names a block by its
+        // CENTRE: half a block apart, and the resolver has to have both right at once.
         CarrierPose pose = CarrierPose.at(new Vector3d(10.0, 64.0, 10.0));
         BlockPos local = pos(3, 5, 7);
         BlockPos world = CarrierProjection.project(pose, local);
@@ -524,24 +498,23 @@ class CarriedBlockRemovalTest {
                 "the coordinate CarrierProjection#project computed for a host comes back as that host's "
                         + "own local coordinate - the two halves of the click resolver agree");
 
-        // The other half of the same convention: for any world block the pose really names, the
-        // coordinate that comes back must project forward onto that very block.
+        // The other half of the same convention: a coordinate that comes back must project forward onto
+        // that very block.
         BlockPos anywhere = pos(1, 2, 3);
         BlockPos named = CarrierStore.localForVerified(pose, anywhere);
         assertNotNull(named, "the pose names a coordinate for any block it covers");
         assertEquals(anywhere, CarrierProjection.project(pose, named),
                 "and that coordinate is exactly the one the projection table would key this block by");
 
-        // A pose with no inverse - the shape a scale of zero or a structure mid-write has - must name
-        // no coordinate at all rather than one that lands somewhere else.
+        // A pose with no inverse must name no coordinate at all rather than one that lands elsewhere.
         CarrierPose degenerate = new CarrierPose(new Vector3d(10.0, 64.0, 10.0), new Quaterniond(),
                 new Vector3d(0.5, 0.5, 0.5), 0.0);
         assertNull(CarrierStore.localForVerified(degenerate, pos(10, 64, 10)),
                 "a pose that cannot round-trip resolves nothing: no drop and no interaction on a guess");
         assertNull(CarrierStore.localForVerified(null, pos(1, 2, 3)), "and no pose, no coordinate");
 
-        // A turn in place is the case a corner-versus-centre confusion shows up on: the same block,
-        // named the same way, at any angle.
+        // A turn in place is where a corner-versus-centre confusion shows up: the same block, named the
+        // same way, at any angle.
         for (double degrees : new double[] {90.0, -37.5, 180.0}) {
             CarrierPose turned = CarrierPose.of(new Vector3d(10.0, 64.0, 10.0),
                     new Quaterniond().rotateY(Math.toRadians(degrees)));
@@ -587,11 +560,9 @@ class CarriedBlockRemovalTest {
         }
 
         /**
-         * The structure's own block storage answer.
-         *
-         * <p>Only the compat half can answer this in production - it is Sable's plot query - and the
-         * test supplies it directly so the pose round trip that <em>qualifies</em> the answer (see
-         * {@code CarrierStore#localForVerified}) is what is exercised, rather than a bounding box.
+         * The structure's own block storage answer. Only the compat half can answer this in production -
+         * it is the plot query - so the test supplies it directly, which exercises the pose round trip
+         * that qualifies the answer rather than a bounding box.
          */
         @Override
         @Nullable

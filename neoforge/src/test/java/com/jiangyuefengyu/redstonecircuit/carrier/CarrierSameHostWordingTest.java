@@ -27,58 +27,16 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.33 commit C: what the judgement line says when a player clicks the same carried block twice.</b>
+ * What the judgement line says when a player clicks the same carried block twice.
  *
- * <h2>The seven lines the author's log is full of</h2>
- * <pre>
- *   carrier s:7061d621: select DUST at local=20481032, 127, 20481032 riding s:7061d621 local=20481032, 127, 20481032 …
- *   carrier s:7061d621: link refused: not a link picked=s:7061d621 local=20481032, 127, 20481032 (DUST)
- *       on=s:7061d621 local=20481032, 127, 20481032 side=? entry=RIGHT_CLICK_BLOCK
- * </pre>
+ * <p>A plain wrench click <em>picks</em> the near end of a line, so it must not be reported as a refusal - and the
+ * ledger has no case for a select, so it needs a name of its own. The shifted click on the picked host is the world's
+ * own {@code clear} gesture, and the carrier side has three answers for it: an override was dropped (cleared); there
+ * was nothing left to clear, and the pick survives the click as {@link CarrierLinkLedger.Reason#SAME_HOST}; or the
+ * picked host holds no component, which is a genuine refusal rather than a wording problem.
  *
- * <p>The first line is the wrench doing exactly what it should - a plain click <em>picks</em> the near end
- * of a line. The second is the same click being reported as a refusal, because the ledger had no case for
- * a select and fell through to its "no case observed" text ({@code not a link}). Every one of the
- * author's eight such lines is a select - the {@code sneaking=false} column beside them says so - and each
- * names the picked coordinate and the clicked coordinate as the same number: they clicked one block over
- * and over, and every time the tool worked and the log said it had failed.
- *
- * <h2>The world's own semantics, which the carrier side has to match</h2>
- * {@code InnerRedstoneInteraction#useWrench} has three answers for a wrench click on a host, and the
- * carrier side already had all three decisions - what was missing was the last one's <em>name</em>:
- *
- * <table>
- *   <caption>The three answers, and the action bar each one shows</caption>
- *   <tr><th></th><th>the world</th><th>the carrier side</th><th>action bar</th></tr>
- *   <tr><td>plain click on a host</td><td>{@code WrenchSelection#select},
- *       {@code wrench.selected}</td><td>{@code CarriedTool#select},
- *       {@code selected_carrier}</td><td>已选中 …</td></tr>
- *   <tr><td>shift-click the picked host, overrides present</td>
- *       <td>{@code WrenchLinks#clear}, {@code wrench.cleared}</td>
- *       <td>{@code CarriedTool#clearChecked} → {@code Cleared}</td>
- *       <td>{@code cleared_carrier}: 已清除这里的全部连接设定，恢复自动连接</td></tr>
- *   <tr><td>shift-click the picked host, already automatic</td>
- *       <td>the same {@code clear} - "nothing to drop" is still "cleared" there</td>
- *       <td>{@code AlreadyClear}: the pick survives, so the line names it</td>
- *       <td>{@code same_block}: 这就是你选中的那个方块；连线要在紧挨着的两个方块之间</td></tr>
- * </table>
- *
- * <p>The third row is the one place the carrier side is deliberately different from the world: the pick
- * has to survive that click (see {@code CarriedTool#clearChecked}), so the click gets a name of its own -
- * {@link CarrierLinkLedger.Reason#SAME_HOST} - instead of a refusal. What it must never be is
- * {@code not a link}.
- *
- * <h2>What is asserted</h2>
- * <ol>
- *   <li><b>cleared</b>: an override was dropped, and the line says so;</li>
- *   <li><b>already automatic</b>: nothing was left to clear, the pick is still named, and the line is
- *       tellable apart from the first;</li>
- *   <li><b>a genuine refusal</b>: the picked host holds no component - a real "there is nothing here to
- *       route", not a wording problem;</li>
- *   <li><b>a select is not a refusal</b>: the plain-click line carries its own heading and never says
- *       {@code link refused} or {@code not a link};</li>
- *   <li><b>the action bar has words for all four</b>, in both language files.</li>
- * </ol>
+ * <p>Asserted: the three answers are three different lines and none of them reads {@code not a link}; the plain-click
+ * line carries its own heading and names the pick; and all four answers have action-bar words in both language files.
  */
 class CarrierSameHostWordingTest {
 
@@ -120,7 +78,7 @@ class CarrierSameHostWordingTest {
             }
         }
 
-        /** The author's machine: one host holding a component, and a neighbour to draw a line to. */
+        /** One host holding a component, and a neighbour to draw a line to. */
         Fixture twoHosts() {
             carry(A, A_WORLD);
             carry(B, B_WORLD);
@@ -206,7 +164,7 @@ class CarrierSameHostWordingTest {
                             + "player has not asked for it to be forgotten: " + action.describe());
             String line = fixture.lineOf(action, A);
             assertTrue(line.contains("the pick and the click are the same host"),
-                    "the line names the pick, which is the answer the author's log needed: " + line);
+                    "the line names the pick: " + line);
             assertTrue(line.contains("nothing left to clear"),
                     "and it says what the click found, so `cleared` and `already automatic` are two "
                             + "different lines: " + line);
@@ -267,7 +225,7 @@ class CarrierSameHostWordingTest {
 
             assertNotNull(line);
             assertTrue(line.describe().startsWith("picked the near end of a line"),
-                    "the author's log printed `link refused: not a link` here, for a click that worked: "
+                    "a select must never read as a refusal: "
                             + line.describe());
             assertFalse(line.describe().contains("not a link"), line.describe());
             assertFalse(line.describe().contains("refused"),

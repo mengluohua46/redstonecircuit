@@ -1,5 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit;
 
+import java.util.List;
+
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -20,11 +22,8 @@ public final class RCConfig {
             .define("validateHosts", true);
 
     public static final ModConfigSpec.BooleanValue DEBUG_LOG = BUILDER
-            .comment("Log every placement/retrieval, including refused ones, to the game log.",
-                    "The DEFAULT follows the package: detailed while the mod is built and tested, light",
-                    "(false) in a release package - see BuildFlags. On a released",
-                    "jar, set this to true when you need a diagnostic log: that is the supported way to ask.",
-                    "The build flags the detailed per-tick diagnostics in the compat/carrier layer too.")
+            .comment("Log every placement and retrieval, including refused ones, to the game log.",
+                    "Off in release builds; set it to true when you need a diagnostic log.")
             .define("debugLog", BuildFlags.defaultDebugLog());
 
     public static final ModConfigSpec.BooleanValue ALLOW_REPLACE = BUILDER
@@ -32,16 +31,27 @@ public final class RCConfig {
                     "Off by default: a second placement falls through to vanilla instead.")
             .define("allowReplace", false);
 
+    /**
+     * Whether 方块放置器 may create a standalone structure - OFF by default, because of Sable's side of the fence.
+     *
+     * <p>That machine's physical half makes a new Sable sub-level for the block it places, and a <em>saved</em>
+     * sub-level whose global storage entry cannot be read is reported on every world load. Allocating a structure and
+     * removing it again - which is what a refused placement does - is the only thing this mod does that touches that
+     * bookkeeping, so until Sable's storage semantics are understood the machines create nothing at all: the
+     * activation is refused, the item is not spent and nothing is written anywhere.
+     */
+    public static final ModConfigSpec.BooleanValue PLACER_CREATES_STRUCTURES = BUILDER
+            .comment("Let the block placer create a standalone one-block structure when it is itself physical.",
+                    "Off by default.")
+            .define("placerCreatesStructures", false);
+
     // -------------------------------------------------------- host appearance --
     // These only affect what a client draws; they are read locally and never sent anywhere, so
     // putting them in the common file (rather than a second, client-only one) costs nothing.
 
     public static final ModConfigSpec.EnumValue<OverlayMode> HOST_OVERLAY_MODE = BUILDER
-            .comment("When the block containing redstone is drawn as a translucent, framed cube with the",
-                    "component visible inside it.",
-                    "GOGGLES - only while wearing the redstone goggles, as the design asks (R6);",
-                    "ALWAYS  - hand out the effect for free, useful while testing;",
-                    "OFF     - never, exactly as if the mod drew nothing.")
+            .comment("When the block holding redstone is drawn as a translucent, framed cube with the component visible inside.",
+                    "GOGGLES (default) only while wearing the redstone goggles, ALWAYS, or OFF for no overlay at all.")
             .defineEnum("hostOverlayMode", OverlayMode.GOGGLES);
 
     /** When a host block is drawn specially. */
@@ -52,9 +62,7 @@ public final class RCConfig {
     }
 
     public static final ModConfigSpec.IntValue HOST_OVERLAY_ALPHA = BUILDER
-            .comment("Opacity of that shell, 0-255. Around 150 reads as frosted glass - the component",
-                    "inside stays clearly visible; 0 draws the border only.",
-                    "Switch the goggle check off with hostOverlayMode=ALWAYS to see the difference.")
+            .comment("Opacity of the shell, 0-255. Around 150 reads as frosted glass; 0 draws the border only.")
             .defineInRange("hostOverlayAlpha", 150, 0, 255);
 
     public static final ModConfigSpec.ConfigValue<String> HOST_OVERLAY_COLOR = BUILDER
@@ -72,28 +80,17 @@ public final class RCConfig {
 
     public static final ModConfigSpec.ConfigValue<String> SUPERCONDUCTOR_FRAME_COLOR = BUILDER
             .comment("Border colour for a block holding SUPERCONDUCTING wire, as RRGGBB hex.",
-                    "The wire inside a block is small, so the border is what tells the two wire materials",
-                    "apart at a glance. Defaults to the orange the superconducting art itself carries;",
-                    "set it to the same value as hostOverlayFrameColor to switch the distinction off.")
+                    "Tells the two wire materials apart; set it equal to hostOverlayFrameColor to drop the distinction.")
             .define("superconductorFrameColor", "FF8C00");
 
     public static final ModConfigSpec.BooleanValue HOST_ACCEPTS_STRONG_POWER = BUILDER
-            .comment("Whether a host block also accepts the strong power a neighbouring SOLID block carries.",
-                    "On (vanilla semantics): a repeater or torch pushing into a stone block makes redstone next",
-                    "to that block live, exactly as it does in vanilla - and a stone block that a wire, torch",
-                    "or repeater elsewhere has charged will therefore light the redstone inside the block",
-                    "beside it. Turn this OFF to have inner redstone react only to blocks that emit a signal",
-                    "themselves, which is friendlier when vanilla wiring runs alongside your host blocks.")
+            .comment("Whether a host block is powered by the strong power a neighbouring SOLID block carries, as in vanilla.",
+                    "Turn this off so inner redstone reacts only to blocks that emit a signal themselves.")
             .define("hostAcceptsStrongPower", true);
 
     public static final ModConfigSpec.BooleanValue HOST_CONDUCTS_STRONG_POWER = BUILDER
-            .comment("Whether a host block passes on the strong power a neighbouring diode pushes into it,",
-                    "the way a plain block of stone does.",
-                    "Off (the default): a repeater that points into another repeater's block hands its",
-                    "signal to that component and nothing else. With it on, that block also carried the",
-                    "power onwards to everything around it, so two repeaters in a row lit every piece of",
-                    "redstone dust beside the first one - which reads as the repeater signalling sideways.",
-                    "Turn it on for strict vanilla block semantics.")
+            .comment("Whether a host block passes on the strong power a neighbouring diode pushes into it.",
+                    "Off by default, so that power stops at the component inside; on gives vanilla block semantics.")
             .define("hostConductsStrongPower", false);
 
     public static final ModConfigSpec.BooleanValue INNER_COMPONENTS = BUILDER
@@ -102,35 +99,25 @@ public final class RCConfig {
             .define("showInnerComponents", true);
 
     public static final ModConfigSpec.BooleanValue INNER_VISIBLE_THROUGH_WALLS = BUILDER
-            .comment("Draw the component even when a solid block is in the way. Off (the default) means",
-                    "the inside of a block is only shown when you can actually see that block, so the",
-                    "effect never becomes X-ray vision through a wall.")
+            .comment("Draw the component even when a solid block is in the way.",
+                    "Off (the default) so the effect never becomes X-ray vision through a wall.")
             .define("seeInnerComponentsThroughWalls", false);
 
     public static final ModConfigSpec.BooleanValue FORCE_OVERLAY_DRAW = BUILDER
-            .comment("DEBUG. Draw the shell and the component for every host the pass knows about,",
-                    "ignoring the colour settings, hostOverlayFrameAlpha, showInnerComponents and the",
-                    "shader pack's solid-frame rule.",
-                    "It deliberately does NOT ignore hostOverlayMode: with the mode at OFF nothing is",
-                    "collected at all, so forcing the per-host gates has nothing to force, and turning",
-                    "the mode off must stay a way to see the world exactly as if this mod drew nothing.",
-                    "Its one job is to separate the two ways a component can be missing on screen:",
-                    "'a setting switched the geometry off' and 'the geometry was drawn and not seen'.",
-                    "A frame with forceOverlayDraw=true and a frame summary that still reports 0 quads",
-                    "is the second one, and the frame summary now says so in as many words.")
+            .comment("DEBUG. Draw the shell and component for every known host, ignoring the colour and visibility settings.",
+                    "Off by default; hostOverlayMode=OFF still draws nothing.")
             .define("forceOverlayDraw", false);
 
     // ----------------------------------------------------------------- wrench --
 
     public static final ModConfigSpec.BooleanValue WRENCH_NEEDS_GOGGLES = BUILDER
-            .comment("Require the redstone goggles to be worn before the wrench will do anything, as the",
-                    "design asks (R7). Turn it off to adjust connections without them.")
+            .comment("Require the redstone goggles to be worn before the wrench will do anything.",
+                    "On by default. Turn it off to adjust connections without them.")
             .define("wrenchNeedsGoggles", true);
 
     public static final ModConfigSpec.BooleanValue WRENCH_CLEAR_ON_SAME_BLOCK = BUILDER
-            .comment("Shift-right-clicking the block you already selected with the wrench clears all of",
-                    "that block's connection overrides. On by default: without it there is no way back to",
-                    "automatic behaviour from the item itself.")
+            .comment("Shift-right-clicking the block already selected with the wrench clears its connection overrides.",
+                    "On by default; without it there is no way back to automatic behaviour from the item.")
             .define("wrenchClearOnSameBlock", true);
 
     // ---------------------------------------------------------- rotation rod --
@@ -140,6 +127,13 @@ public final class RCConfig {
                     "On by default, like the wrench: aiming a component is done by looking at it.")
             .define("rotationRodNeedsGoggles", true);
 
+    // ------------------------------------------------------- inside the block --
+
+    public static final ModConfigSpec.BooleanValue INNER_ADJUST_NEEDS_GOGGLES = BUILDER
+            .comment("Require the redstone goggles before a bare hand can change a setting inside a block (a delay, a mode).",
+                    "On by default. Levers and buttons are exempt, and a refusal is silent.")
+            .define("innerAdjustNeedsGoggles", true);
+
     // ------------------------------------------------------------------- sync --
 
     public static final ModConfigSpec.BooleanValue TRACE_SLOT_SYNC = BUILDER
@@ -147,473 +141,363 @@ public final class RCConfig {
                     "answers 'is the client being told about this block at all'.")
             .define("traceSlotSync", false);
 
-    // -------------------------------------------------- moving structures (P1) --
-    // The three settings below only do anything when Sable and/or Create is installed. With neither,
-    // nothing in this mod ever consults them.
+    // ------------------------------------------------------- moving structures --
+    // These settings only do anything when Sable and/or Create is installed; with neither, nothing
+    // in this mod ever consults them.
 
     public static final ModConfigSpec.BooleanValue CARRIER_ENABLED = BUILDER
-            .comment("Let inner redstone components travel with the Create contraption or Sable",
-                    "sub-level their host block is picked up by, and put them back when it is set down.",
-                    "On by default. Turn it off to keep the old behaviour (a component stays behind at",
-                    "the world position, which then reads as air) without uninstalling anything.")
+            .comment("Let inner redstone components travel with the Create contraption or Sable sub-level that picks their block up.",
+                    "On by default. Turn it off to leave components behind at their world position.")
             .define("carrierEnabled", true);
 
     public static final ModConfigSpec.BooleanValue TRACE_CARRIER = BUILDER
-            .comment("Log every contraption callback, including the ones that carry nothing because",
-                    "the block holds no component. That is one line per block of the machine, so it is",
-                    "off by default; it is what answers 'is my block type being hooked at all'.")
+            .comment("Log every contraption callback, including the ones that carry nothing.",
+                    "Off by default (one line per block of a machine); use it to check whether your block type is hooked.")
             .define("traceCarrier", false);
 
     public static final ModConfigSpec.BooleanValue CARRIER_FREEZE_WORLD_IO = BUILDER
             .comment("Close the bridge between a carried component and the world it is flying through.",
-                    "OFF (the default, P4): the two sides can see each other. A host block riding a",
-                    "structure reports its power at the world position it currently occupies - so a",
-                    "machine lights the redstone it passes over - and reads the world signal at that",
-                    "same position, so a lever on the ground feeds the machine. Nothing in the world is",
-                    "ever modified: only readings are provided.",
-                    "ON: exactly the P1/P2 behaviour, in which neither direction is open. Kept so the",
-                    "bridge can be compared against a machine that cannot see the world at all.")
+                    "Off by default: the two sides can see each other, so a machine lights the redstone it passes over.")
             .define("carrierFreezeWorldIo", false);
 
     /**
-     * P1.19, defect two: whether a structure's <b>own</b> blocks count as an input to the solve inside
-     * it.
+     * Whether a structure's <b>own</b> blocks count as an input to the solve inside it.
      *
-     * <p>A host block riding a machine has two neighbourhoods: the world the machine is flying through
-     * (the P4 bridge, closed by {@code carrierFreezeWorldIo}) and the machine's own blocks, which
-     * travel with it. The author's report - "the lever can be flicked but nothing inside wakes up" - is
-     * the second one: a lever or an Aeronautics throttle lever carried <em>inside</em> the structure
-     * emits its signal as a block state, and before this switch existed nothing ever read it.
-     *
-     * <p>On (the default): the inside solve reads its own input side as the larger of the two halves,
-     * so a lever next to a carried host block powers the redstone inside it exactly as it would on the
-     * ground, and the reading rules are the same function the world half uses.
-     *
-     * <p>Off: exactly the withdrawn behaviour - only the world half is read, and a structure's own
-     * lever reaches nothing. Kept as a one-line escape hatch so a machine that misbehaves can be put
-     * back to the previous behaviour without swapping the jar.
+     * <p>A host block riding a machine has two neighbourhoods: the world it is flying through (the bridge
+     * {@code carrierFreezeWorldIo} closes) and the machine's own blocks, which travel with it. A lever carried
+     * <em>inside</em> the structure emits its signal as a block state, so with this on the inside solve reads its own
+     * input side as the larger of the two halves, and a lever next to a carried host block powers the redstone inside
+     * it exactly as it would on the ground. Off reads only the world half.
      */
     public static final ModConfigSpec.BooleanValue CARRIER_STRUCTURE_SIGNALS = BUILDER
-            .comment("Let the redstone inside a moving structure read the SIGNAL SOURCES THE STRUCTURE",
-                    "ITSELF IS CARRYING (a lever, a throttle lever, a button, a torch) as an input to",
-                    "the in-structure solve, the same way it reads the world around it.",
-                    "ON (default): the inside solve takes the larger of 'the world outside' and 'the",
-                    "machine's own blocks', so a lever carried next to a host block powers the redstone",
-                    "inside it. OFF: only the world outside is read - the previous behaviour.")
+            .comment("Let the redstone inside a moving structure read the signal sources the structure itself is carrying.",
+                    "On by default: a lever carried next to a host block powers the redstone inside it. Off reads only the world outside.")
             .define("carrierStructureSignals", true);
 
     /**
-     * P1.36: whether an output change inside a structure also wakes the neighbours of the
-     * <b>structure's own coordinate</b>.
+     * Whether an output change inside a structure also wakes the neighbours of the <b>structure's own
+     * coordinate</b>.
      *
-     * <p>A Sable sub-level's blocks are the level's own blocks at their plot coordinates (P1.30
-     * verified this: plot coordinate == level coordinate), so a vanilla device the machine carries - a
-     * piston, a lamp, a piece of redstone wire - lives at a real level position and is ticked by the
-     * level. What it does <em>not</em> get is a notification: the only thing P4 ever notified was the
-     * world position a host is projected onto, which is where the machine <em>looks</em> like it is and
-     * not where its own blocks are. The author's report - "the redstone inside a physicalised block
-     * cannot drive the piston above it" - is exactly that missing notification.
-     *
-     * <p>On (the default): when a carried host's output changes, its structure coordinate is notified
-     * as well, once per tick, with the same rule vanilla uses. It is read-only - the world store is
-     * never written at that coordinate, which is the mistake sections 26-30 removed.
-     *
-     * <p>Off: exactly the behaviour before this round (only the projected world position is
-     * notified). Independent of {@code carrierFreezeWorldIo}: that switch closes the bridge between
-     * the machine and the world it flies through, while this one is about the machine's own blocks,
-     * which travel with it.
+     * <p>A Sable sub-level's blocks are the level's own blocks at their plot coordinates, so a vanilla device the
+     * machine carries - a piston, a lamp, a piece of wire - lives at a real level position and is ticked by the
+     * level, but nothing notifies it: the only position a carried host is projected onto is the world position the
+     * machine <em>looks</em> like it is at, not where its own blocks are. With this on the structure coordinate is
+     * notified as well, once per tick and read-only - the world store is never written there - with the same rule
+     * vanilla uses. Independent of {@code carrierFreezeWorldIo}, which is about the world the machine flies through.
      */
     public static final ModConfigSpec.BooleanValue CARRIER_NOTIFY_STRUCTURE_NEIGHBOURS = BUILDER
-            .comment("Also notify the neighbours of a carried host's OWN structure coordinate when the",
-                    "component's output changes - not only the world position the host is projected",
-                    "onto.",
-                    "ON (default): a vanilla device the machine is carrying (a piston above the",
-                    "redstone, a lamp, a wire) is woken and re-reads the signal, the way it would if",
-                    "the same blocks stood in the world. It is only a notification: nothing is ever",
-                    "written into the world store at that coordinate.",
-                    "OFF: the previous behaviour - only the projected world position is notified, so a",
-                    "device inside the structure never hears about the change.")
+            .comment("Also notify the neighbours of a carried host's OWN structure coordinate when its output changes.",
+                    "On by default: a piston, lamp or wire the machine carries wakes up, as it would on the ground. Off notifies only the projected world position.")
             .define("carrierNotifyStructureNeighbours", true);
 
     /**
-     * P1.19, defect one: whether breaking a block that a structure is carrying drops the component
-     * inside it.
+     * Whether breaking a block that a structure is carrying drops the component inside it.
      *
-     * <p>In the world, breaking a host block drops its component (the {@code BlockEvent.BreakEvent}
-     * path has always done that). A host block that has been physicalised - taken into a Sable
-     * sub-level or a Create contraption - is removed by whoever owns those blocks, and nothing dropped
-     * the component: it stayed in the carried record until the structure was released, which is
-     * invisible and, worse, can write a component back into a block that no longer exists.
-     *
-     * <p>On (the default): a break at a position the carrier layer answers for drops the component as
-     * an item at the position the block was, exactly once, and forgets the record. Nothing is dropped
-     * for a release or a landing - only when the block has really been removed.
-     *
-     * <p>Off: the previous behaviour - nothing is dropped on that path.
+     * <p>In the world, breaking a host block drops its component. A physicalised host block is removed by whoever
+     * owns those blocks, and nothing dropped the component: it stayed in the carried record, invisible, and could
+     * write a component back into a block that no longer exists. On, a break at a position the carrier layer answers
+     * for drops the item once, at the position the block was, and forgets the record; nothing is dropped for a
+     * release or a landing.
      */
     public static final ModConfigSpec.BooleanValue CARRIER_BLOCK_DROPS = BUILDER
-            .comment("Drop the component as an item when a block a structure is CARRYING is broken,",
-                    "the same way breaking a host block in the world does.",
-                    "ON (default): the component is dropped where the carried block was, exactly once,",
-                    "and the carried record is forgotten. OFF: nothing is dropped (the previous",
-                    "behaviour - the component stays in the carried record until the structure is put",
-                    "down). Never fires for a release or a landing, only for a block that was removed.")
+            .comment("Drop the component as an item when a block a structure is CARRYING is broken, as in the world.",
+                    "On by default; it drops once, where the block was. Never fires for a release or a landing.")
             .define("carrierBlockDrops", true);
 
     /**
-     * P1.30: whether a world-store entry that stands at a structure's own plot coordinate is
-     * <b>migrated</b> into the carrier index.
+     * Whether a world-store entry standing at a structure's own plot coordinate is <b>migrated</b> into the carrier
+     * index.
      *
-     * <h2>The state this repairs, and why it is a state and not an event</h2>
-     * A Sable sub-level's blocks <b>are</b> the level's blocks at their own local coordinates inside the
-     * plot region, so the world store's key space and a structure's local coordinate space overlap: a
-     * component can be sitting in {@code InnerRedstoneStore} at a coordinate that is simultaneously "a
-     * position in the level" and "a block inside a machine". The author's log is exactly that -
-     * {@code placed RETAINING_REPEATER at 20481032, 127, 20481032} with {@code carrier claim = 0} for the
-     * whole session - and the consequence is two truths about one block: Jade reads the world store and
-     * displays the component, the overlay reads the carrier index and draws nothing, the world bridge
-     * cannot see it, and breaking the block drops it through the world's own break path.
-     *
-     * <p>On (the default): the claim sweep also adopts such entries - the component becomes a carrier
-     * record at that coordinate and the <b>world entry is removed</b>, so the two stores cannot disagree
-     * any more. The {@code origin} recorded for an adopted host is the world position the structure's own
-     * pose names for that coordinate right now; see {@code CarrierStore#adoptWorldComponent} for why that
-     * is the honest value and not the plot coordinate.
-     *
-     * <p>Off: the previous behaviour - nothing is migrated, and a save that is already in this state stays
-     * in it. Turning it off does not undo an adoption that has already happened, and does not stop P1.30's
-     * prevention half ({@code carriedInsertPriority}), which is what keeps new ones from being written.
-     *
-     * <p>Bounded and throttled: at most {@code ADOPT_NODES_PER_PASS} world-store entries are examined per
-     * structure per attempt, one attempt per structure per {@code ADOPT_INTERVAL} ticks, and the attempts
-     * stop after {@code ADOPT_MAX_PASSES}. The work is never done per tick per block.
+     * <p>A Sable sub-level's blocks <b>are</b> the level's blocks at their own local coordinates, so the world store's
+     * key space and a structure's local coordinate space overlap and one block can have two truths: Jade reads the
+     * world store and shows the component while the overlay, which reads the carrier index, draws nothing. On, the
+     * claim sweep adopts such entries - the component becomes a carrier record there and the <b>world entry is
+     * removed</b> - with {@code origin} set to the world position the structure's pose names for that coordinate now.
+     * Bounded and throttled: {@code ADOPT_NODES_PER_PASS} entries per structure per attempt, one attempt per
+     * {@code ADOPT_INTERVAL} ticks, stopping after {@code ADOPT_MAX_PASSES}.
      */
     public static final ModConfigSpec.BooleanValue ADOPT_WORLD_COMPONENTS = BUILDER
-            .comment("Migrate a component that is in the WORLD's own store at a moving structure's own",
-                    "coordinate into that structure's carried record, and remove the world entry.",
-                    "This is the repair for a save that already has such an entry: without it the",
-                    "component is displayed by Jade, drawn by nothing, inert towards the world, and",
-                    "dropped by the world's own break path - two truths about one block.",
-                    "ON (default). OFF: nothing is migrated (the previous behaviour).",
-                    "Bounded and throttled: a few world-store entries per structure every second, and a",
-                    "limited number of attempts per structure.")
+            .comment("Migrate a component in the WORLD's own store at a moving structure's own coordinate into that structure's record.",
+                    "On by default; this repairs a save that already has such an entry.")
             .define("adoptWorldComponents", true);
 
     /**
-     * P1.20: how many carried hosts the self-healing sweep may examine per level tick.
+     * How many carried hosts the self-healing sweep may examine per level tick; {@code 0} turns it off.
      *
-     * <p>The second trigger for "a block a structure is carrying has gone", and the one that closes the
-     * ghost off rather than moving it: a break event is only one of the ways a carried block can leave,
-     * and {@code BlockEvent.BreakEvent} never fires for a Create drill or saw taking a block out through
-     * its own movement behaviour.
-     *
-     * <p><b>It reads one block per host, on the level tick, so it has to be bounded.</b> This value is
-     * that bound: the sweep walks at most this many hosts per tick, continuing from a per-carrier cursor
-     * on the next tick, so a machine larger than the budget is finished over several ticks rather than
-     * examined all at once. The default is deliberately small - the sweep only has to be eventually
-     * complete, and the ordinary path is the break event, which is immediate.
-     *
-     * <p>{@code 0} switches the sweep off completely (and restores exactly the P1.19 behaviour), so a
-     * player who suspects it can turn it off without changing anything else.
-     *
-     * <p>It never acts on a structure it cannot read, and never on a block that is still there - so a
-     * structure that is merely being moved cannot be mistaken for one that has been broken.
+     * <p>The sweep is the second trigger for "a block a structure is carrying has gone", and the one that closes the
+     * ghost off rather than moving it: a break event is only one of the ways a carried block can leave, and it never
+     * fires for a Create drill or saw taking a block out through its own movement behaviour. It reads one block per
+     * host on the level tick, so it walks at most this many hosts per tick, continuing from a per-carrier cursor on
+     * the next tick. It never acts on a block that is still there, so a structure merely being moved cannot be
+     * mistaken for one that has been broken.
      */
     public static final ModConfigSpec.IntValue CARRIER_SELF_HEAL_CHECK_PER_TICK = BUILDER
-            .comment("How many blocks riding a moving structure the self-healing sweep may examine per",
-                    "tick, looking for carried host blocks that have been removed without a break event",
-                    "(a Create drill or saw, another mod's structure edit). A host whose own structure no",
-                    "longer has a block at its local coordinate is treated as broken: its component is",
-                    "dropped as an item where the block was, and the client is told to stop drawing it.",
-                    "The sweep walks at most this many hosts per tick and continues from where it left",
-                    "off, so a large machine is covered over several ticks. 0 turns the sweep off entirely",
-                    "(the P1.19 behaviour: only a break event drops a carried component).")
+            .comment("How many blocks riding a moving structure the self-healing sweep may examine per tick.",
+                    "It drops the component of a carried block removed without a break event (a drill or saw). 0 turns it off.")
             .defineInRange("carrierSelfHealCheckPerTick", 8, 0, 4096);
 
     /**
-     * P1.20: whether the world's <b>inner</b> solve reads the output of a host a structure is carrying.
+     * Whether the world's <b>inner</b> solve reads the output of a host a structure is carrying.
      *
-     * <p>The reverse of {@link #CARRIER_STRUCTURE_SIGNALS}, and the direction the author asked for: a
-     * component inside a block standing in the world must see the signal a carried host emits at the
-     * world position that host currently occupies. Vanilla's own signal query already answers it through
-     * the projection table ({@code BlockStateSignalMixin}), and this makes the mod's own world-side read
-     * ask directly as well, with the same rule and the same direction conversion - so a lamp, a piston
-     * or a piece of redstone beside a passing machine behaves the same whether it is read by vanilla or
-     * by us.
-     *
-     * <p>On (the default). Off: the world-side read is exactly what it was before - whatever vanilla's
-     * query answers - and no projection table is consulted from the solve.
+     * <p>The reverse direction of {@link #CARRIER_STRUCTURE_SIGNALS}: a component inside a block standing in the
+     * world must see the signal a carried host emits at the world position that host currently occupies. Vanilla's
+     * own query already answers it through the projection table, and this makes the mod's world-side read ask
+     * directly as well, with the same rule and the same direction conversion, so a lamp, a piston or a piece of
+     * redstone beside a passing machine behaves the same whether vanilla or this mod reads it. Off reads only
+     * vanilla's own query.
      */
     public static final ModConfigSpec.BooleanValue CARRIER_WORLD_READS_PROJECTION = BUILDER
-            .comment("Let the redstone inside an ordinary block standing in the world read the output of",
-                    "a host block a moving structure is CARRYING, at the world position it currently",
-                    "occupies. ON (default): the world-side solve reads the projection table directly, with",
-                    "the same rule and the same direction conversion vanilla's own signal query uses, so a",
-                    "machine passing a lamp or a piece of redstone is seen by it. OFF: only vanilla's own",
-                    "query answers - the behaviour before this switch existed.")
+            .comment("Let the redstone inside an ordinary block in the world read the output of a host a structure is CARRYING.",
+                    "On by default, at the world position that host occupies; off reads only vanilla's own query.")
             .define("carrierWorldReadsProjection", true);
 
     /**
-     * P1.20: whether the redstone wrench can be used on a host a structure is carrying.
+     * Whether the redstone wrench can be used on a host a structure is carrying.
      *
-     * <p>The author's question - <em>can a physicalised block be operated with the wrench or the rotation
-     * rod</em> - and the answer is yes, through a <b>carrier-only</b> entry point that never touches the
-     * world's own click handling ({@code CarrierInteraction}): the click is resolved to a host in the
-     * carrier index, the three-state lock/cut/automatic cycle is applied to that host's record, and the
-     * client is re-sent so the overlay redraws at once.
-     *
-     * <p>On (the default). Off: a click with the wrench on a carried host does nothing at all - exactly
-     * the P1.19 behaviour. The world's wrench is <b>not</b> affected by this switch in either position.
+     * <p>Through a <b>carrier-only</b> entry point that never touches the world's own click handling
+     * ({@code CarrierInteraction}): the click is resolved to a host in the carrier index, the three-state
+     * lock/cut/automatic cycle is applied to that host's record, and the client is re-sent so the overlay redraws at
+     * once. Off, such a click does nothing at all; the world's wrench is not affected either way.
      */
     public static final ModConfigSpec.BooleanValue CARRIED_WRENCH = BUILDER
-            .comment("Let the redstone wrench be used on a host block a moving structure is CARRYING: pick",
-                    "it, then shift-click a neighbouring carried host to step that line through locked /",
-                    "cut / automatic, exactly as on a block standing in the world.",
-                    "ON (default). OFF: nothing happens on a carried host, i.e. the previous behaviour.",
-                    "The world's own wrench behaviour is not affected either way.")
+            .comment("Let the redstone wrench be used on a host block a moving structure is CARRYING: pick it, then shift-click a neighbour.",
+                    "That steps the line through locked / cut / automatic. Off leaves a carried host untouched.")
             .define("carriedWrench", true);
 
     /**
-     * P1.20: whether the rotation rod can be used on a host a structure is carrying.
+     * Whether the rotation rod can be used on a host a structure is carrying.
      *
-     * <p>The same as {@link #CARRIED_WRENCH}, for 方向转向杆: clicking a face of a carried host turns the
-     * component inside it so that face is its input side, or its output side if that is already where it
-     * reads from. The clicked face arrives as a <b>world</b> direction and is turned into the structure's
-     * own frame through the same quaternion conversion the signal paths use, so a machine that has been
-     * rotated turns its components the way the player expects.
-     *
-     * <p>On (the default). Off: a click with the rod on a carried host does nothing - the P1.19
-     * behaviour. The world's rod is not affected either way.
+     * <p>The same as {@link #CARRIED_WRENCH}, for 方向转向杆: clicking a face of a carried host turns the component
+     * inside it so that face is its input side, or its output side if that is already where it reads from. The
+     * clicked face arrives as a <b>world</b> direction and goes through the same quaternion conversion the signal
+     * paths use, so a machine that has been rotated turns its components the way the player expects. Off, such a
+     * click does nothing; the world's rod is not affected either way.
      */
     public static final ModConfigSpec.BooleanValue CARRIED_ROTATION_ROD = BUILDER
-            .comment("Let the rotation rod be used on a host block a moving structure is CARRYING: click a",
-                    "face to make it the component's input side, click it again to make it the output side.",
-                    "ON (default). OFF: nothing happens on a carried host, i.e. the previous behaviour.",
-                    "The world's own rod behaviour is not affected either way.")
+            .comment("Let the rotation rod be used on a host block a moving structure is CARRYING.",
+                    "Click a face to make it the component's input side, again for the output side.")
             .define("carriedRotationRod", true);
 
     /**
-     * P1.21: whether Jade (玉) shows the inner component of a block a structure is <b>carrying</b>.
+     * Whether a component can be put into, and taken back out of, a block a structure is carrying.
      *
-     * <p>The author asked whether Jade can be made to work "under a physicalised block". It can, but
-     * not by the same lookup the world side uses: a physicalised block is a Sable sub-level's block or
-     * a Create contraption's, its position in the level is the structure's own local coordinate, and the
-     * ordinary host sync has nothing at that coordinate. The carrier payload has the component all
-     * along, keyed by exactly that coordinate, so the Jade line is answered from the client's own
-     * carried index.
-     *
-     * <p>On (the default). Off: Jade says nothing about a carried block, which is exactly the
-     * behaviour before this switch existed. The world-side Jade lines are not affected either way.
+     * <p>A physicalised block is a sub-level's or a contraption's block, its position in the level is the
+     * structure's own local coordinate, and the ordinary host sync has nothing at that coordinate; the carrier
+     * payload carries the component keyed by exactly that coordinate, so the carrier-side click path is what
+     * answers a click there. Off leaves a carried block untouched.
      */
     public static final ModConfigSpec.BooleanValue CARRIED_INSERT = BUILDER
-            .comment("Let a redstone component be put INTO a block a moving structure is CARRYING, and",
-                    "taken back out again: shift-right-click a carried host with a component in hand to",
-                    "store it (the clicked face becomes its input side), shift-right-click with a bare",
-                    "hand to take it out. The world's own placement/retrieval is unchanged either way.",
-                    "ON (default). OFF: nothing happens on a carried host, i.e. the previous behaviour.",
-                    "This is the switch to turn off first if placing components inside a physicalised",
-                    "block misbehaves; carrying a machine is otherwise unaffected.")
+            .comment("Let a component be put INTO a block a moving structure is CARRYING, and taken back out again.",
+                    "On by default. Turn it off first if placing components inside a carried block misbehaves.")
             .define("carriedInsert", true);
 
     /**
-     * P1.26, defect one: whether a coordinate a structure owns belongs to the <b>carrier</b> side before
-     * the world's own click handling sees it.
+     * Whether a coordinate a structure owns belongs to the <b>carrier</b> side before the world's own click
+     * handling sees it.
      *
-     * <p>This is the one deliberate exception to the "the world's click path is untouched" rule, and it
-     * exists because of a fact about Sable that the world path cannot see: a sub-level's blocks <b>are
-     * level blocks</b>, stored at their own local coordinates in the plot region, so a click on one
-     * arrives at the ordinary block-click handler carrying a coordinate that is simultaneously
-     * "a position in the level" and "a host's coordinate inside a structure". The world handler cannot
-     * tell those apart on its own, and it used to win the click: the component was written into the
-     * world's own store at the plot coordinate, so Jade (which reads that store) showed it while the
-     * overlay drew nothing and the world bridge - which projects from the carrier index - could not see
-     * it either. The author's report is exactly that shape: "the component has a display, but nothing is
-     * drawn over it and it cannot be connected to anything".
+     * <p>The one exception to "the world's click path is untouched", needed because a Sable sub-level's blocks
+     * <b>are</b> level blocks stored at their own local coordinates, so a click on one arrives at the ordinary
+     * block-click handler carrying a coordinate that is simultaneously a position in the level and a host's
+     * coordinate inside a structure. The world handler cannot tell those apart, and without this it won the click:
+     * the component went into the world's store at the plot coordinate, so Jade showed it while the overlay drew
+     * nothing and the world bridge could not see it either.
      *
-     * <p>On (the default): a click whose position is a coordinate a live structure owns is <b>declined</b>
-     * by the world side, which then does not write the world store at all, and the carrier's own entry
-     * point records it in the carrier index instead. The narrowing is exact and is the whole of the
-     * change:
-     * <ul>
-     *   <li>only "this position is a coordinate a structure owns" declines anything. Every other world
-     *       position - including a carried host's <em>origin</em>, which is an ordinary world block - is
-     *       byte-for-byte the behaviour it was before;</li>
-     *   <li>the check runs <b>before</b> {@code HostRules#claimsClick}, so the world side does not merely
-     *       skip its action: it never claims the click in the first place;</li>
-     *   <li>the click is <b>not</b> consumed by that refusal - the carrier's own listener is the one that
-     *       decides, and if it decides the click is not its own the event is left to vanilla exactly as
-     *       it was before.</li>
-     * </ul>
-     *
-     * <p><b>P1.30 widened "a structure owns it" and nothing else.</b> The set used to be "the carrier
-     * index holds a live record at this coordinate"; it is now "a live record, <em>or</em> the level
-     * position is a plot cell of a live sub-level". The second half exists because a sub-level loaded from
-     * a save has no records at all - a claim is only ever created by taking a component out of a
-     * <em>world</em> position - so such a coordinate had no owner as far as the world side could tell, and
-     * the click wrote the world store at the plot cell. Neither a Create contraption (its blocks are not
-     * level blocks), nor an ordinary world block, nor a carried host's origin, nor a host already put down
-     * is admitted by the widened test.
-     *
-     * <p>Off: the previous behaviour - the world side may write its own store at a structure's
-     * coordinate, which is the defect this switch exists to be able to reproduce. Turn it off first if a
-     * click on a carried block misbehaves.
+     * <p>The check runs before {@code HostRules#claimsClick}, so the world side does not merely skip its action -
+     * it never claims the click - and the refusal does not consume the click: the carrier's own listener decides,
+     * and if it decides the click is not its own the event is left to vanilla. A coordinate is owned when a live
+     * carrier record exists there, <em>or</em> the level position is a plot cell of a live sub-level (a sub-level
+     * loaded from a save has no records at all). A Create contraption's block, an ordinary world block, a carried
+     * host's origin and a host already put down are all outside that set.
      */
     public static final ModConfigSpec.BooleanValue CARRIED_INSERT_PRIORITY = BUILDER
-            .comment("Let a coordinate a moving structure OWNS be handled by the carrier side before the",
-                    "world's own click handling: a click there is declined by the world path (nothing is",
-                    "written into the world's own store at that coordinate) and recorded in the carrier",
-                    "index instead, which is what makes a component put into a physicalised block visible",
-                    "on the overlay and connected to the world.",
-                    "A coordinate counts as the structure's when the carrier index holds a live record",
-                    "there, OR when it is a plot cell of a live sub-level - the second case is a structure",
-                    "loaded from a save, which has no records of its own.",
-                    "ON (default). OFF: the previous behaviour, in which the world path could win the",
-                    "click and store the component at the structure's own coordinate - visible to Jade,",
-                    "invisible to the overlay and inert towards the world.",
-                    "This is the switch to turn off first if a click on a carried block misbehaves.")
+            .comment("Handle a coordinate a moving structure OWNS on the carrier side before the world's own click handling.",
+                    "On by default. Turn it off first if a click on a carried block misbehaves.")
             .define("carriedInsertPriority", true);
 
     public static final ModConfigSpec.BooleanValue CARRIED_SWITCHES = BUILDER
-            .comment("Let a bare hand work a component inside a block a moving structure is CARRYING,",
-                    "exactly as it works one inside a block standing in the world: right-click (no shift)",
-                    "on a carried host to flick a lever, step a repeater's delay, or swap a comparator's",
-                    "mode. A button is deliberately NOT included: its release has to be scheduled on a",
-                    "level position, and a carried block's level position moves with the machine.",
-                    "ON (default). OFF: a bare-hand click on a carried host does nothing, i.e. the",
-                    "previous behaviour. The world's own switch behaviour is unchanged either way.")
+            .comment("Let a bare hand work a component inside a block a moving structure is CARRYING: flick a lever, step a delay, swap a mode.",
+                    "On by default. Buttons are not included, as their release needs a fixed level position.")
             .define("carriedSwitches", true);
 
     public static final ModConfigSpec.BooleanValue VERBOSE_SOLVER_LOG = BUILDER
-            .comment("Log every individual solver step: each world/output change that re-queues a host,",
-                    "each component recompute with its component list, and each power change with its",
-                    "supply and external signal. OFF by default, and it should stay off: one tick of an",
-                    "ordinary build can produce hundreds of these lines (a measured run produced 242,588",
-                    "of them in a minute), and the same information is summarised as one 'solver:' line",
-                    "per 20 ticks. Turn it on only while chasing a solver problem, then turn it back off.")
+            .comment("Log every individual solver step. Very noisy: one tick of an ordinary build can produce hundreds of lines.",
+                    "Off by default; a summary line every 20 ticks carries the same information.")
             .define("verboseSolverLog", false);
 
     public static final ModConfigSpec.BooleanValue VERBOSE_RENDER_LOG = BUILDER
-            .comment("Log the client's carried-render diagnostics every frame instead of on change.",
-                    "OFF (default). The three client lines - 'client: carrier frame …', 'client:",
-                    "matrixProbe[…]' and 'client: drawCheck …' - are written when the picture actually",
-                    "changes, at most once per 20 ticks, plus a heartbeat every two minutes while",
-                    "everything is settled. That is the difference between a ~40 MB log and a well under",
-                    "1 MB one for the same session: a frame that draws the same thing as the previous",
-                    "frame carries no information, and the author's log had 26,668 copies of 'carrier",
-                    "frame drew 0, everything settled'.",
-                    "ON: the previous per-frame behaviour, for when the frame-by-frame detail is exactly",
-                    "what is wanted. It only ever changes WHEN the lines are printed - never what they",
-                    "say, and never what is drawn.")
+            .comment("Log the client's carried-render diagnostics every frame instead of only when the picture changes.",
+                    "Off by default, as it grows the log to tens of megabytes. It never changes what is drawn.")
             .define("verboseRenderLog", false);
 
     public static final ModConfigSpec.IntValue SOLVER_SPIN_WARN_PER_TICK = BUILDER
-            .comment("How many times ONE host may be recomputed inside a single tick before the mod writes",
-                    "a 'solver spin' warning naming it. Reaching this is not normal: a host recomputed many",
-                    "times in one tick means the solver is being re-fed by its own neighbour notifications",
-                    "within that tick, which is a defect (two halves of the same circuit re-deriving from",
-                    "each other) and not a slow machine. The warning is written at most once per host per",
-                    "tick and is capped at four hosts per tick, and it is NOT behind verboseSolverLog - it",
-                    "is the one line that survives the aggregation.")
+            .comment("How many times ONE host may be recomputed inside a single tick before a 'solver spin' warning names it.",
+                    "Only a defective circuit reaches this; the warning is written at most once per host per tick.")
             .defineInRange("solverSpinWarnPerTick", 8, 1, 4096);
 
     public static final ModConfigSpec.BooleanValue SOLVER_COALESCE_NOTIFICATIONS = BUILDER
             .comment("Coalesce the solver's neighbour notifications to the tick boundary.",
-                    "ON (default): while the solver is resolving, no level.updateNeighborsAt is sent;",
-                    "the positions whose output changed are collected and notified once, after the",
-                    "solve has reached its fixed point (and, for a command-driven solve, before the",
-                    "command returns). Every notify re-enters the solver synchronously through",
-                    "NeighborNotifyEvent, and a re-entrant notify lets the two halves of one circuit",
-                    "(the world reading a host block, the host reading the world) re-derive from each",
-                    "other over and over inside a single tick - dozens of rounds per tick, for ever,",
-                    "which is the defect this switch fixes.",
-                    "OFF: the previous behaviour, one updateNeighborsAt per changed position while the",
-                    "solve is still running. It exists so the change can be A/B tested and reverted",
-                    "from the config file without swapping the jar; a build with it off behaves exactly",
-                    "as the build before it.")
+                    "On by default, so the solver cannot re-feed itself inside one tick. Off sends one notification per change.")
             .define("solverCoalesceNotifications", true);
 
     public static final ModConfigSpec.BooleanValue CARRIED_JADE = BUILDER
-            .comment("Let Jade (jade) show the component hidden inside a block a moving structure is",
-                    "CARRYING, on the same terms it shows one inside a block standing in the world:",
-                    "the type, its setting and its current state, and only while the redstone goggles",
-                    "rule lets it (see overlayMode). ON (default). OFF: nothing is shown for a carried",
-                    "block. The lines Jade shows for ordinary world blocks are not affected either way.")
+            .comment("Let Jade show the component hidden inside a block a moving structure is CARRYING, as it does for a world block.",
+                    "On by default; the lines Jade shows for ordinary world blocks are unaffected.")
             .define("carriedJade", true);
 
     public static final ModConfigSpec.IntValue CARRIER_POSE_STALE_TICKS = BUILDER
             .comment("How long, in ticks, a moving structure's pose stays trustworthy on the client.",
-                    "The client only draws a component inside its structure while the pose is fresh; if",
-                    "the pose has not been refreshed for this many ticks the carrier is let go of and",
-                    "the component is drawn on the world path again. This is the backstop that makes",
-                    "'a component inside a moving structure can disappear for good' impossible: even if",
-                    "the server never says a carrier is gone, the client stops trusting it within this",
-                    "many ticks. It must stay comfortably above carrierPoseHeartbeatTicks, because a",
-                    "genuinely parked machine is kept alive by that heartbeat and nothing else.")
+                    "Past this age the client stops drawing the component inside it, so keep it well above carrierPoseHeartbeatTicks.")
             .defineInRange("carrierPoseStaleTicks", 60, 5, 1200);
 
     public static final ModConfigSpec.IntValue CARRIER_POSE_HEARTBEAT_TICKS = BUILDER
-            .comment("How often, in ticks, the server re-sends the pose of every structure that is",
-                    "holding something, even if it has not moved. Sending a pose only on change is what",
-                    "keeps a moving machine cheap, but it also means a structure that stops moving stops",
-                    "being mentioned - which is indistinguishable from a structure that has gone away.",
-                    "A heartbeat every second (20 ticks) makes the two distinguishable, and it is what",
-                    "lets the client treat 'no pose for a while' as 'this carrier is gone'.")
+            .comment("How often, in ticks, the server re-sends the pose of every structure that is holding something, moved or not.",
+                    "The heartbeat is what lets the client tell a parked machine from one that has gone away. Default 20.")
             .defineInRange("carrierPoseHeartbeatTicks", 20, 1, 600);
 
     public static final ModConfigSpec.IntValue CARRIER_POSE_SAMPLE_TICKS = BUILDER
-            .comment("How often, in ticks, the server re-sends the pose of every structure that is",
-                    "holding something *while it may be turning*, regardless of whether the pose looks",
-                    "changed. This is the upper bound on how long a client can be drawing an old angle:",
-                    "with the default of 2, a rotating bearing's angle on screen is at most two ticks",
-                    "behind the server's.",
-                    "It exists because 'the pose changed since I last looked' and 'the client has been",
-                    "told what the pose is now' are different statements: a rotation written by Create's",
-                    "actor tick or by Sable's physics step can be produced and consumed between two",
-                    "ticks of the server's own pose pass. It costs a handful of bytes per carrier while",
-                    "something is riding it, and nothing at all when nothing is.",
-                    "Set to 0 to disable sampling and send only on change plus the heartbeat.")
+            .comment("How often, in ticks, the server re-sends the pose of a structure holding something while it may be turning.",
+                    "The upper bound on how old a rotating angle can be on screen. 0 disables sampling.")
             .defineInRange("carrierPoseSampleTicks", 2, 0, 600);
 
-    // -------------------------------------------------- in-structure solve (P2) --
-    // P2 gives a carried component a solver of its own, in the structure's local coordinates. The
-    // world boundary stays frozen (that is what carrierFreezeWorldIo above is about and bridging it
-    // is P4), so these settings are about the inside of the machine only.
+    // ------------------------------------------------ in-structure solve --
+    // A carried component gets a solver of its own, in the structure's local coordinates; the world
+    // boundary stays frozen (see carrierFreezeWorldIo), so these settings are about the inside of the
+    // machine only.
 
     public static final ModConfigSpec.BooleanValue CARRIER_SOLVE_ENABLED = BUILDER
-            .comment("Recompute the redstone inside a moving structure from its own local layout,",
-                    "instead of leaving every component at the value it had when the block was picked",
-                    "up. On by default. Turning it off restores exactly the P1 behaviour (travel, come",
-                    "back, never recompute) without uninstalling anything, which is what the A/B",
-                    "comparison that this switch exists for.")
+            .comment("Recompute the redstone inside a moving structure from its own local layout.",
+                    "On by default; off leaves every component at the value it had when the block was picked up.")
             .define("carrierSolveEnabled", true);
 
     public static final ModConfigSpec.IntValue CARRIER_SOLVE_MAX_COMPONENTS_PER_TICK = BUILDER
-            .comment("How many components one structure may settle in a single tick. Each component",
-                    "is a connected run of components - a wire that is one block long is one - so this",
-                    "is a ceiling on work, not on the size of a machine: a structure larger than it",
-                    "keeps settling over the following ticks, and the log says so. It exists so a",
-                    "pathological build cannot stall a tick.")
+            .comment("How many components one structure may settle in a single tick.",
+                    "A ceiling on work, not on machine size: a larger structure keeps settling over the following ticks.")
             .defineInRange("carrierSolveMaxComponentsPerTick", 64, 1, 4096);
 
     public static final ModConfigSpec.IntValue CARRIER_SOLVE_MAX_NODES_PER_CARRIER = BUILDER
-            .comment("How many of one structure's host blocks may be used as a starting point for a",
-                    "solve, per tick. This is the only step that touches every host of a structure, so",
-                    "it is capped as well; a machine with more components than this has its remaining",
-                    "ones solved over the following ticks.")
+            .comment("How many of one structure's host blocks may be used as a starting point for a solve, per tick.",
+                    "The remaining hosts are solved over the following ticks.")
             .defineInRange("carrierSolveMaxNodesPerCarrier", 256, 1, 4096);
 
     public static final ModConfigSpec.BooleanValue TRACE_CARRIER_SOLVE = BUILDER
-            .comment("Log one line per pass for every structure that has components riding it: how many",
-                    "components were settled and how many coordinates changed. This is the only",
-                    "measurable evidence that the in-structure solve is running, so it is what the P2",
-                    "acceptance procedure uses; it is off by default because it prints once a tick.")
+            .comment("Log one line per pass for every structure that has components riding it.",
+                    "Off by default; it prints once a tick.")
             .define("traceCarrierSolve", false);
 
     public static final ModConfigSpec.DoubleValue SLOT_SYNC_RANGE = BUILDER
-            .comment("How far component updates reach, in blocks. 0 sends them to everyone in the",
-                    "dimension, which is the safe default: a client that misses an update keeps drawing",
-                    "the old state until something re-sends it.")
+            .comment("How far component updates reach, in blocks. 0 sends them to everyone in the dimension.",
+                    "0 is the safe default: a client that misses an update keeps drawing the old state.")
             .defineInRange("slotSyncRange", 0.0, 0.0, 512.0);
+
+    // -------------------------------------------- redstone structure block --
+    // The pocket dimension, its plot allocator and the payload format.
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MAX_SIZE = BUILDER
+            .comment("The longest axis a captured structure may have, in blocks; 48 is vanilla's own structure block limit.",
+                    "The load budget is counted from it: 48³ plus the context shell is 16 chunk columns.")
+            .defineInRange("structureMaxSize", 48, 1, 128);
+
+    /**
+     * The budget for the <b>preview</b> that travels with a structure - the design's second ceiling.
+     *
+     * <p>A complete structure lives in this save's files and never goes over the network; what a client
+     * needs is a small, downsampled voxel preview it can draw on the block, in the hand and in the icon.
+     * The design gives that its own budget ({@code structurePreviewBytes}, 64 KiB by default) precisely so
+     * the two ceilings cannot be confused: a 48³ structure is tens of megabytes of blocks and a few
+     * kilobytes of "roughly what it looks like".
+     */
+    public static final ModConfigSpec.IntValue STRUCTURE_PREVIEW_BYTES = BUILDER
+            .comment("How large the downsampled preview that travels with a structure may be, in bytes.",
+                    "The preview is what a client draws on the placed block; keep it well below the game's 1 MiB payload cap.")
+            .defineInRange("structurePreviewBytes", 65536, 1024, 524288);
+
+    public static final ModConfigSpec.BooleanValue STRUCTURE_CAPTURE_CONTEXT_SHELL = BUILDER
+            .comment("Snapshot the one block of world around a selection when capturing it.",
+                    "On by default: the shell travels into the plot but is never written into the payload or released.")
+            .define("structureCaptureContextShell", true);
+
+    public static final ModConfigSpec.DoubleValue STRUCTURE_MANUAL_RANGE = BUILDER
+            .comment("How far from a structure a player may be and still press its manual keys, in blocks.",
+                    "Measured from the player's eyes to the block, and checked by the server on every press.")
+            .defineInRange("structureManualRange", 8.0, 1.0, 64.0);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MANUAL_PULSE_TICKS = BUILDER
+            .comment("How long one press pushes, in ticks. A press is a pulse, never a hold, so it cannot be left running.",
+                    "10 ticks (half a second) is enough for a repeater, a piston or a dispenser.")
+            .defineInRange("structureManualPulseTicks", 10, 1, 200);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MANUAL_COOLDOWN_TICKS = BUILDER
+            .comment("The least number of ticks between two accepted presses from one player.",
+                    "Keeps a held or spammed key from driving a machine at tick speed.")
+            .defineInRange("structureManualCooldownTicks", 2, 0, 40);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_INJECTION_LIMIT_TICKS = BUILDER
+            .comment("The least number of ticks between two changes of the signal a structure injects into one cell of its plot.",
+                    "A change that arrives too soon is held and let through when its window opens. Default 4.")
+            .defineInRange("structureInjectionLimitTicks", 4, 0, 40);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MAX_LOADED_COLUMNS = BUILDER
+            .comment("How many chunk columns may be held loaded by structures at once, counted in COLUMNS, never structures.",
+                    "A structure that does not fit is asleep: it still exists and can be released, but is not ticked.")
+            .defineInRange("structureMaxLoadedColumns", 256, 0, 65536);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MAX_LOADED_POCKETS = BUILDER
+            .comment("How many structures may be ticked at once, whatever their size.",
+                    "Checked together with the column budget: both have to allow a structure before it ticks.")
+            .defineInRange("structureMaxLoadedPockets", 16, 0, 4096);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MANUAL_ENTRY_LIMIT = BUILDER
+            .comment("How many entries the manual-mode panel may hold in one structure.")
+            .defineInRange("structureManualEntryLimit", 32, 0, 512);
+
+    public static final ModConfigSpec.BooleanValue STRUCTURE_POCKET_SYNC_ENVIRONMENT = BUILDER
+            .comment("Keep the pocket dimension's time and weather equal to the overworld's.",
+                    "On by default: a weather detector or a daylight-dependent block reads what it read where it stood.")
+            .define("structurePocketSyncEnvironment", true);
+
+    public static final ModConfigSpec.BooleanValue STRUCTURE_ALLOW_COPY = BUILDER
+            .comment("Allow the copying tier at all. It copies container contents along with the blocks, so a chest of items is duplicated too.",
+                    "Creative mode only; survival is always cut-only, whatever this says.")
+            .define("structureAllowCopy", true);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_MAX_NESTING_DEPTH = BUILDER
+            .comment("How many structures deep a capture may go. 1 means a structure may hold another structure, but not a third.",
+                    "0 forbids any structure block inside a capture; raising it multiplies how many pockets tick at once.")
+            .defineInRange("structureMaxNestingDepth", 1, 0, 16);
+
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> STRUCTURE_BLOCK_BLACKLIST =
+            BUILDER
+                    .comment("Block ids that may not be captured. Bedrock, the portals and the command blocks are here because a captured one can be released anywhere.",
+                            "An unknown id is logged and skipped rather than refusing to start.")
+                    .defineListAllowEmpty("structureBlockBlacklist", List.of(
+                            "minecraft:bedrock",
+                            "minecraft:barrier",
+                            "minecraft:command_block",
+                            "minecraft:chain_command_block",
+                            "minecraft:repeating_command_block",
+                            "minecraft:structure_block",
+                            "minecraft:structure_void",
+                            "minecraft:jigsaw",
+                            "minecraft:end_portal",
+                            "minecraft:end_portal_frame",
+                            "minecraft:end_gateway",
+                            "minecraft:nether_portal",
+                            "minecraft:light"), value -> value instanceof String);
+
+    public static final ModConfigSpec.BooleanValue STRUCTURE_MIGRATE_SLOTS = BUILDER
+            .comment("Carry this mod's own components that live INSIDE blocks with a captured structure, and put them back on release.",
+                    "On by default: without it a captured host block arrives empty inside.")
+            .define("structureMigrateSlots", true);
+
+    public static final ModConfigSpec.BooleanValue STRUCTURE_RELEASE_CONFLICT_GUARD = BUILDER
+            .comment("Ask before a release overwrites blocks.",
+                    "On by default: a target holding anything is refused once, with the block count, and goes ahead when asked again.")
+            .define("structureReleaseConflictGuard", true);
+
+    public static final ModConfigSpec.IntValue STRUCTURE_RELEASE_BLOCKS_PER_TICK = BUILDER
+            .comment("How many blocks a release writes per tick. A 48³ structure is 110,592 blocks, too many for one tick.",
+                    "4096 is about 27 ticks (1.4 s) for the largest allowed structure.")
+            .defineInRange("structureReleaseBlocksPerTick", 4096, 1, 110592);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 
@@ -621,9 +505,8 @@ public final class RCConfig {
     }
 
     public static boolean debugLog() {
-        // P1.58: the package default (BuildFlags) and the config file both describe the PACKAGE; a system
-        // property is how one RUN asks for the detailed log - on a released jar, and in this project's own
-        // test task, which sets it so the suite keeps the evidence its assertions read.
+        // The package default (BuildFlags) and the config file both describe the PACKAGE; a system property is
+        // how one RUN asks for the detailed log - a released jar, or this project's own test task.
         Boolean forced = forcedDebugLog();
         if (forced != null) {
             return forced;
@@ -648,6 +531,11 @@ public final class RCConfig {
 
     public static boolean validateHosts() {
         return boolOr(VALIDATE_HOSTS, true);
+    }
+
+    /** See {@link #PLACER_CREATES_STRUCTURES}: off by default while Sable's storage question is open. */
+    public static boolean placerCreatesStructures() {
+        return boolOr(PLACER_CREATES_STRUCTURES, false);
     }
 
     /**
@@ -746,6 +634,14 @@ public final class RCConfig {
         return boolOr(ROTATION_ROD_NEEDS_GOGGLES, true);
     }
 
+    /**
+     * Whether working what is inside a block - a lever, a repeater's delay, a comparator's mode - needs the goggles
+     * on. The rule itself is {@code logic.InnerAccess}; this is only where the setting is read.
+     */
+    public static boolean innerAdjustNeedsGoggles() {
+        return boolOr(INNER_ADJUST_NEEDS_GOGGLES, true);
+    }
+
     public static boolean wrenchClearOnSameBlock() {
         return boolOr(WRENCH_CLEAR_ON_SAME_BLOCK, true);
     }
@@ -773,10 +669,9 @@ public final class RCConfig {
     /**
      * Whether the bridge between a carried host and the world around it is closed.
      *
-     * <p>Off by default since P4, which means the bridge is <b>open</b>: the two directions work.
-     * {@code true} restores exactly the P1/P2 state - the inside of a machine and the world it is
-     * flying through cannot see each other - which is what makes an A/B comparison possible without a
-     * second jar, and what a player who wants the old behaviour should turn on.
+     * <p>Off by default, which means the bridge is <b>open</b> and the two directions work. {@code true} closes it -
+     * the inside of a machine and the world it is flying through cannot see each other - which is what a player who
+     * wants the old behaviour should turn on.
      */
     public static boolean carrierFreezeWorldIo() {
         return boolOr(CARRIER_FREEZE_WORLD_IO, false);
@@ -785,10 +680,9 @@ public final class RCConfig {
     /**
      * Whether the inside solve also reads the signal sources the structure itself is carrying.
      *
-     * <p>See {@link #CARRIER_STRUCTURE_SIGNALS}: this is P1.19's one-line escape hatch, and it is
-     * deliberately <em>independent</em> of {@link #carrierFreezeWorldIo()} - that switch is the P1/P2
-     * world boundary and only ever closes the world half, while a lever the machine is carrying is not
-     * part of the world at all.
+     * <p>See {@link #CARRIER_STRUCTURE_SIGNALS}: independent of {@link #carrierFreezeWorldIo()}, which is the world
+     * boundary and only ever closes the world half, while a lever the machine is carrying is not part of the world
+     * at all.
      */
     public static boolean carrierStructureSignals() {
         return boolOr(CARRIER_STRUCTURE_SIGNALS, true);
@@ -841,9 +735,8 @@ public final class RCConfig {
     /**
      * Whether the world-side inner solve reads a carried host's output at its projected position.
      *
-     * <p>See {@link #CARRIER_WORLD_READS_PROJECTION}. Read on the world solve's neighbour query, so it is
-     * a field on the solver's environment rather than a config read per side; {@code false} restores
-     * exactly the pre-P1.20 behaviour for that direction.
+     * <p>See {@link #CARRIER_WORLD_READS_PROJECTION}. Read on the world solve's neighbour query, so it is a field on
+     * the solver's environment rather than a config read per side.
      */
     public static boolean carrierWorldReadsProjection() {
         return boolOr(CARRIER_WORLD_READS_PROJECTION, true);
@@ -852,9 +745,8 @@ public final class RCConfig {
     /**
      * Whether the redstone wrench acts on a host a structure is carrying.
      *
-     * <p>See {@link #CARRIED_WRENCH}. Read on the carrier-side click path only, which is reached only for
-     * a click the carrier layer has already resolved to one of its own hosts - so {@code false} is
-     * exactly "the P1.19 behaviour" and nothing else changes.
+     * <p>See {@link #CARRIED_WRENCH}. Read on the carrier-side click path only, which is reached only for a click
+     * the carrier layer has already resolved to one of its own hosts.
      */
     public static boolean carriedWrench() {
         return boolOr(CARRIED_WRENCH, true);
@@ -997,9 +889,8 @@ public final class RCConfig {
     /**
      * Whether the redstone inside a moving structure is recomputed in the structure's own coordinates.
      *
-     * <p>Off restores the P1 behaviour exactly - the components travel and come back, and never change
-     * value on the way - which is what makes the A/B comparison in the P2 acceptance procedure
-     * possible without a second jar.
+     * <p>Off, the components travel and come back and never change value on the way; on, one structure settles at
+     * most {@link #carrierSolveMaxComponentsPerTick()} components per tick.
      */
     public static boolean carrierSolveEnabled() {
         return boolOr(CARRIER_SOLVE_ENABLED, true);
@@ -1029,6 +920,134 @@ public final class RCConfig {
         }
     }
 
+    // ------------------------------------ redstone structure block accessors --
+
+    /** The longest axis a captured structure may have. */
+    public static int structureMaxSize() {
+        return intOr(STRUCTURE_MAX_SIZE, 48);
+    }
+
+    /** Whether the one-block context shell is snapshotted with a captured structure. */
+    public static boolean structureCaptureContextShell() {
+        return boolOr(STRUCTURE_CAPTURE_CONTEXT_SHELL, true);
+    }
+
+    /** How many chunk columns structures may hold loaded, in total. */
+    public static int structureMaxLoadedColumns() {
+        return intOr(STRUCTURE_MAX_LOADED_COLUMNS, 256);
+    }
+
+    /** How many structures may tick at once, in total. */
+    public static int structureMaxLoadedPockets() {
+        return intOr(STRUCTURE_MAX_LOADED_POCKETS, 16);
+    }
+
+    /** How many manual-mode entries one structure may carry. */
+    public static int structureManualEntryLimit() {
+        return intOr(STRUCTURE_MANUAL_ENTRY_LIMIT, 32);
+    }
+
+    /** Whether the pocket dimension mirrors the overworld's time and weather. */
+    public static boolean structurePocketSyncEnvironment() {
+        return boolOr(STRUCTURE_POCKET_SYNC_ENVIRONMENT, true);
+    }
+
+    /**
+     * The size limits a payload is checked against, in the loader-free form the payload layer can use.
+     *
+     * <p>The volume limit is the cube of the axis limit rather than a second, independently tunable
+     * number: a structure that fits 48 on its longest axis but is 48×48×48 is the biggest case the design
+     * decided on, and two settings that could disagree about it would be a way to make the game accept
+     * something the load budget was never sized for.
+     */
+    public static com.jiangyuefengyu.redstonecircuit.structure.PayloadLimits structurePayloadLimits() {
+        int maxAxis = structureMaxSize();
+        return new com.jiangyuefengyu.redstonecircuit.structure.PayloadLimits(maxAxis,
+                maxAxis * maxAxis * maxAxis, structureManualEntryLimit());
+    }
+
+    /** How deep a capture may nest structure blocks. */
+    public static int structureMaxNestingDepth() {
+        return intOr(STRUCTURE_MAX_NESTING_DEPTH, 1);
+    }
+
+    /** How large the downsampled preview that travels with a structure may be. See the option's comment. */
+    public static int structurePreviewBytes() {
+        return intOr(STRUCTURE_PREVIEW_BYTES, 65536);
+    }
+
+    /** How far from a structure a player may press its manual keys. */
+    public static double structureManualRange() {
+        return doubleOr(STRUCTURE_MANUAL_RANGE, 8.0);
+    }
+
+    /** How long one manual press pushes. */
+    public static int structureManualPulseTicks() {
+        return intOr(STRUCTURE_MANUAL_PULSE_TICKS, 10);
+    }
+
+    /** The least number of ticks between two accepted presses from one player. */
+    public static int structureManualCooldownTicks() {
+        return intOr(STRUCTURE_MANUAL_COOLDOWN_TICKS, 2);
+    }
+
+    /** The least number of ticks between two changes of the signal injected into one cell of a plot. */
+    public static int structureInjectionLimitTicks() {
+        return intOr(STRUCTURE_INJECTION_LIMIT_TICKS, 4);
+    }
+
+    /** Whether the copying tier is available at all (creative only, always). */
+    public static boolean structureAllowCopy() {
+        return boolOr(STRUCTURE_ALLOW_COPY, true);
+    }
+
+    /** How a release is paced, and whether it asks before overwriting. */
+    public static com.jiangyuefengyu.redstonecircuit.structure.StructureRelease.Options
+            structureReleaseOptions() {
+        return new com.jiangyuefengyu.redstonecircuit.structure.StructureRelease.Options(
+                intOr(STRUCTURE_RELEASE_BLOCKS_PER_TICK, 4096),
+                boolOr(STRUCTURE_RELEASE_CONFLICT_GUARD, true));
+    }
+
+    /** The ids in the capture blacklist, as written in the config file. */
+    public static List<String> structureBlockBlacklistIds() {
+        try {
+            return List.copyOf(STRUCTURE_BLOCK_BLACKLIST.get());
+        } catch (IllegalStateException notLoadedYet) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Everything a capture is checked against, with the blacklist's ids resolved to blocks.
+     *
+     * <p>Resolution happens here, at the one place that has both the config and the registries. An id that
+     * names no block is logged and skipped: a typo in a config file must cost the player that one entry,
+     * not the whole feature.
+     */
+    public static com.jiangyuefengyu.redstonecircuit.structure.StructureCapture.Limits
+            structureCaptureLimits() {
+        java.util.Set<net.minecraft.world.level.block.Block> blacklist = new java.util.HashSet<>();
+        for (String id : structureBlockBlacklistIds()) {
+            net.minecraft.resources.ResourceLocation location =
+                    net.minecraft.resources.ResourceLocation.tryParse(id);
+            if (location == null || !net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .containsKey(location)) {
+                LOGGER.warn("[redstonecircuit] structureBlockBlacklist names {}, which is not a block; "
+                        + "skipping it", id);
+                continue;
+            }
+            blacklist.add(net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(location));
+        }
+        return new com.jiangyuefengyu.redstonecircuit.structure.StructureCapture.Limits(
+                structurePayloadLimits(), blacklist, structureMaxNestingDepth(), structureMigrateSlots());
+    }
+
+    /** Whether our own components inside blocks travel with a captured structure. */
+    public static boolean structureMigrateSlots() {
+        return boolOr(STRUCTURE_MIGRATE_SLOTS, true);
+    }
+
     // --------------------------------------------------------------- helpers --
 
     /** Parses {@code RRGGBB}, tolerating a leading '#', and falls back rather than throwing. */
@@ -1056,6 +1075,14 @@ public final class RCConfig {
     }
 
     private static int intOr(ModConfigSpec.IntValue value, int fallback) {
+        try {
+            return value.get();
+        } catch (IllegalStateException notLoadedYet) {
+            return fallback;
+        }
+    }
+
+    private static double doubleOr(ModConfigSpec.DoubleValue value, double fallback) {
         try {
             return value.get();
         } catch (IllegalStateException notLoadedYet) {

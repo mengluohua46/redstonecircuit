@@ -18,10 +18,10 @@ import org.junit.jupiter.api.Test;
 /**
  * The weather detector's three settings: which sky each one answers, and that nothing else forgot them.
  *
- * <p>The rule itself is one line of arithmetic and is tested here as a pure function. The rest of this
- * class is about the ways a three-valued setting can be silently half-applied - a blockstate that lists
- * only the old two-value combinations, a language file that never learned the word "thunder" - because
- * those failures do not throw: the block simply never renders, or the message shows a raw key.
+ * <p>The rule itself is one line of arithmetic and is tested here as a pure function. The rest of this class is about
+ * the ways a three-valued setting can be silently half-applied - a blockstate that lists only two-value combinations, a
+ * language file that never learned the word "thunder" - because those failures do not throw: the block simply never
+ * renders, or the message shows a raw key.
  */
 class WeatherDetectorModeTest {
 
@@ -46,7 +46,7 @@ class WeatherDetectorModeTest {
                 "BlockState#cycle follows this list, so it is the cycle the player sees");
 
         assertEquals("weather", WeatherDetectorBlock.WEATHER.getName(),
-                "the property is named for the setting it holds, not for the old two-valued flag");
+                "the property is named for the setting it holds, not for a two-valued flag");
         assertEquals("active", WeatherDetectorBlock.ACTIVE.getName(),
                 "and the answer keeps its own property, which is what makes 'did it change?' one comparison");
     }
@@ -74,7 +74,7 @@ class WeatherDetectorModeTest {
             }
         }
         assertFalse(json.contains("rainy="),
-                "the two-valued 'rainy' variant is gone from the block, so a blockstate still listing it "
+                "the block has no two-valued 'rainy' variant, so a blockstate still listing it "
                         + "would never match anything");
     }
 

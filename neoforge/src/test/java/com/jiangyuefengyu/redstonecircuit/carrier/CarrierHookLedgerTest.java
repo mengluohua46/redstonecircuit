@@ -10,22 +10,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The Create-side carrier-tool hook registration ledger, asserted offline.</b>
+ * The Create-side carrier-tool hook registration ledger, asserted offline.
  *
- * <h2>The two facts it has to keep apart</h2>
- * "The wrench does nothing on a physicalised block" has two causes on a contraption, and the
- * registration count alone cannot tell them apart:
+ * <p>"The wrench does nothing on a physicalised block" has two causes on a contraption, and the registration count
+ * alone cannot tell them apart: the block type was <b>never attempted</b> - it has never held a component - or it was
+ * <b>refused</b>, another mod having already registered a {@code MovingInteractionBehaviour} for it, which the
+ * first-wins rule leaves alone. {@code CarrierToolHook#registeredCount()} answers the first (it counts attempts,
+ * because a refused type is never retried) and this ledger answers the second.
  *
- * <ul>
- *   <li>the block type was <b>never attempted</b> - it has never held a component;</li>
- *   <li>the block type was <b>refused</b> - another mod already registered a
- *       {@code MovingInteractionBehaviour} for it, and the first-wins rule left it alone.</li>
- * </ul>
- *
- * <p>{@code CarrierToolHook#registeredCount()} answers the first question (it counts attempts, because a
- * refused type is deliberately never retried). This ledger answers the second, and the assertions here
- * are that the refusal is <em>kept</em>, that it says {@code not hooking ...} so a grep from the log and a
- * line of the report are the same words, and that neither list can grow without a bound.
+ * <p>The assertions here are that the refusal is <em>kept</em>, that it says {@code not hooking ...} so a grep from
+ * the log and a line of the report are the same words, and that neither list can grow without a bound.
  */
 class CarrierHookLedgerTest {
 

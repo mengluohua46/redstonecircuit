@@ -18,47 +18,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.38: a structure's world half must read a host <em>another</em> structure is carrying there.</b>
+ * A structure's world half must read a host <em>another</em> structure is carrying there.
  *
- * <h2>The author's scene, in numbers</h2>
- * Two blocks, placed next to each other, each physicalised on its own, neither moved, one dust put
- * inside each, and an external lever thrown at one of them. From the author's log, verbatim:
- *
- * <pre>
- *   carrier s:a70018b6: insert local=20481032, 128, 20483080 ... projected at -35, -60, -32
- *   carrier s:ade64b21: insert local=20481032, 128, 20481032 ... projected at -34, -60, -32
- * </pre>
- *
- * So the two blocks are <b>one world cell apart</b> - X differs by one - while their own coordinates
- * inside their structures differ by a whole <b>plot cell</b> (2048 along Z). Nothing in a structure's
- * own coordinate space connects them: {@code CarrierSpace#structureSignal} reads the machine's own
- * blocks at <em>local</em> coordinates, and B's local neighbour is a cell of B's own plot, 2048 blocks
- * from A's. The world half is the only route, and the world half is what this pins down.
- *
- * <h2>Why it used to read zero, and why "the projection table is right" is not enough</h2>
- * The world half projects B's local neighbour into the world and reads there. That world position holds
- * <b>air</b> in the level - a physicalised block is an entity's business, not the level's - so the
- * vanilla read answers 0. The projection table is the only thing that knows A's full-power dust is
- * standing on that cell, and the carrier half never asked it:
- *
- * <pre>
- *   world sign -&gt; max(readSignal(level, worldPos, dir), projectedSignalAt(level, worldPos, dir))
- *   carrier    -&gt; readSignal(level, worldPos, dir)          &lt;- the step that was missing
- * </pre>
- *
- * <p>Which is exactly what the author's judge line says: {@code worldQueries=0} - a counter the projection
- * lookup itself increments - so the projection source was never reached, not merely unhelpful.
- *
- * <h2>What is asserted here</h2>
- * The half that is a pure function: two sources, one answer, the larger one; the hop rule still applies
- * to the vanilla half; a frozen bridge still answers only the vanilla half; and the structure someone
- * carries is read in the <b>world</b> frame, not its own. Plus the wiring assertion that the carrier half
- * and the world half now call one implementation - the property that makes the two readers unable to
+ * <p>A physicalised block is an entity's business, so the level holds air where it stands and the vanilla
+ * read answers 0; the projection table is the only thing that knows what a structure carries on that
+ * cell. The carrier half must therefore take the larger of the vanilla read and the projected host, in the
+ * world frame rather than in the carrying structure's own - one implementation, so the two readers cannot
  * disagree.
- *
- * <p>Not asserted here, and honestly: a real {@code ServerLevel} (with mixins applied) cannot be built in
- * a unit test, so the end-to-end read is pinned by the two pure halves, by the wiring assertion, and by
- * the author's judgement line in the field.
  */
 class CarrierSeamWorldReadTest {
 
@@ -71,7 +37,7 @@ class CarrierSeamWorldReadTest {
     private static final BlockPos A_WORLD = new BlockPos(-35, -60, -32);
     private static final BlockPos B_WORLD = new BlockPos(-34, -60, -32);
 
-    /** A's own coordinate inside A: one plot cell away from B's, in the author's own numbers. */
+    /** A's own coordinate inside A: one plot cell away from B's. */
     private static final BlockPos A_LOCAL = new BlockPos(20481032, 128, 20483080);
     private static final BlockPos B_LOCAL = new BlockPos(20481032, 128, 20481032);
 
@@ -90,12 +56,8 @@ class CarrierSeamWorldReadTest {
     }
 
     /**
-     * <b>The production arithmetic, usable without a level:</b> the larger of the vanilla world read and
-     * the host a structure is carrying at that position.
-     *
-     * <p>This is {@code InnerRedstoneNetwork#worldSignalAt}, which both the carrier half and the
-     * world-side solve call; here the first half is a double instead of a real block read, because a unit
-     * test has no level to read one from. The wiring test at the bottom stops the two from drifting apart.
+     * {@code InnerRedstoneNetwork#worldSignalAt}: the larger of the vanilla read and the carried host.
+     * The vanilla half is a parameter here, since a unit test has no level to read one from.
      */
     private static int combinedRead(int vanilla, int projected) {
         return Math.max(vanilla, projected);
@@ -154,13 +116,13 @@ class CarrierSeamWorldReadTest {
     @BeforeEach
     void theFixtureIsTheAuthorsScene() {
         assertEquals(1, A_WORLD.distManhattan(B_WORLD),
-                "the two blocks stand face to face in the world - the scene the author built");
+                "the two blocks stand face to face in the world");
         assertEquals(2048, Math.abs(A_LOCAL.getZ() - B_LOCAL.getZ()),
                 "while their own coordinates differ by one plot cell, so nothing in the structure frame "
                         + "can carry a signal across");
         assertNotEquals(A_LOCAL, A_WORLD, "a sub-level's own coordinate is never a world position");
         assertTrue(A_LOCAL.getX() > 1_000_000 && B_LOCAL.getX() > 1_000_000,
-                "the plot region the P1 diagnostics measured");
+                "a plot coordinate, never a world position");
     }
 
     // ------------------------------------- 1. the missing step, at the seam --
@@ -172,7 +134,7 @@ class CarrierSeamWorldReadTest {
         int projected = 15; // and the projection table sees A's dust at full power
 
         assertEquals(15, combinedRead(vanilla, projected),
-                "this is the whole of P1.38: the world half takes the larger of the two, so a block that "
+                "the world half takes the larger of the two, so a block that "
                         + "is only there because a structure carries it is still read");
     }
 
@@ -190,7 +152,7 @@ class CarrierSeamWorldReadTest {
     @DisplayName("nothing projected at that position leaves the vanilla answer exactly as it was")
     void nothingProjectedChangesNothing() {
         assertEquals(9, combinedRead(9, 0),
-                "an ordinary level read is answered by the level: the P1/P2 behaviour, unchanged");
+                "an ordinary level read is answered by the level, unchanged");
         assertEquals(0, combinedRead(0, 0), "and empty stays empty");
     }
 
@@ -198,22 +160,19 @@ class CarrierSeamWorldReadTest {
     @DisplayName("the host is answered in the WORLD frame: a turned structure's directions are converted")
     void theProjectedHostIsAnsweredInTheWorldFrame() {
         Slot repeater = carry(STRUCTURE_A, A_LOCAL, A_WORLD, ComponentType.REPEATER);
-        // FACING is the INPUT side, so a repeater facing WEST emits towards EAST - which is the side B
-        // stands on, and the side A's own frame would call the answer for.
+        // FACING is the INPUT side, so one facing WEST emits EAST - the side B stands on.
         repeater.facing = Direction.WEST;
         repeater.power = 15;
 
-        // A carries its block, turned half a circle about its own centre. The world position of that
-        // block is the same integer - a turn is invisible to the key - but which world side its output
-        // leaves by is the structure's own orientation, so the answer has to be turned through the pose.
+        // A turn is invisible to the position key, but the side the output leaves by is the structure's own
+        // orientation, so the answer has to be turned through the pose.
         CarrierPose turned = CarrierPose.of(
                 new Vector3d(A_WORLD.getX() + 0.5, A_WORLD.getY() + 0.5, A_WORLD.getZ() + 0.5),
                 new org.joml.Quaterniond().rotateY(Math.PI));
         CarrierProjection.ProjectedHost host = new CarrierProjection.ProjectedHost(STRUCTURE_A, A_LOCAL,
                 A_WORLD, turned, repeater, repeater.power);
 
-        // Read from B, which stands to the east: the query direction is from B towards A, i.e. WEST, so
-        // the emission being asked about is towards EAST.
+        // Read from B, standing east of A: the query travels WEST, so the emission asked about is EAST.
         assertEquals(15, CarrierProjection.emittedTowardInStructureFrame(host, Direction.WEST, false,
                         false),
                 "in the structure's own frame the repeater emits east, and the query asks about east");
@@ -229,9 +188,8 @@ class CarrierSeamWorldReadTest {
     @Test
     @DisplayName("a structure's own blocks are read at local coordinates, so the seam cannot come from there")
     void theStructureHalfCannotCarryTheSeam() {
-        // B's own dust asks its solver's structure half about the side A is on. In B's own frame that is
-        // B_LOCAL's neighbour - a cell of B's own plot, 2048 blocks from A's cell - so the answer is
-        // "nothing of mine is there", and it always was. The seam has to come from the world half.
+        // In B's frame the ask is a neighbour cell of B's own plot, 2048 blocks from A's: nothing of B's is
+        // there, so the seam has to come from the world half.
         carry(STRUCTURE_B, B_LOCAL, B_WORLD, ComponentType.DUST).power = 15;
         CarrierSpace space = new CarrierSpace(STRUCTURE_B, index, world, id -> new FakeBlocks(), null);
 
@@ -245,10 +203,8 @@ class CarrierSeamWorldReadTest {
     @Test
     @DisplayName("the world half the seam uses is built for the reading structure's own pose")
     void theSeamReadUsesTheReadingStructuresPose() throws Exception {
-        // CarrierNetworks#worldIoOf builds one CarrierWorldIo per carrier per pass, from that carrier's
-        // own pose - so B's read of the world is B's frame turned into the world, not A's. Pinned as
-        // wiring because the alternative (a shared bridge for the whole level) would answer every
-        // structure's reads in one structure's frame.
+        // One CarrierWorldIo per carrier per pass, built from that carrier's own pose - not one shared
+        // bridge, which would answer every structure's reads in a single structure's frame.
         String networks = flat(
                 "src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierNetworks.java");
 
@@ -257,7 +213,7 @@ class CarrierSeamWorldReadTest {
         assertTrue(networks.contains("return pose == null ? null : new CarrierWorldIo(pose,"
                         + " bridge.signals(), carrier, ctx.level());"),
                 "and one CarrierWorldIo is built from it, per carrier per pass - naming that carrier as "
-                        + "the reader (P1.41) and the level the projection table is indexed by, so the "
+                        + "the reader and the level the projection table is indexed by, so the "
                         + "bridge can refuse that carrier's own projected hosts and no one else's");
         assertTrue(networks.contains("if (bridge == null || bridge.signals() == null"
                         + " || bridge.poses() == null) {"),
@@ -275,23 +231,22 @@ class CarrierSeamWorldReadTest {
         assertTrue(network.contains("() -> worldSignalAt(level, worldPos, worldDirection)"),
                 "the carrier's bridge (CarrierWorldSignals, handed to CarrierWorldIo by "
                         + "CarrierNetworks#worldIoOf) must go through the merged read, not a bare "
-                        + "readSignal: a bare one is the defect, verbatim");
+                        + "readSignal, never a bare one");
         assertTrue(network.contains("int vanilla = readSignal(level, worldPos, worldDirection);")
                         && network.contains("int projected = projectedSignalAt(level, worldPos,"
                                 + " worldDirection);"),
                 "and the merged read is the vanilla block plus the projected host, in that order");
         assertTrue(network.contains("return projected;"),
-                "with the larger of the two taken, exactly as the world half has done since P1.20");
+                "with the larger of the two taken, as the world half has always done");
 
         int sharedCalls = count(network, "projectedSignalAt(level, neighbour, direction)");
         assertEquals(1, sharedCalls,
-                "the world half calls the shared projected read; a second copy of the rule is what the "
-                        + "round exists to prevent");
+                "the world half calls the shared projected read, with no second copy of the rule");
         assertTrue(network.contains("public static int projectedSignalAt(ServerLevel level,"
                         + " BlockPos worldPos, Direction worldDirection) {"),
                 "one public implementation, so a test and a future reader can reach it");
         assertTrue(!network.contains("private int projectedSignalInto("),
-                "the old private copy is gone rather than left beside the shared one");
+                "and no second private copy is left beside the shared one");
     }
 
     @Test
@@ -322,7 +277,7 @@ class CarrierSeamWorldReadTest {
         assertTrue(network.contains("long tick = level.getGameTime();"),
                 "bounded by the level's own clock rather than by a growing set");
         assertTrue(network.contains("[redstonecircuit] world solve at {} side={} <- carrier"),
-                "and the existing words stay, because they are what the author greps for");
+                "and the existing log words stay");
     }
 
     @Test

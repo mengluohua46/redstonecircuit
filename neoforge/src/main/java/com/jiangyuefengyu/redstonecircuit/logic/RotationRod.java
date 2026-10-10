@@ -14,25 +14,15 @@ import net.minecraft.world.level.block.state.BlockState;
 /**
  * 方向转向杆 - what the rotation rod does to the component inside a block.
  *
- * <h2>The gesture</h2>
- * Pick a block with redstone in it and click one of its faces:
+ * <p>The gesture: pick a block with redstone in it and click one of its faces. The first click makes that face the
+ * component's input side, the second makes it the output side, the third goes back to the input side - two states, then
+ * it repeats. Both are needed because a repeater cannot be pointed at a face without also deciding which way round it
+ * sits: "read from here" and "drive here" are the two orientations a clicked face can mean, and they are each other's
+ * opposite. The state is derived from where the component already points rather than remembered per player, so a click
+ * always means the same thing no matter who makes it or when, and nothing has to be saved.
  *
- * <pre>
- *   click the face the component should read from   -&gt; input side = that face
- *   click the same face again                       -&gt; output side = that face
- *   click again                                     -&gt; back to the input side
- * </pre>
- *
- * <p>Two states, then it repeats. Both are needed because a repeater cannot be pointed at a face
- * without also deciding which way round it sits: "read from here" and "drive here" are the two
- * orientations a clicked face can mean, and they are each other's opposite.
- *
- * <p>The state is derived from where the component already points rather than remembered per player,
- * so a click always means the same thing no matter who makes it or when - and nothing has to be saved.
- *
- * <p>Wire has no orientation at all - dust reads and emits on every side - so the rod refuses it rather
- * than pretending. That is also why {@link #hasDirection} is on {@link ComponentType}: it is the one
- * question the rod asks about a type.
+ * <p>Wire has no orientation at all - dust reads and emits on every side - so the rod refuses it rather than pretending.
+ * That is also why {@link #hasDirection} is on {@link ComponentType}: it is the one question the rod asks about a type.
  */
 public final class RotationRod {
 
@@ -56,11 +46,7 @@ public final class RotationRod {
         return !type.isWire();
     }
 
-    /**
-     * Turns the component in the block at {@code pos} towards {@code face}, and tells the world.
-     *
-     * @param face the face that was clicked, which is never {@code null} for a block click
-     */
+    /** Turns the component in the block at {@code pos} towards the clicked {@code face}, and tells the world. */
     public static Result turn(ServerLevel level, BlockPos pos, Direction face) {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
         Slot slot = store.slotAt(pos);
@@ -75,15 +61,12 @@ public final class RotationRod {
         boolean toInput = before != face;
         slot.facing = toInput ? face : face.getOpposite();
 
-        // A diode was strongly powering the block it used to point at. That block is a conductor, so
-        // everything around it was being powered through it; moving the output has to wake it up, or the
-        // old front would keep reporting the charge it is no longer given. This is the same pair of
-        // notifications vanilla's DiodeBlock.updateNeighborsInFront makes, for the old side.
+        // The old front is a conductor and has to be woken up, or it keeps reporting a charge it no longer receives:
+        // the pair of notifications vanilla's DiodeBlock.updateNeighborsInFront makes, for the old side.
         releaseOldFront(level, pos, slot.type, before);
 
         store.markDirty();
-        // The routing changed, so the network around it has to be settled again - and, because no block
-        // state changed, both the world and the clients have to be told by hand.
+        // The routing changed with no block state change, so the world and the clients both have to be told by hand.
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         InnerRedstoneNetwork.notifyOutputChanged(level, pos);
         HostSync.broadcast(level, pos, slot);
@@ -91,7 +74,7 @@ public final class RotationRod {
         return toInput ? Result.TURNED_TO_INPUT : Result.TURNED_TO_OUTPUT;
     }
 
-    /** Stops the block this diode used to drive from keeping the strong power it no longer receives. */
+    /** Stops the block the diode was driving from keeping the strong power it no longer receives. */
     private static void releaseOldFront(ServerLevel level, BlockPos pos, ComponentType type,
                                         Direction oldFacing) {
         if (!type.isDiode()) {

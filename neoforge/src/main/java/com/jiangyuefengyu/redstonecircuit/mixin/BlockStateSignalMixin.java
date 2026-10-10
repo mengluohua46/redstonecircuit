@@ -12,6 +12,9 @@ import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.BlockSignalSources;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.PublishedStructureOutput;
+import com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat;
+import com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketSpace;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -21,113 +24,17 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 
 /**
- * Lets inner redstone power the world outside its host block.
- *
- * <h2>Why a mixin is required</h2>
- * NeoForge 21.1.x has no hook that lets a mod make an existing vanilla block emit a redstone signal:
- * there is no {@code Capabilities.RedstoneSignal}, no {@code getSignal} event, and overriding
- * {@code Block#getSignal} only works for blocks you own. Replacing every candidate host block with a
- * modded variant would change block identity across the world, which the design rules out. A mixin
- * into {@code BlockState#getSignal} is therefore the only way to make an inner component
+ * Lets inner redstone power the world outside its host block, by injecting into {@code getSignal} and
+ * {@code getDirectSignal} - the two methods every redstone consumer asks. NeoForge has no hook that lets a mod
+ * make an existing vanilla block emit a signal, and replacing candidate host blocks would change block identity,
+ * so a mixin into {@code BlockStateBase} (where both are declared) is the only way to make an inner component
  * indistinguishable from a real signal source.
  *
- * <h2>What it does</h2>
- * Before the vanilla implementations of {@code getSignal} and {@code getDirectSignal} run, this asks
- * {@link BlockSignalSources} whether a component is stored inside the queried position and, if so,
- * reports its power. Every redstone consumer - pistons, lamps, wire, comparators, observers - asks
- * exactly these two methods, so they all see the inner component.
- *
- * <p>The mixin is deliberately only three things: two injections, the two lookups the decision needs
- * (the world store and the carrier tables), and the strong-power question's extra neighbour lookup.
- * <b>Which</b> answer wins is {@link BlockSignalSources}' business, so that rule is pinned by offline
- * tests instead of only being reachable behind a running server with mixins applied.
- *
- * <p>Since P4 there is a second place a component can be "at" a world position: a structure that is
- * carrying its host block has that block at a world coordinate which the world itself sees as air, so
- * the query can also be answered from {@code CarrierStore}'s projection of the machine. That is
- * read-only - the world's blocks are never touched - and it is what lets a machine light the lamp it
- * flies over.
- *
- * <p>Since P1.36 there is a third: the same carried host, asked about at its coordinate <em>inside</em>
- * the structure. A vanilla device the machine carries is a real block of the level (a Sable sub-level's
- * blocks live at their plot coordinates, which are level coordinates), so the author's piston asks the
- * host block beside it at the structure's own coordinate and is answered with the same rule, in the
- * same frame the question was asked in.
- *
- * <p>Since P1.38 the suppression window hides the world store and nothing else. It used to answer zero
- * to every query while the mod's own solver was reading the world, which also hid the projection and the
- * structure frame. Every carrier-side read runs inside that window, so a component inside one physicalised
- * structure could never read one inside its neighbour: the seam was dark by construction. The world store
- * still goes quiet there - a component must not read its own output back - but the two carrier sources are
- * other components. See {@link BlockSignalSources}.
- *
- * <p><b>Since P1.44 the answer a vanilla redstone wire receives is charged its own hop.</b> Vanilla
- * charges a wire-to-wire hop to the wire that <em>receives</em> it, but its scan only recognises a
- * neighbour whose block state is a redstone wire, so a component hidden inside a host block entered that
- * arithmetic as a source at full strength: the wire read the host at fifteen while the host read the wire
- * at fourteen, and a line of them held each other up. This is the one place the reader's identity is
- * known - it is the block one step back along the query direction - so it is where the charge is applied;
- * the arithmetic itself is {@link BlockSignalSources#hopChargedByReader} and {@code PowerSolver#afterHop}.
- *
- * <p><b>Since P1.46 the projection-sourced answer is charged too.</b> That gate names the reader by its
- * <em>block state</em>, which works for a vanilla wire and for nothing else: the reader of a seam is a
- * carried host, whose world cell is air (P1.38). The projection is answered by <b>two</b> halves of one
- * merged read, and P1.45 charged only the explicit one, so this half handed the neighbour over at full
- * strength in both directions and two independently physicalised blocks held each other at fifteen with no
- * supply at all - a loop with a gain of exactly one. The charge here is that same seam rule, with the
- * reader found the way P1.45 finds it ({@code InnerRedstoneNetwork#seamReaderAt}): see
- * {@link BlockSignalSources#projectionChargedByReader}.
- *
- * <h2>Where it emits</h2>
- * The host emits <b>exactly what its component emits, and exactly where</b> - the same rule the inner
- * network uses, so a block is not a better signal source than the device inside it:
- *
- * <pre>
- *   dust                      every side
- *   torch                     every side except the one it hangs on
- *   repeater / comparator     only the side it points at
- *   lever / button / plate    every side
- * </pre>
- *
- * <p>So a repeater inside a block drives the block in front of it and nothing else, just like a
- * repeater on the ground.
- *
- * <h2>Directions are backwards in these methods</h2>
- * Both vanilla queries receive the direction pointing <em>from the asker towards the block being
- * asked</em>, so the signal being answered travels the other way. Everything in {@code PowerSolver} is
- * written in terms of where the signal goes, which is why the direction is flipped once, inside the
- * rule, before any rule is consulted. Getting this wrong is invisible to a weak-power test - weak power
- * is asked about one block at a time - so it only showed up as a diode charging the block behind it.
- *
- * <h2>Weak and strong are answered separately</h2>
- * Vanilla has two signal queries and they are not interchangeable: <b>weak</b> power
- * ({@code getSignal}) is only ever seen by the block it is asked about, while <b>strong</b> power
- * ({@code getDirectSignal}) is carried onwards by a solid block to everything around it. A lever has
- * no strong power at all, and only a diode charges the block in front of it. Answering both queries
- * with the inner power - which is what this mixin used to do - turned every host block into a
- * redstone block: a lever inside one charged the stone beside it, and that stone then lit whatever
- * touched it. {@code PowerSolver#directSignalToward} now keeps the two apart.
- *
- * <p>The wrench's {@code forcedOn}/{@code forcedOff} overrides apply to the emitted (weak) directions,
- * which is how a connection is pinned open or cut from the outside.
- *
- * <h2>Safety</h2>
- * <ul>
- *   <li>Uses {@link Inject} with an early return, never {@code @Overwrite}, so vanilla logic is left
- *       intact and co-exists with other mixins touching these methods.</li>
- *   <li>Returns immediately when the level is not a {@link ServerLevel} (the store is
- *       server-authoritative), or when the query happens while {@code InnerRedstoneNetwork} is
- *       evaluating its own power - the world store stays quiet there; see above.</li>
- *   <li>Allocates nothing on the ordinary paths: a query the world store answers builds no object at
- *       all beyond the store lookup it always did.</li>
- * </ul>
- *
- * <h2>Why the target is {@code BlockStateBase}</h2>
- * {@code getSignal} and {@code getDirectSignal} are declared on
- * {@code BlockBehaviour.BlockStateBase}, not on {@code BlockState} itself, and Mixin's target search
- * does not walk up to superclass declarations. Targeting {@code BlockState} therefore fails at load
- * time with "could not find any targets matching 'getSignal'". Targeting the declaring class is what
- * actually patches every block state, since all of them are instances of it.
+ * <p>Three places a component can be "at" a world position are asked: the level's own store, a carried
+ * structure's projection of the machine, and the same host at its coordinate <em>inside</em> the structure. The
+ * suppression window hides the world store and nothing else. Weak and strong power are answered separately, the
+ * reader's hop is charged here because this is the one place the reader's identity is known, and <b>which</b>
+ * answer wins is {@link BlockSignalSources}' business, so that rule is pinned by offline tests.
  */
 @Mixin(BlockBehaviour.BlockStateBase.class)
 public abstract class BlockStateSignalMixin {
@@ -151,27 +58,86 @@ public abstract class BlockStateSignalMixin {
     }
 
     /**
-     * Shared body: gather what the three sources hold at this position, ask
-     * {@link BlockSignalSources} which one answers, and report that.
+     * How hard a cell inside a pocket plot is being pushed, laid over whatever vanilla answered.
      *
-     * <p>This method used to carry the whole rule, including which frame each source answers in. It is
-     * now two lookups and one question to the rule, so that the rule - the part that decides - is
-     * reachable from an offline test. Nothing about the answer changed with the move; what changed with
-     * P1.38 is the suppression window, which is passed in as one boolean and hides one source.
-     *
-     * @param strong whether the caller is the strong-power query ({@code getDirectSignal})
+     * <p>The injected cell answers on every face, at {@code RETURN} and as a <b>max</b>: a cell vanilla already
+     * reports higher keeps its own value. <b>If the cell is dust</b> the answer depends on who is asking, because
+     * the design reads it as "that cell's dust is driven to S": another wire gets {@code S - 1}, its own hop, and
+     * anything else gets the full {@code S}. Weak power only - a wire gives no direct signal, so answering the
+     * strong query as well would leak power through walls - and the gate in front of it is one static boolean.
+     */
+    @Inject(method = "getSignal", at = @At("RETURN"), cancellable = true)
+    private void redstonecircuit$injectedSignal(BlockGetter level, BlockPos pos, Direction direction,
+                                                CallbackInfoReturnable<Integer> cir) {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        int injected = PocketSpace.injectedStrength(serverLevel, pos);
+        if (injected <= 0) {
+            return;
+        }
+        Integer vanilla = cir.getReturnValue();
+        if (vanilla != null && vanilla >= injected) {
+            return;
+        }
+        cir.setReturnValue(redstonecircuit$injectedAnswer(serverLevel, pos, direction, injected));
+    }
+
+    /**
+     * The READ end of the two new sources, said out loud: "we notified" and "somebody asked" are two different
+     * ends, and only the first was visible in the log. At most once every {@code READ_LOG_TICKS} ticks, so a
+     * moving machine cannot flood the log.
+     */
+    private static void redstonecircuit$noteRead(ServerLevel level, BlockPos pos, Direction direction, int answer,
+                                                 String source) {
+        if (!com.jiangyuefengyu.redstonecircuit.RCConfig.debugLog()) {
+            return;
+        }
+        long now = level.getGameTime();
+        if (now - redstonecircuit$lastReadLine < READ_LOG_TICKS) {
+            return;
+        }
+        redstonecircuit$lastReadLine = now;
+        com.jiangyuefengyu.redstonecircuit.RCConfig.LOGGER.info("[redstonecircuit] a world query at {} towards {} "
+                        + "is answered {} from the {} source", pos.toShortString(), direction, answer, source);
+    }
+
+    /** The tick the last read line was written on. */
+    private static long redstonecircuit$lastReadLine = Long.MIN_VALUE;
+
+    /** How many ticks apart two read lines may be. */
+    private static final int READ_LOG_TICKS = 5;
+
+    /**
+     * What one injected cell answers one asker - see the injection above. {@code direction} is the way the signal
+     * travels from the asker to this cell, so the asker is on the opposite side.
+     */
+    private static int redstonecircuit$injectedAnswer(ServerLevel level, BlockPos pos, Direction direction,
+                                                      int injected) {
+        if (direction == null || !level.getBlockState(pos).is(Blocks.REDSTONE_WIRE)) {
+            // Not a dust cell: a virtual source of S, answering everyone alike.
+            return injected;
+        }
+        BlockPos asker = pos.relative(direction.getOpposite());
+        if (level.getBlockState(asker).is(Blocks.REDSTONE_WIRE)) {
+            // A wire neighbour has its own hop to pay, so it is told S - 1 and lands on S - 1.
+            return Math.max(0, injected - 1);
+        }
+        return injected;
+    }
+
+    /**
+     * Shared body: gather what the three sources hold at this position, ask {@link BlockSignalSources} which one
+     * answers, and report that. {@code strong} is true for the strong-power query ({@code getDirectSignal}).
      */
     private static int redstonecircuit$innerPower(@Nullable BlockGetter level, BlockPos pos,
                                                   @Nullable Direction direction, boolean strong) {
         if (!(level instanceof ServerLevel serverLevel) || direction == null) {
             return 0;
         }
-        // P1.38: the suppression window hides the WORLD STORE only. The two carrier sources are other
-        // components, not this solve's own output, and they are the only route by which a component
-        // inside one physicalised structure reads one inside its neighbour - every carrier-side read
-        // runs inside this window (CarrierWorldIo -> CarrierWorldSignals -> Level#getSignal), so a
-        // window that answered nothing everywhere made the seam permanently dark. See
-        // BlockSignalSources, which owns the rule and the argument.
+        // The suppression window hides the WORLD STORE only: the two carrier sources are other components, not
+        // this solve's own output, and they are the only route by which one physicalised structure reads its
+        // neighbour. See BlockSignalSources, which owns the rule and the argument.
         boolean worldStoreSuppressed = BlockSignalSources.suppressWorldStore();
 
         InnerRedstoneStore store = InnerRedstoneStore.get(serverLevel);
@@ -187,29 +153,23 @@ public abstract class BlockStateSignalMixin {
             try {
                 projected = CarrierStore.projectedHostAt(serverLevel, pos);
                 if (projected == null) {
-                    // P1.36: and the second position a carried host answers at - its coordinate inside
-                    // the structure, which for a Sable sub-level is a real level position. This is the
-                    // query a vanilla device the machine is carrying makes: the piston above the
-                    // redstone asks about the host block beside it, in the structure's own frame. The
-                    // world position answered above and this one are different numbers and never the
-                    // same question; see CarrierProjection#atStructure. The lookup is ownership-guarded
-                    // (P1.37): a coordinate belonging to another live sub-level is refused there and
-                    // left to the world projection source, which is what lets two independently
-                    // physicalised blocks keep reading each other.
+                    // The second position a carried host answers at: its coordinate inside the structure, which
+                    // for a Sable sub-level is a real level position - the query a vanilla device the machine is
+                    // carrying makes, in the structure's own frame. The lookup is ownership-guarded: a coordinate
+                    // belonging to another live sub-level is refused and left to the world projection source.
                     inStructure = CarrierStore.structureHostAt(serverLevel, pos);
                     structureFrameDeclined = CarrierStore.lastStructureFrameDeclined();
                 }
             } catch (RuntimeException | LinkageError failed) {
-                // The bridge is a bonus over the frozen behaviour: a failure in it must look like a jar
-                // without P4, not like a broken world.
+                // A failure in the bridge must look like a jar without the physics mod, not a broken world.
                 return 0;
             }
         }
 
-        // Strong power asks one question more: whether the block doing the asking holds a component of
-        // its own, because a host block is the component inside it and not a block of stone. A carried
-        // host counts, whether or not the block asking is one - at its world position or at the
-        // structure's own coordinate. The rule only consumes the answer, so the lookup lives here.
+        // Strong power asks one question more: whether the block doing the asking holds a component of its own,
+        // because a host block is the component inside it and not a block of stone. A carried host counts, at its
+        // world position or at the structure's own coordinate; the rule only consumes the answer, so the lookup
+        // lives here.
         boolean neighbourHoldsComponent = false;
         if (strong) {
             BlockPos asker = pos.relative(direction.getOpposite());
@@ -222,31 +182,41 @@ public abstract class BlockStateSignalMixin {
                 structureFrameDeclined, worldStoreSuppressed, direction, strong,
                 neighbourHoldsComponent);
         int answer = read.answer();
-        // P1.44: THE HOP THE READER CHARGES, AND WHO THE READER IS. Everything above decided which
-        // source answers and with what; this decides what the *asking block* does with it. A vanilla
-        // redstone wire charges one step for a neighbouring wire, but its own scan only recognises a
-        // neighbour whose block state is a redstone wire - so a component inside a host block was read
-        // as a source at full strength and a line of them held each other at fifteen. See
-        // `BlockSignalSources#hopChargedByReader`, which owns the arithmetic, and `PowerSolver#afterHop`,
-        // which is the one rule behind it.
-        //
-        // The extra block read is behind the gate that can make it matter at all: a weak query, an
-        // answer above zero, and a component that is itself a wire. An ordinary query - most of the
-        // hottest path in the game - never reaches it, and neither does the strong question (a wire
-        // gives no direct signal, so the strong branch is not part of a wire-to-wire hop).
-        //
-        // P1.46: AND THE ONE SOURCE WHOSE READER IS NOT A BLOCK STATE. P1.44 could charge the hop
-        // because the reader was a vanilla redstone wire, i.e. a block of the level, and `getBlockState`
-        // names it. The projection source is read by a component of ours as well: two independently
-        // physicalised blocks one world cell apart read each other through this very source (P1.38), and
-        // the reader's world cell is air - so the gate above answers "not a wire", no hop is charged, and
-        // `Math.max(vanilla, projected)` in `InnerRedstoneNetwork#worldSignalAt` keeps this uncharged copy
-        // over the one P1.45 charged in the explicit projected half. The pair then reads each other at
-        // full strength in BOTH directions, which is a loop with a gain of exactly one: every value is a
-        // fixed point, so it held fifteen after the supply was taken away and only came down when the
-        // blocks were moved apart. The charge is P1.45's own seam rule, with the reader found the same
-        // way P1.45 finds it - the bridge names it inside a structure, and the asker is otherwise one
-        // step back along the query direction. See `BlockSignalSources#projectionChargedByReader`.
+        // AND THE ONE SOURCE THAT IS NOT A BLOCK OF ANY KIND: a physicalised structure's product is DRAWN where
+        // the machine is, and that position holds air, so every source above answers nothing there. The product
+        // publishes the six strengths it answers with at its drawn position, and this is what reads them. Weak
+        // only: that is the question the product block on the ground answers.
+        if (answer == 0) {
+            if (!strong) {
+                // The direction is flipped here: vanilla's `direction` names the way the signal travels from the
+                // asker to this block, while a published strength belongs to the face the signal leaves through -
+                // the face pointing back at the asker. The product block on the ground does the same conversion.
+                int published = PublishedStructureOutput.answer(serverLevel.dimension(), pos,
+                        direction.getOpposite(), serverLevel.getGameTime());
+                if (published > 0) {
+                    redstonecircuit$noteRead(serverLevel, pos, direction, published, "published");
+                    return published;
+                }
+            }
+            // AND THE ONE SOURCE THAT IS A BLOCK OF ANOTHER KIND: what a machine carries is not always a product
+            // of ours - a redstone block, a torch, a repeater, another structure's product - and it is DRAWN at a
+            // world position while the block itself stands in the carrier's plot. The carrier half turns the
+            // position back into each live sub-level's own coordinates and asks the block that is really there.
+            // The direction is NOT converted here: the block in the plot is asked exactly as the block on the
+            // ground would be, and that conversion happens in the carrier's own frame.
+            int carried = PhysicsCompat.carriedSignalAt(serverLevel, pos, direction, strong);
+            if (carried > 0) {
+                redstonecircuit$noteRead(serverLevel, pos, direction, carried, "drawn block");
+                return carried;
+            }
+        }
+        // THE HOP THE READER CHARGES, AND WHO THE READER IS. A vanilla redstone wire charges one step for a
+        // neighbouring wire, but its own scan only recognises a neighbour whose block state is a redstone wire -
+        // so a component inside a host block was read at full strength and a line of them held each other at
+        // fifteen. The extra block read is behind the gate that can make it matter: a weak query, a non-zero
+        // answer, and a component that is itself a wire. The projection source is read by a component of ours
+        // too, and its world cell is air, so the gate answers "not a wire" there and the seam's own charge has to
+        // be applied instead - both are the solver's one hop rule.
         if (!strong && answer > 0 && read.slot() != null && read.slot().type.isWire()) {
             BlockPos reader = pos.relative(direction.getOpposite());
             boolean readerIsRedstoneWire = serverLevel.getBlockState(reader).is(Blocks.REDSTONE_WIRE);

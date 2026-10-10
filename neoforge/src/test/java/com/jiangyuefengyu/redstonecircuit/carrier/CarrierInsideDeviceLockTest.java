@@ -30,36 +30,11 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.32 commit C: the wrench pins a picked line towards a block <em>inside the same structure</em> that
- * holds no component of its own.</b>
+ * The wrench pins a picked line towards a block <em>inside the same structure</em> that holds no
+ * component of its own: the far end is read from the structure's own view, in the structure's own frame.
  *
- * <h2>The author's report, and the world's own answer to it</h2>
- * <em>"物理化的活塞也无法连接"</em> - after physicalising a piston, the wrench could not connect to it. The
- * world's own wrench has always had an answer for that shape: {@code linked_on_device}, <em>"nothing is
- * embedded on that side, so only this end is pinned: every other direction is cut"</em>. The carrier layer
- * had only the world's version of it (P1.31, {@link CarrierOutsideLockTest}), where the far end is a block
- * of the world. This is the same rule with the far end <b>inside the machine</b>, and the two share every
- * line of the decision ({@code CarrierInteraction#planLink}) and of the write
- * ({@code CarrierInteraction#lockOne}) - only the frame the two coordinates are compared in differs, and
- * for a block inside the structure that frame is the structure's own.
- *
- * <h2>What is asserted</h2>
- * <ol>
- *   <li><b>the lock is written</b>: the picked record's side towards the device is pinned, every other side
- *       is cut by implication ({@code Slot#isClosed}), and the action is a {@code LockedInside} rather than
- *       a {@code LockedOutside};</li>
- *   <li><b>the in-structure solve reads it</b>: the wire beside the pick drops from <b>14</b> to <b>0</b>.
- *       This is the difference between "the record says so" and "it works", exactly as in P1.31;</li>
- *   <li><b>the state cycle is the same one</b>: {@code AUTO -> ON -> OFF -> AUTO} through
- *       {@code WrenchLinks#next}, because it is the same method;</li>
- *   <li><b>the judgement line is one of three, at a glance</b>: {@code locked INSIDE the structure …}
- *       against {@code locked OUTSIDE the structure …} and {@code link linked ACROSS STRUCTURES …};</li>
- *   <li><b>nothing is written at the far end</b>: the device has no component, so it has no record and
- *       the world store is not touched either - the one truth about one block rule;</li>
- *   <li><b>every refusal writes nothing</b>: not adjacent, unreadable pose, no component in the pick, the
- *       click being nobody's coordinate (the world's own gesture), and another structure's coordinate
- *       (the cross-structure path's).</li>
- * </ol>
+ * <p>The pin lives on the picked record only, and the in-structure solve reads it; the device has no
+ * record and the world store is untouched. The state cycle is the wrench's own AUTO -> ON -> OFF -> AUTO.
  */
 class CarrierInsideDeviceLockTest {
 
@@ -112,15 +87,15 @@ class CarrierInsideDeviceLockTest {
     }
 
     /**
-     * The author's machine: a host with a supply, a wire beside it on one side, and a device <b>with no
-     * record at all</b> on another - which is the state the inside gesture exists for.
+     * A host with a supply, a wire beside it on one side, and a device <b>with no record at all</b> on
+     * another - the state the inside gesture exists for.
      */
     private void machineWithADevice() {
         carry(MINE, A, new BlockPos(100, 64, 100), ComponentType.DUST);
         carry(MINE, WIRE, new BlockPos(100, 64, 101), ComponentType.DUST);
         index.at(MINE, A).slot().injectedPower = 15;
         assertNull(index.at(MINE, DEVICE), "the setup is the point: the device holds no component, so it "
-                + "has no record - that is exactly the block the author could not connect to");
+                + "has no record - that is the block the inside gesture exists for");
     }
 
     private static CarriedSelection.Selection picked() {
@@ -128,11 +103,8 @@ class CarrierInsideDeviceLockTest {
     }
 
     /**
-     * {@code CarrierInteraction#planLink(index, pick, click, owned, pose, pickedLocal, inside, farEnd)}.
-     *
-     * <p>Asked by reflection for the same reason P1.31's file asks its own decision that way: on the
-     * previous tree this signature does not exist at all, and a direct call would be a compile error there
-     * rather than a readable red assertion.
+     * The production link decision, asked by reflection so a missing signature reads as a failed
+     * assertion rather than a compile error.
      */
     @Nullable
     private static Object decide(@Nullable CarriedHostIndex index,
@@ -283,8 +255,7 @@ class CarrierInsideDeviceLockTest {
 
             assertNotNull(line, "the line a report is grepped for must be buildable");
             assertTrue(line.startsWith("locked INSIDE the structure"),
-                    "the first three words name the decision; the previous build printed nothing at all: "
-                            + line);
+                    "the first three words name the decision: " + line);
             assertFalse(line.contains("OUTSIDE"),
                     "it is NOT the world's own block, and the two lines have to be separable by grep: "
                             + line);
@@ -341,9 +312,7 @@ class CarrierInsideDeviceLockTest {
         @Test
         @DisplayName("the fixture's two frames agree, so 'the wire went dead' cannot pass by accident")
         void theFixtureAgrees() {
-            // Both ends of this gesture are already in the structure's own frame, so this is about the
-            // OTHER thing that could make the test pass for the wrong reason: a pose that moved the
-            // structure. It is a pure translation, so local and world directions are the same direction.
+            // Both ends are already in the structure's own frame, and the pose is a pure translation.
             assertEquals(Direction.SOUTH,
                     CarrierDirections.worldDirection(identity(), Direction.SOUTH),
                     "the fixture is unturned, so 'beside it inside the structure' and 'beside it in the "
@@ -407,7 +376,7 @@ class CarrierInsideDeviceLockTest {
 
             assertEquals("NOT_INSIDE", status(decision),
                     "the inside gesture answers for its own structure's coordinates only; a block nobody "
-                            + "owns is P1.31's click, which is decided by the same wiring a moment later");
+                            + "owns is the outside gesture's click");
             assertNull(actionOf(decision));
         }
 
@@ -420,11 +389,8 @@ class CarrierInsideDeviceLockTest {
             Object decision = decide(index, picked(), DEVICE, other, identity(), A,
                     CarriedBlockRemoval.StructureViewState.PRESENT);
 
-            // P1.34: the ANSWER is unchanged - this one writes one record and the cross-structure path
-            // writes two, so it is still refused - but it is no longer the silent NOT_INSIDE. A click the
-            // player really made on a physicalised block of another structure has to be nameable, because
-            // the silent version of this branch is what swallowed the author's own gesture with no line at
-            // all (see OutsideStatus#FAR_END_NOT_THE_PICKED_STRUCTURE).
+            // Refused as before, but not silently: one record is written here where the cross-structure
+            // path writes two, so a click on another structure's block has to be nameable.
             assertEquals("FAR_END_NOT_THE_PICKED_STRUCTURE", status(decision),
                     "two records could be written at a cross-structure far end, so it belongs to the path "
                             + "that writes both - this one writes one, and now says so: "

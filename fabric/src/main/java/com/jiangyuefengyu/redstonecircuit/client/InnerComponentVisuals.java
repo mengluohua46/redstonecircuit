@@ -47,7 +47,9 @@ import net.fabricmc.api.Environment;
  * <p>The three repeaters added in 1.1.0 are the exception, and the reason this class now names a couple
  * of our own blocks as well: a retaining repeater that looked exactly like a vanilla one inside a host
  * block would be a lie, so those draw their own models - the player's own art - in the world and inside
- * a host block alike.
+ * a host block alike. The controller, the transformer, the clock source and the signal extender are the
+ * same case: each is a device whose plate is its own model, so the component inside a block is drawn from
+ * the very block the player would have placed.
  *
  * <h2>How a state is obtained without placing a block</h2>
  * A component is mapped onto a real vanilla {@link BlockState}, and
@@ -84,6 +86,14 @@ final class InnerComponentVisuals {
         WALL_TORCH,
         LEVER,
         BUTTON,
+        /** 控制器: our own device plate, standing in for itself inside the host block. */
+        CONTROLLER,
+        /** 红石变压器: our own plate again. */
+        TRANSFORMER,
+        /** 时钟源: our own plate; its lit face is the pulse. */
+        CLOCK,
+        /** 信号延长器: our own plate once more; its lit model is the display running. */
+        EXTENDER,
         /** No vanilla model fits; the caller falls back to the box shapes. */
         NONE
     }
@@ -191,6 +201,48 @@ final class InnerComponentVisuals {
             }
             case BUTTON -> {
                 return attached(Model.BUTTON, slot);
+            }
+            case CONTROLLER -> {
+                // Floor- or ceiling-mounted: the same quarter turn about X as a diode, so the plate's
+                // front face is turned towards whatever it reads.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.CONTROLLER, Direction.SOUTH, null, tilt, slot.power > 0,
+                            false, 1, false, Set.of());
+                }
+                return new Placement(Model.CONTROLLER, slot.facing, null, 0F, slot.power > 0, false, 1,
+                        false, Set.of());
+            }
+            case TRANSFORMER -> {
+                // The same plate and the same southern model: the transformer's front face is its input
+                // edge, so it is the face a diode's FACING names.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.TRANSFORMER, Direction.SOUTH, null, tilt, slot.power > 0,
+                            false, 1, false, Set.of());
+                }
+                return new Placement(Model.TRANSFORMER, slot.facing, null, 0F, slot.power > 0, false, 1,
+                        false, Set.of());
+            }
+            case CLOCK -> {
+                // The same plate again; the lit flag carries the pulse - a two-tick flash per period.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.CLOCK, Direction.SOUTH, null, tilt, slot.power > 0, false,
+                            1, false, Set.of());
+                }
+                return new Placement(Model.CLOCK, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
+            case EXTENDER -> {
+                // The same plate once more: lit while it is answering, which is the display running.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.EXTENDER, Direction.SOUTH, null, tilt, slot.power > 0,
+                            false, 1, false, Set.of());
+                }
+                return new Placement(Model.EXTENDER, slot.facing, null, 0F, slot.power > 0, false, 1,
+                        false, Set.of());
             }
             default -> {
                 // Pressure plates are not placeable yet, and no vanilla plate shape would be honest.
@@ -337,6 +389,38 @@ final class InnerComponentVisuals {
                         .setValue(FaceAttachedHorizontalDirectionalBlock.FACE, placement.face())
                         .setValue(FaceAttachedHorizontalDirectionalBlock.FACING, placement.facing())
                         .setValue(ButtonBlock.POWERED, placement.lit());
+            }
+            case CONTROLLER -> {
+                // Our own block's model: the plate is what the component inside a block really is.
+                return RCRegistry.CONTROLLER.defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ControllerBlock.FACING,
+                                placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ControllerBlock.LIT,
+                                placement.lit());
+            }
+            case TRANSFORMER -> {
+                // Only facing and LIT reach the model: the two lit models are what the answer selects.
+                return RCRegistry.TRANSFORMER.defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TransformerBlock.FACING,
+                                placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TransformerBlock.LIT,
+                                placement.lit());
+            }
+            case CLOCK -> {
+                // And the same for the clock source, whose lit texture is what its model does with LIT.
+                return RCRegistry.CLOCK.defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ClockBlock.FACING,
+                                placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ClockBlock.LIT,
+                                placement.lit());
+            }
+            case EXTENDER -> {
+                // And for the signal extender, whose lit model is the display with the marker running.
+                return RCRegistry.EXTENDER.defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.FACING,
+                                placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.LIT,
+                                placement.lit());
             }
             default -> {
                 return null;

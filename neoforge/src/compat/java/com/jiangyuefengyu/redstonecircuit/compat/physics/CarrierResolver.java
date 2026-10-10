@@ -32,70 +32,35 @@ import org.joml.Quaterniond;
 import org.joml.Vector3d;
 
 /**
- * The compat half's answer to "where is this structure, and which one owns this block".
+ * The compat half's answer to "where is this structure, and which one owns this block": the two questions the
+ * carrier layer cannot answer itself, both being about Create and Sable rather than about redstone - and the
+ * only place in the mod that reads a contraption's transform or a sub-level's pose.
  *
- * <h2>What it implements, and for whom</h2>
- * {@link CarrierStore.CarrierSource} - the two questions the carrier layer needs and cannot answer
- * itself, because both are about Create and Sable rather than about redstone. This class is the only
- * place in the mod that reads a contraption's transform or a sub-level's pose.
- *
- * <h2>A Create contraption's pose, exactly</h2>
- * Create 6.0.10 does not hand out a quaternion. It hands out
- * {@code AbstractContraptionEntity#applyRotation(Vec3, float)}, and the whole of its coordinate
- * contract is visible in the decompiled {@code toGlobalVector}:
- *
- * <pre>
- *   toGlobalVector(v) = applyRotation(v - 0.5) + 0.5 + getAnchorVec()
- * </pre>
- *
- * <p>Two things follow from that, and both matter:
- *
- * <ol>
- *   <li>The pose is {@code position = getAnchorVec()}, {@code pivot = (0.5, 0.5, 0.5)},
- *       {@code scale = 1} - which is exactly the shape {@link CarrierPose} has, so the renderer and
- *       the landing arithmetic use the same numbers Create itself uses to place actors and
- *       collisions.</li>
- *   <li>The orientation can be recovered <b>without</b> re-deriving Create's internal Euler order:
- *       {@code applyRotation} is linear, so asking it where the three basis vectors go gives the
- *       rotation matrix column by column. That is robust to a rotation state whose convention changes
- *       between Create versions, and it is the reason {@link CarrierPose#fromBasisColumns} exists at
- *       all.</li>
- * </ol>
- *
- * <h2>A Sable sub-level's pose, exactly</h2>
- * Sable does hand one out: {@code SubLevelAccess#logicalPose()} is a {@code Pose3dc} whose
- * {@code transformPosition} is the same {@code position + orientation * (local - pivot) * scale} the
- * P1 diagnostics confirmed round-trips perfectly. That path needs no reconstruction at all.
- *
- * <h2>Nothing here runs unless the mods are installed</h2>
- * The class is only ever loaded from {@link PhysicsCompatBackend}, which is itself only reached by
- * name after a {@code ModList} check. Every entry point checks again, because "is Create here" can
- * differ per level in a way {@code ModList} cannot express.
+ * <p>The Create pose is the anchor with pivot (0.5, 0.5, 0.5) and scale 1, its orientation read off the three
+ * basis answers of that rotation: it is linear, so they are the rotation matrix's columns, which is robust to
+ * an internal Euler convention that changes between Create versions. A Sable sub-level hands out its own pose
+ * instead, with nothing to reconstruct. Loaded only when the mods are installed, and every entry point checks
+ * again, because "is Create here" can differ per level in a way {@code ModList} cannot express.
  */
 final class CarrierResolver implements CarrierStore.CarrierSource {
 
-    /** Lazily created; the P2 access shares this resolver's entity and sub-level lookups. */
+    /** Lazily created; the structure access shares this resolver's entity and sub-level lookups. */
     @Nullable
     private CarrierAccess structureAccess;
 
     /**
-     * The stand-in identity of every contraption that has been claimed before its entity existed.
+     * The stand-in identity of every contraption that has been claimed before its entity existed, keyed by
+     * the {@code Contraption} object itself.
      *
-     * <p>Keyed by the {@code Contraption} object itself, through an {@link java.util.IdentityHashMap}:
-     * Create's {@code Contraption#startMoving} iterates one {@code actor} list and reuses the very same
-     * {@code Contraption} instance for every callback, so object identity is what makes the provisional
-     * id the same on {@code startMoving}, on the actor tick and on {@code stopMoving}. That is the
-     * whole stability argument for the fallback identity, and it is why nothing here keys on a position.
+     * <p>Object identity is what makes the id stable: Create's {@code startMoving} iterates one actor list
+     * and reuses the same {@code Contraption} instance for every callback, so the claim made at
+     * {@code startMoving} is the one found at the actor tick and at {@code stopMoving}. Static, because the
+     * movement callbacks reach this class through its static entry points while the carrier layer reaches the
+     * same registry through the installed instance - two copies would be the very bug the fallback identity
+     * exists to prevent, a claim made under one id and looked up under another.
      *
-     * <p><b>Static</b>, because the {@link MovementBehaviour} callbacks reach this class through its
-     * static entry points while {@code CarrierStore} reaches the same registry through the installed
-     * source instance. Two copies of this map would be the exact bug the fallback identity exists to
-     * prevent - a claim made under one id and looked up under another - so there is only ever one.
-     *
-     * <p>An identity map (not a {@code WeakHashMap}) because a weak key can be collected between the
-     * claim and the tick that settles it, which would strand the hosts under a name nothing can find; a
-     * strong key keeps the contraption alive for at most the handful of ticks the settlement takes.
-     * Entries are dropped on settlement and bounded in case a contraption somehow never gets one.
+     * <p>A strong identity map, not a weak one: a weak key can be collected between the claim and the tick
+     * that settles it, which would strand the hosts under a name nothing can find.
      */
     private static final java.util.Map<Contraption, Provisional> PROVISIONALS =
             new java.util.IdentityHashMap<>();
@@ -135,23 +100,20 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
         }
         CarrierResolver resolver = new CarrierResolver();
         CarrierStore.install(resolver);
-        // Phase two of the two-phase identity: the carrier layer asks this when it needs to know
-        // whether a provisionally named structure has an entity yet. Installed here, beside the source,
-        // so the carrier layer never has to name a Create type.
+        // Phase two of the two-phase identity: the carrier layer asks this whether a provisionally named
+        // structure has an entity yet. Installed here, beside the source, so the carrier layer never has to
+        // name a Create type.
         CarrierStore.installProvisionalClaims(CarrierResolver::entityFor);
-        // The second question the orphan sweep needs, and the one whose absence let it declare a live
-        // sub-level gone: "is the structure this carrier names still there", answered from Sable's own
-        // container rather than from a pose query that cannot see it.
+        // The second question the orphan sweep needs: "is the structure this carrier names still there",
+        // answered from Sable's own container rather than from a pose query that cannot see it.
         CarrierStore.installSubLevelLiveness(CarrierResolver::subLevelAlive);
         RCConfig.LOGGER.info("[redstonecircuit] carrier resolver installed: create={} sable={}",
                 create, sable);
     }
 
     /**
-     * {@code CarrierSource#access()}: how to read a structure's own blocks.
-     *
-     * <p>P2's one requirement of this class that P1 did not have. Handed back as a lazily created
-     * companion rather than built per call; it holds nothing but a back-reference.
+     * {@code CarrierSource#access()}: how to read a structure's own blocks. Created lazily rather than per
+     * call, since it holds nothing but a back-reference.
      */
     @Override
     public CarrierAccess access() {
@@ -167,15 +129,10 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * The centre of a structure's world bounds: the "where is this machine, roughly" answer.
-     *
-     * <p>Needed by {@link com.jiangyuefengyu.redstonecircuit.carrier.CarrierDrawCheck}, whose whole
-     * subject is the gap between where a component is drawn and where the structure is. Both mods say
-     * it the same way - a world-space bounding box - so both halves are the midpoint of one, and the
-     * numbers come out directly comparable between a Create carrier and a Sable one.
-     *
-     * <p>{@code null} whenever the structure cannot be named, which the draw check reports as "cannot
-     * compare" rather than as a fault.
+     * The centre of a structure's world bounds, so "where this machine is" and "where a component is drawn"
+     * can be compared. Both mods answer with a world-space box, so both halves are the midpoint of one and the
+     * numbers are directly comparable between a Create carrier and a Sable one. {@code null} whenever the
+     * structure cannot be named, which the draw check reports as "cannot compare" rather than as a fault.
      */
     @Override
     @Nullable
@@ -223,8 +180,7 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
             }
             return subLevelPose(level, carrier);
         } catch (RuntimeException | LinkageError failed) {
-            // A pose query runs once per tick per carrier; a diagnostic that can take the server down
-            // is worse than a machine whose components stop being drawn for a tick.
+            // A pose query runs once per tick per carrier; a failure must not take the server down.
             RCConfig.LOGGER.warn("[redstonecircuit] carrier {} pose query failed: {}",
                     carrier.shortId(), failed.toString());
             return null;
@@ -232,11 +188,9 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * A Create contraption's pose, from the entity's own anchor and rotation.
-     *
-     * <p>{@code null} when the contraption entity has left the level - which is exactly the signal
-     * {@link CarrierStore}'s orphan sweep needs to decide that a structure is really gone rather than
-     * merely far away.
+     * A Create contraption's pose, from the entity's own anchor and rotation. {@code null} when the contraption
+     * entity has left the level, which is the signal the orphan sweep needs to decide that a structure is really
+     * gone rather than merely far away.
      */
     @Nullable
     private CarrierPose contraptionPose(ServerLevel level, CarrierId carrier) {
@@ -251,10 +205,9 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * The pose Create itself would use for this contraption entity.
-     *
-     * <p>Package-visible so the same arithmetic has exactly one implementation: the diagnostic hook
-     * uses it too, and "what the log says the pose is" has to be "what the renderer draws".
+     * The pose Create itself would use for this contraption entity. Package-visible so the same arithmetic has
+     * exactly one implementation: the diagnostics use it too, and what the log calls the pose has to be what
+     * the renderer draws.
      */
     @Nullable
     static CarrierPose poseOf(AbstractContraptionEntity contraption) {
@@ -262,14 +215,14 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
         if (anchor == null) {
             return null;
         }
-        // applyRotation is linear, so three basis answers are the rotation matrix. Asking for the
-        // centre as well would be the affine form; a pure rotation has nothing to learn from it,
-        // because toGlobalVector has already taken the pivot out.
+        // applyRotation is linear, so three basis answers are the rotation matrix. Asking for the centre as
+        // well would be the affine form, and a pure rotation has nothing to learn from it, because Create's
+        // own coordinate contract has already taken the pivot out.
         Vec3 x = contraption.applyRotation(new Vec3(1.0, 0.0, 0.0), 0.0F);
         Vec3 y = contraption.applyRotation(new Vec3(0.0, 1.0, 0.0), 0.0F);
         Vec3 z = contraption.applyRotation(new Vec3(0.0, 0.0, 1.0), 0.0F);
-        // The anchor goes in as-is: CarrierPose.fromContraptionBasis knows that Create's own contract
-        // puts the pose's origin half a block past the anchor, and applies that shift itself.
+        // The anchor goes in as-is: CarrierPose.fromContraptionBasis knows that Create's own contract puts
+        // the pose's origin half a block past the anchor, and applies that shift itself.
         return CarrierPose.fromContraptionBasis(new Vector3d(anchor.x, anchor.y, anchor.z),
                 new Vector3d(x.x, x.y, x.z), new Vector3d(y.x, y.y, y.z), new Vector3d(z.x, z.y, z.z));
     }
@@ -285,25 +238,13 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * <b>P1.56: the pose Sable is DRAWING this sub-level at, in this frame - Sable's own answer, not a
-     * reconstruction.</b>
+     * The pose Sable is <em>drawing</em> this sub-level at in this frame: Sable's own answer, not a
+     * reconstruction, so "where the components are" and "where the machine is" stay the same number.
      *
-     * <p>The author's report after P1.55 was that the components now <em>flicker</em> between the leading
-     * position and the block's. That is the shape of a reconstruction that cannot be exact: Sable's client
-     * sub-level keeps a <b>buffer of snapshots</b> and samples it by time
-     * ({@code SubLevelSnapshotInterpolator#getSampleAt} / {@code #tick}), so the pose it draws a structure
-     * with is its own timeline - not "the last two poses the server sent us, interpolated by the frame's
-     * partial tick", which is all this side can rebuild through its own channel. The two timelines beat
-     * against each other, and what the player sees is the components crossing the block.
-     *
-     * <p>The exact answer <b>is</b> available on the client, so this asks for it:
-     * {@code ClientSubLevel#renderPose(float)} is the very pose Sable draws the structure with, computed
-     * from that same buffer. Using it makes "where the components are" and "where the machine is" the same
-     * number in every frame, which is the only way this can be exact rather than nearly right.
-     *
-     * <p>{@code null} - Sable absent, a Create contraption, a sub-level the client does not hold, or an
-     * unreadable pose - leaves the caller with the network pose it already had, so no path regresses to
-     * "drawn nowhere".
+     * <p>Sable's client sub-level samples its own buffer of snapshots by time, and a pose rebuilt from the last
+     * two poses the server sent beats against that timeline - which is what a player sees as components crossing
+     * the block. {@code null} - Sable absent, a contraption, a sub-level this client does not hold, an unreadable
+     * pose - leaves the caller with the network pose it already had, so no path regresses to "drawn nowhere".
      */
     @Nullable
     public static CarrierPose renderPoseOf(Level level, CarrierId carrier, float partialTick) {
@@ -318,11 +259,9 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * One {@code Pose3dc} as a {@link CarrierPose}, or {@code null} when it cannot be read.
-     *
-     * <p>The one conversion, shared by the logical pose the server sends and the render pose the client
-     * draws with - the two must be the same arithmetic or a claim verified against one would land
-     * somewhere else than the other draws.
+     * One {@code Pose3dc} as a {@link CarrierPose}, or {@code null} when it cannot be read. The one conversion,
+     * shared by the logical pose the server sends and the render pose the client draws with: they must be the same
+     * arithmetic, or a claim verified against one would land where the other does not draw.
      */
     @Nullable
     private static CarrierPose fromPose3d(@Nullable Pose3dc pose) {
@@ -345,11 +284,9 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * The sub-level a carrier names, in one particular level.
-     *
-     * <p>Package-visible rather than private because {@link CarrierStructureAccess} needs the plot's
-     * block accessor, and a second implementation of "which sub-level is this" is exactly the kind of
-     * thing that drifts away from this one.
+     * The sub-level a carrier names, in one particular level. Package-visible rather than private because
+     * {@link CarrierStructureAccess} needs the plot's block accessor, and a second implementation of "which
+     * sub-level is this" is exactly the kind of thing that drifts away from this one.
      */
     @Nullable
     SubLevel subLevelOf(ServerLevel level, CarrierId carrier) {
@@ -367,17 +304,12 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     /**
      * Whether the sub-level a carrier names exists right now, in any loaded level.
      *
-     * <p>The second question the carrier layer's orphan sweep asks, and the one this round added. The
-     * sweep used to treat "the pose query returned null" as proof that a structure was gone, which is
-     * only sound if the pose query can answer for every live structure. It cannot: {@link #poseOf}
-     * dispatches on {@link CarrierKind}, so a carrier filed as a Create contraption whose UUID really
-     * belongs to a Sable sub-level - which is what a physics-assembled structure looks like, one UUID
-     * shared by the contraption entity and the sub-level - is answered {@code null} for the whole
-     * flight. The sweep then released the hosts of a machine that was still in the air.
-     *
-     * <p>Answered from the container itself, so "the sub-level is still here" does not depend on
-     * anybody's pose arithmetic. Package-visible and static because {@code CarrierStore} reaches it
-     * through a method reference installed at {@link #install}.
+     * <p>The orphan sweep cannot use a pose query for this: that query dispatches on the carrier's kind, so a
+     * carrier filed as a Create contraption whose UUID really belongs to a Sable sub-level - what a
+     * physics-assembled structure looks like, one UUID shared by the contraption entity and the sub-level -
+     * answers {@code null} for the whole flight, and the sweep would release the hosts of a machine that is
+     * still in the air. Answered from Sable's own container, so liveness does not depend on anybody's pose
+     * arithmetic.
      */
     static boolean subLevelAlive(CarrierId carrier) {
         if (carrier == null || !carrier.isSubLevel() || !PhysicsCompat.sableLoaded()) {
@@ -403,41 +335,35 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * Whether a Create contraption entity's UUID is the UUID of a live Sable sub-level.
+     * Whether a Create contraption entity's UUID is the UUID of a live Sable sub-level: the test the Create
+     * path stands down on.
      *
-     * <p><b>The test the Create path uses to stand down.</b> A physics-assembled structure - Create
-     * Aeronautics' assembler, the physics staff - is a Sable sub-level <em>and</em> a Create contraption
-     * entity, and the two are created with the same UUID. Both halves of this mod therefore have a
-     * legitimate claim to file for the same host blocks, in two different local spaces (the sub-level's
-     * plot coordinates and the contraption's anchor-relative ones), and neither can see the other.
+     * <p>A physics-assembled structure is a Sable sub-level <em>and</em> a Create contraption entity created
+     * with the same UUID, so both halves of this mod have a legitimate claim to file for the same host blocks,
+     * in two different local spaces, and neither can see the other. Sable owns it, because the sub-level is
+     * what actually holds the blocks and the pose that can be read for them - so when this answers yes the
+     * Create half does not claim, does not solve and does not release.
      *
-     * <p>One of them has to be the owner, and it is Sable: the sub-level is the thing that actually
-     * holds the blocks and the pose that can be read for them. So the Create half asks this, and when
-     * the answer is yes it does not claim, does not solve and does not release - the whole structure is
-     * left to the Sable path, which reaches it through {@code SubLevelContainer} and claims the same
-     * blocks under {@code s:<the same uuid>}.
-     *
-     * <p>Deliberately asked of the <b>entity's</b> UUID rather than of a world position: the two halves
-     * of a physics assembly do not agree on where their blocks are, so a position-based test would be
-     * guessing. The UUID match is exact.
+     * <p>Asked of the <b>entity's</b> UUID rather than of a world position: the two halves of a physics
+     * assembly do not agree on where their blocks are, so a position-based test would be guessing.
      */
     static boolean isSubLevelBacked(@Nullable UUID entityUuid) {
         if (entityUuid == null || !PhysicsCompat.sableLoaded() || !PhysicsCompat.createLoaded()) {
-            // Without Sable there is no sub-level to be backed by, and without Create there is no
-            // contraption to stand down - so this can only ever be false, and asking costs nothing.
+            // Without Sable there is no sub-level to be backed by and without Create there is no contraption
+            // to stand down, so this can only ever be false, and asking costs nothing.
             return false;
         }
         return subLevelAlive(CarrierId.subLevel(entityUuid));
     }
 
-    // ------------------------------------------------- reads the P2 half needs --
+    // --------------------------------------------------- reads the solve needs --
 
     /**
      * The sub-level a carrier names, found without being told which level it is in.
      *
-     * <p>Needed because the solve is driven from the carried index, which is keyed by carrier rather
-     * than by level. Sable's own containers are per level, so every loaded level is asked; a server
-     * has a handful of levels and the whole lookup happens once per solve, not per block.
+     * <p>Needed because the solve is driven from the carried index, which is keyed by carrier rather than by
+     * level, while Sable's own containers are per level. A server has a handful of levels and the whole lookup
+     * happens once per solve, not per block.
      */
     @Nullable
     SubLevel subLevelOf(CarrierId carrier) {
@@ -451,11 +377,9 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * The contraption entity a carrier names, found without being told which level it is in.
-     *
-     * <p>{@code Entity#getUUID()} is unique across the server, so this is an exact lookup rather than
-     * a guess; the alternative - remembering the entity from the assembly callback - would go stale
-     * the moment the machine crossed a dimension.
+     * The contraption entity a carrier names, found without being told which level it is in. An entity's UUID is
+     * unique across the server, so this is an exact lookup rather than a guess; remembering the entity from the
+     * assembly callback instead would go stale the moment the machine crossed a dimension.
      */
     @Nullable
     AbstractContraptionEntity contraptionEntityOf(CarrierId carrier) {
@@ -483,17 +407,12 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     /**
      * Which structure owns the block at a world position, or {@code null}.
      *
-     * <p><b>The Create half is not answered here, on purpose.</b> The assembly hook is handed the
-     * contraption entity and the block's local coordinate outright, so it passes them in rather than
-     * asking anybody to guess - which is both exact and free. What is left is the case where the
-     * structure is a Sable sub-level rather than a contraption, and Sable's own "which plot covers this
-     * chunk" query is the only lookup that exists for it.
-     *
-     * <p>The P1 diagnostics proved that query is <b>not</b> an "am I inside a moving structure"
-     * predicate - an ordinary block on the ground comes back non-null, because it answers "which plot
-     * owns this chunk". So the answer here is narrowed twice: the point must be inside the structure's
-     * world bounds, and the structure must be a live, plot-backed sub-level. Even then the caller only
-     * ever uses the answer for a block that has a component stored inside it.
+     * <p>The Create half is <b>not</b> answered here: the assembly hook is handed the contraption entity and the
+     * block's local coordinate outright, so it passes them in rather than asking anybody to guess. What is left is
+     * a Sable sub-level, and Sable's own "which plot covers this chunk" query is the only lookup that exists for
+     * it - a query that is not an "am I inside a moving structure" predicate, since an ordinary block on the
+     * ground comes back non-null. So the answer is narrowed twice: the point must be inside the structure's world
+     * bounds, and the structure must be a live, plot-backed sub-level.
      */
     @Override
     @Nullable
@@ -528,18 +447,16 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * {@code CarrierSource#plotOwnerAt}: which sub-level's own block storage contains this level
-     * position.
+     * {@code CarrierSource#plotOwnerAt}: which sub-level's own block storage contains this level position.
      *
-     * <p>The frame is the one {@link CarrierStructureAccess} documents: a sub-level's local coordinates
-     * are the level's own block coordinates inside the plot region, and Sable's {@code LevelPlot}
-     * reports exactly that region as its bounding box. So the test is a containment test against each
-     * live sub-level's plot bounds - one comparison per sub-level, and a handful of sub-levels - with
-     * no pose arithmetic and no container walk beyond the list Sable already keeps.
+     * <p>A sub-level's local coordinates are the level's own block coordinates inside the plot region, and a
+     * {@code LevelPlot} reports exactly that region, so the test is containment against each live sub-level's
+     * plot bounds - one comparison per sub-level, no pose arithmetic, and no container walk beyond the list
+     * Sable already keeps.
      *
-     * <p>Deliberately <b>not</b> {@code Sable.HELPER.getContaining}: P1 measured that query as "which
-     * plot owns this chunk", which is non-null for ordinary ground blocks as well, so it cannot answer
-     * "is this position one of a structure's own blocks". The plot's own bounds can.
+     * <p>Deliberately <b>not</b> Sable's helper for "which plot owns this chunk": that one is non-null for
+     * ordinary ground blocks as well, so it cannot answer "is this position one of a structure's own blocks".
+     * The plot's own bounds can.
      */
     @Override
     @Nullable
@@ -576,10 +493,9 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
 
     // ------------------------------------------------------------ one helper --
     /**
-     * The contraption entity holding a block, given the contraption object the hook was handed.
-     *
-     * <p>Kept here rather than in the hook so every Create-typed expression in the compat half is in
-     * one file, and so the hook reads as "what happened" rather than "how Create is shaped".
+     * The contraption entity holding a block, given the contraption object the hook was handed. Kept here rather
+     * than in the hook so every Create-typed expression in the compat half is in one file, and so the hook reads
+     * as "what happened" rather than "how Create is shaped".
      */
     @Nullable
     static AbstractContraptionEntity entityOf(Contraption contraption) {
@@ -592,18 +508,13 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     private static final int PROVISIONAL_LIMIT = 64;
 
     /**
-     * <b>The assembly-period identity of one contraption, created on first use and reused after.</b>
+     * The assembly-period identity of one contraption, created on first use and reused after.
      *
-     * <p>This is the fallback that makes the invariant "a block with a component is never skipped" hold
-     * while a structure has no entity: the same {@code Contraption} object asked twice gets the same
-     * {@link CarrierId}, so the claim made at {@code startMoving} is findable at {@code stopMoving}
-     * even if the entity never turned up. The id is a version-8 UUID (see
-     * {@link com.jiangyuefengyu.redstonecircuit.carrier.CarrierIdentity}), never a world position, and
-     * the anchor and block count are recorded beside it purely so a log line can be read by eye.
-     *
-     * <p>The block count and anchor are also what {@link #describeProvisional} prints, so
-     * {@code /rc carrier} can say "this claim belongs to a 47-block structure anchored at X" - the
-     * evidence an operator needs to tell one machine from another on paper.
+     * <p>This is what makes the invariant "a block with a component is never skipped" hold while a structure has
+     * no entity: the same {@code Contraption} object asked twice gets the same {@link CarrierId}, so the claim
+     * made at {@code startMoving} is findable at {@code stopMoving} even if the entity never turned up. The id is
+     * a version-8 UUID, never a world position, and the anchor and block count are recorded beside it purely so
+     * a log line can be read by eye.
      */
     static CarrierId provisionalFor(Contraption contraption) {
         Provisional existing = PROVISIONALS.get(contraption);
@@ -611,8 +522,8 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
             return existing.id;
         }
         if (PROVISIONALS.size() >= PROVISIONAL_LIMIT) {
-            // Never expected: a provisional claim is settled within a tick or two and dropped then. If
-            // it ever is not, bounded growth beats an unbounded identity map that keeps machines alive.
+            // Never expected: a provisional claim is settled within a tick or two and dropped then. If it ever
+            // is not, bounded growth beats an unbounded identity map that keeps machines alive.
             PROVISIONALS.clear();
         }
         BlockPos anchor = contraption.anchor;
@@ -627,14 +538,11 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * {@code CarrierStore.ProvisionalClaims}: the entity a provisional claim can be re-labelled onto.
-     *
-     * <p>Answered by looking the contraption up again, so an entity Create attaches after the claim is
-     * seen on the very next question - which is the same tick, because the carrier layer asks once per
-     * level tick before it does anything else with a pose.
-     *
-     * <p>{@code null} is a perfectly ordinary answer (the structure really has no entity yet) and is
-     * reported as such rather than treated as a failure.
+     * {@code CarrierStore.ProvisionalClaims}: the entity a provisional claim can be re-labelled onto. Answered by
+     * looking the contraption up again, so an entity Create attaches after the claim is seen on the very next
+     * question - the same tick, because the carrier layer asks once per level tick. {@code null} is a perfectly
+     * ordinary answer (the structure really has no entity yet) and is reported as such rather than treated as a
+     * failure.
      */
     @Nullable
     static UUID entityFor(CarrierId provisional) {
@@ -646,10 +554,8 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * Forgets a provisional identity, once it has been settled or its hosts have been put down.
-     *
-     * <p>Called by the hook after a release, so the map only ever holds structures that are genuinely
-     * still waiting for an entity.
+     * Forgets a provisional identity, once it has been settled or its hosts have been put down; called by the hook
+     * after a release, so the map only ever holds structures that are genuinely still waiting for an entity.
      */
     static void forgetProvisional(CarrierId provisional) {
         if (provisional == null) {
@@ -659,11 +565,8 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * Whether this contraption has ever been given a provisional identity.
-     *
-     * <p>Asked by the put-down and actor-tick paths to decide whether there is anything to reconcile at
-     * all, which keeps the common case - a structure whose entity was there from the start - to one
-     * identity-map lookup and no allocation.
+     * Whether this contraption has ever been given a provisional identity, so the put-down and actor-tick paths know
+     * whether there is anything to reconcile at all - one identity-map lookup and no allocation in the common case.
      */
     static boolean hasProvisional(Contraption contraption) {
         return contraption != null && PROVISIONALS.containsKey(contraption);
@@ -680,12 +583,10 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
-     * One line about a provisional claim: which structure it belongs to, by anchor and size.
-     *
-     * <p>Returned rather than logged, so the call site decides whether the operator asked for it, and
-     * so {@code /rc carrier} can print it beside the carrier's other fields. A provisional record whose
-     * contraption still has no entity says {@code entity=absent} - which is the state that means "the
-     * claim is safe and is waiting to be re-labelled", not "something is broken".
+     * One line about a provisional claim: which structure it belongs to, by anchor and size. Returned rather than
+     * logged, so the call site decides whether the operator asked for it. A record whose contraption still has no
+     * entity says {@code entity=absent}, which means "the claim is waiting to be re-labelled", not "something is
+     * broken".
      */
     static String describeProvisional(CarrierId provisional) {
         Provisional record = recordOf(provisional);
@@ -704,8 +605,8 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
         }
         for (Map.Entry<Contraption, Provisional> entry : PROVISIONALS.entrySet()) {
             if (entry.getValue().id.equals(provisional)) {
-                // Refresh from the contraption: Create attaches the entity after the claim, and this is
-                // the one place that fact becomes visible to the carrier layer.
+                // Refresh from the contraption: Create attaches the entity after the claim, and this is the one
+                // place that fact becomes visible to the carrier layer.
                 Provisional record = entry.getValue();
                 record.entity = entry.getKey().entity;
                 return record;

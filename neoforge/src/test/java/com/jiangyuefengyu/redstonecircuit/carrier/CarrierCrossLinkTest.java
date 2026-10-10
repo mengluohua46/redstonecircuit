@@ -33,43 +33,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.27, defect B: the author's actual machine is two structures, so "a line only runs inside one
- * structure" refused every connection they tried.</b>
+ * Two structures whose blocks stand side by side in the world are two sub-levels, and a line between them has to
+ * be drawn: both records are entries of the same {@link CarriedHostIndex}, keyed by {@code (carrier, localPos)},
+ * so one carrier can write the other's half.
  *
- * <h2>The log, in one pair of lines</h2>
- * <pre>
- *   carrier claim s:4a3b8622 world=-7, -60, -11 local=20481032, 127, 20481032 type=RETAINING_REPEATER
- *   carrier claim s:8add8208 world=-7, -60, -12 local=20481032, 127, 20483080 type=DUST
- *   sable claim: 1 host(s) taken into sub-level 4a3b8622-… (sweep #1), 1 candidate(s) examined
- *   sable claim: 1 host(s) taken into sub-level 8add8208-… (sweep #1), 1 candidate(s) examined
- *   carrier s:8add8208: link refused: the pick is in ANOTHER structure … and the two blocks ARE
- *                        neighbours where they stand
- * </pre>
- *
- * <p>Two blocks standing side by side in the world, each assembled into <b>its own</b> sub-level - which
- * is Sable's granularity, not a mistake by the player - and every attempt to draw a line between them was
- * answered with a paragraph about structures. P1.26 refused it on the argument that "a line lives on the
- * two hosts' own records and nothing lets one carrier write into another's index"; that argument is about
- * an implementation that did not exist, not about a limit, because <b>both records are entries of the same
- * {@link CarriedHostIndex}</b>, keyed by {@code (carrier, localPos)}.
- *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>the same structure still behaves exactly as before</b> - adjacency decided in the structure's
- *       own frame, both ends written, {@code AUTO -> ON -> OFF -> AUTO};</li>
- *   <li><b>two structures, world-adjacent: BOTH records are written</b>, each in its own frame, from one
- *       shared world face - and the ledger says so with four coordinates and both sides;</li>
- *   <li><b>two structures, and the far host holds nothing</b>: the near end is pinned and the far end is
- *       left alone, exactly as {@code FarEndEmpty} says inside one structure;</li>
- *   <li><b>two structures that are not neighbours</b>: still the named refusal, because there is no side
- *       to write on either end;</li>
- *   <li><b>the same host clicked twice</b>: the first click clears and ends the pick, the second says the
- *       pick is still this block and a line needs two blocks - the world's own semantics, in the carrier's
- *       own words, instead of the old and untrue "nothing has been picked yet";</li>
- *   <li><b>the lock really changes BOTH solves</b>: moving the lock on the near end cuts its other sides in
- *       its own structure's solve, and the far end's record carries the mirrored state - so neither end is
- *       silently left behind.</li>
- * </ol>
+ * <p>Pinned here: two world-adjacent structures write BOTH records, each in its own frame, from one shared world
+ * face; a far host that holds nothing leaves only the near end pinned; two structures that are not neighbours are
+ * refused by name; the same host clicked twice keeps the pick; and a lock on the near end cuts its other sides in
+ * its own solve while the far record carries the mirrored state.
  */
 class CarrierCrossLinkTest {
 
@@ -82,7 +53,7 @@ class CarrierCrossLinkTest {
     private static final BlockPos A = new BlockPos(1, 0, 0);
     private static final BlockPos B = new BlockPos(2, 0, 0);
 
-    /** Where the two blocks stand: side by side, the way the author's two did. */
+    /** Where the two blocks stand: side by side in the world, one block apart along x. */
     private static final BlockPos A_WORLD = new BlockPos(100, 64, 100);
     private static final BlockPos B_WORLD = new BlockPos(101, 64, 100);
 
@@ -118,7 +89,7 @@ class CarrierCrossLinkTest {
         return slot;
     }
 
-    /** A pose that is a plain translation: the same shape the author's claims print. */
+    /** A pose that is a plain translation: the shape the two blocks' claims print. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -130,8 +101,8 @@ class CarrierCrossLinkTest {
 
     // ------------------------------------------------------- the plan, by name --
 
-    // `planWrench`'s pick-aware, world-position-aware form is what this round adds (the six-argument form
-    // had no world position for the click, and therefore could not see that two blocks are neighbours), and
+    // The pick-aware, world-position-aware form of `planWrench`: without the click's world position two
+    // blocks cannot be seen to be neighbours, and the six-argument form had none.
     // `linkAcross` did not exist at all. Both are asked by name so this file states the new decision rather
     // than compiling against it silently.
 
@@ -237,7 +208,7 @@ class CarrierCrossLinkTest {
 
             assertNotNull(action, "a cross-structure link must be decided, not refused");
             assertEquals("CrossLinked", action.getClass().getSimpleName(),
-                    "the author's own gesture: " + action.describe());
+                    "a line drawn from one block to the next: " + action.describe());
             // The two ends are one block apart along x in the world, so the line runs along EAST from the
             // pick towards the click - and each structure's own frame answers its own half of that: the
             // near end keeps EAST (towards the other block), the far end keeps the same line seen from its
@@ -413,7 +384,7 @@ class CarrierCrossLinkTest {
                     "the genuine no-pick answer, and it names no pick: " + line);
 
             // And the third case: the host was already automatic, so the first shift-click had nothing to
-            // clear and the pick SURVIVED it - which is the answer the author's log needed.
+            // clear and the pick SURVIVED it, which is what the line has to report.
             carry(MINE, new BlockPos(5, 0, 0), new BlockPos(105, 64, 100), ComponentType.DUST);
             CarriedTool.Action nothingToClear = plan(pick(MINE, new BlockPos(5, 0, 0),
                     new BlockPos(105, 64, 100)), index, MINE, new BlockPos(5, 0, 0),
@@ -464,7 +435,7 @@ class CarrierCrossLinkTest {
 
             // Now the cross-structure click: it locks A onto the side that faces B (east), and a lock means
             // "this line and nothing else" - every other side of A is cut, including the one the second wire
-            // is on. That is the acceptance criterion for this round, and it is answered by the solve.
+            // is on. A lock means "this line and nothing else", and the solve has to answer that.
             CarriedTool.Action action = plan(pick(MINE, A, A_WORLD), index, THEIRS, B, B_WORLD,
                     moving(B, B_WORLD));
             assertEquals("CrossLinked", action.getClass().getSimpleName(), action.describe());

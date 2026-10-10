@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "redstonecircuit:block/logic_integrator_input",
+    "down": "redstonecircuit:block/logic_integrator_input",
+    "up": "redstonecircuit:block/logic_integrator_input",
+    "north": "redstonecircuit:block/logic_integrator_output",
+    "south": "redstonecircuit:block/logic_integrator_input",
+    "west": "redstonecircuit:block/logic_integrator_input",
+    "east": "redstonecircuit:block/logic_integrator_input"
+  }
+}

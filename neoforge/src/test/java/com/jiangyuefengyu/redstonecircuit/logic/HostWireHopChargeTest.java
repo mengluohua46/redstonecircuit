@@ -21,42 +21,22 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.44: the hop a vanilla redstone wire charges when it reads a host block - and the loop that hop
- * used to close.</b>
+ * The hop a vanilla redstone wire charges when it reads a host block - and the loop that hop closed.
  *
- * <h2>The author's measurement, as a chain of numbers</h2>
- * A lever lights an outer redstone wire to fifteen; the wire lies against a solid host block holding a
- * component of ours; the next host block stands against that one, and the group is repeated:
+ * <p>A lever lights an outer redstone wire to fifteen, the wire lies against a host block holding a component
+ * of ours, the next host block stands against that one, and the group is repeated. The chain reaches fifteen
+ * all the way along, and with the chain cut the first block is fourteen: the fifteens are a <b>closed loop</b>
+ * fed by the chain's own output, with two of its four edges charging nothing.
  *
- * <pre>
- *   outer wire 15  -&gt;  first host 14  -&gt;  second host 15  -&gt;  outer wire 15  -&gt;  ...
- *                       (correct)          (wrong)             (wrong)
- * </pre>
+ * <p>The missing half is the reader's hop. A redstone wire can only recognise a neighbouring wire by its
+ * <b>block state</b>, and a component inside an ordinary host block is a block of stone to that scan - so it
+ * entered vanilla's wire arithmetic as a source and the hop was never charged. The rule is the solver's own
+ * {@code afterHop}, with the ordinary wire as the reader and the host's component as the sender, so a reader
+ * that is <b>not</b> a wire (a repeater, a comparator, a lamp, a piston) still reads the host at full strength,
+ * exactly as vanilla does.
  *
- * <p>The author's second measurement is what turned that into a diagnosis: <b>with the chain cut, the
- * first block is fourteen</b> - so the fifteens are not a coincidence of the reader, they are a
- * <b>closed loop</b> fed by the chain's own output. Two of its four edges charged nothing (the wire
- * reading a host, and our solve reading the strong power a wire pushed through a host block), which made
- * the round trip lossless and fifteen a fixed point. The loop, its four edges and the arithmetic that
- * kills it are in {@link #settleAuthorsChain}: the fixture is the author's own unit with exactly one
- * supply, and the assertions are his two measurements plus the fading chain they imply.
- *
- * <h2>The reader's hop</h2>
- * The wire-to-host step already measured fourteen, because reading a neighbouring vanilla wire is
- * charged one step ({@code InnerRedstoneNetwork#neighbourSignal}). The other direction was free: a
- * redstone wire can only recognise a neighbouring wire by its <b>block state</b>
- * ({@code RedStoneWireBlock#getWireSignal}: {@code state.is(this)}), and a component inside an ordinary
- * host block is a block of stone to that scan - so it entered vanilla's {@code max(i, j - 1)} as
- * {@code i}, a source, and the hop was never charged. {@link BlockSignalSources#hopChargedByReader} is
- * that hop, with no second rule: the reader is the ordinary wire ({@link ComponentType#DUST}, cost one),
- * the sender is the host's component, and the arithmetic is the {@code afterHop} the solver has always
- * used - so every reader that is <b>not</b> a wire (a repeater, a comparator, a lamp, a piston) still
- * reads the host at full strength, exactly as vanilla does.
- *
- * <p><b>A fixture carries one supply only.</b> Every assertion below states one emitting component and one
- * reader; nothing here feeds a world half as well as an inner one, which is the trap P1.42's fixture fell
- * into. The carrier seam (P1.38) and the two refusals (P1.41 / P1.42) are asserted to be untouched rather
- * than re-derived.
+ * <p>A fixture carries one supply only: every assertion below states one emitting component and one reader,
+ * and the carrier seam and the two refusals are asserted to be untouched rather than re-derived.
  */
 class HostWireHopChargeTest {
 
@@ -88,13 +68,13 @@ class HostWireHopChargeTest {
                 slot, slot == null ? 0 : slot.power);
     }
 
-    // ------------------------------------- 1. the author's chain, one hop at a time --
+    // ---------------------------------------------- 1. the chain, one hop at a time --
 
     @Test
-    @DisplayName("the author's chain fades by one on every hop: 15 -> 14 -> 13 -> 12")
+    @DisplayName("the chain fades by one on every hop: 15 -> 14 -> 13 -> 12")
     void theAuthorsChainFadesOnePerHop() {
-        // Hop 1 - the outer wire into the first host. This one already measured fourteen, and it is the
-        // world-side read rule: a neighbouring vanilla wire offers one step less.
+        // Hop 1 - the outer wire into the first host: the world-side read rule, where a neighbouring vanilla
+        // wire offers one step less.
         int firstHost = InnerRedstoneNetwork.neighbourSignal(15, true);
         assertEquals(14, firstHost, "outer wire 15 -> dust inside the block beside it");
 
@@ -102,8 +82,8 @@ class HostWireHopChargeTest {
         int secondHost = PowerSolver.afterHop(ComponentType.DUST, ComponentType.DUST, firstHost);
         assertEquals(13, secondHost, "the second host must measure thirteen, never fifteen");
 
-        // Hop 3 - host back out into an outer wire. THIS is the hop that was never charged: the wire took
-        // the host's emission as a source at full strength, so this used to be thirteen as well.
+        // Hop 3 - host back out into an outer wire: the hop that was never charged, because the wire took the
+        // host's emission as a source at full strength.
         int outerWire = BlockSignalSources.hopChargedByReader(dust(secondHost), secondHost, true);
         assertEquals(12, outerWire, "and the wire outside it must measure twelve");
     }
@@ -124,8 +104,8 @@ class HostWireHopChargeTest {
     @Test
     @DisplayName("a component inside a host block that is not a wire stays a full-strength source")
     void aComponentThatIsNotAWireIsNotCharged() {
-        // A lever, torch or repeater is a source for the wire beside it in vanilla: fifteen (or the
-        // diode's own strength) goes out unchanged. Only wire-to-wire hops cost anything.
+        // A lever, torch or repeater is a source for the wire beside it in vanilla, so its value goes out
+        // unchanged: only wire-to-wire hops cost anything.
         assertEquals(15, BlockSignalSources.hopChargedByReader(component(ComponentType.LEVER, 15), 15,
                 true), "a lever inside a block lights the wire beside it to fifteen");
         assertEquals(11, BlockSignalSources.hopChargedByReader(component(ComponentType.REPEATER, 11), 11,
@@ -135,23 +115,20 @@ class HostWireHopChargeTest {
     }
 
     @Test
-    @DisplayName("a superconductor inside a host block costs nothing in EITHER direction (P1.53)")
+    @DisplayName("a superconductor inside a host block costs nothing in EITHER direction")
     void aSuperconductorInsideKeepsItsTwoHalves() {
-        // The author's report, 2026-09-28: "a component inside a block outputs to the wire outside and
-        // loses one; when the component inside IS the source the wire outside should be fifteen, as
-        // vanilla has it." A superconductor's whole promise is a zero-cost hop, so it must hold for the
-        // wire beside the machine as well as for the run inside it. (Before P1.53 this read fourteen:
-        // the receiver's cost was charged, and the world wire is the receiver.)
+        // A superconductor's whole promise is a zero-cost hop, so it has to hold for the wire beside the
+        // machine as well as for the run inside it - and for a superconductor RECEIVING from dust, where the
+        // cheaper of the two wires pays.
         assertEquals(15, BlockSignalSources.hopChargedByReader(component(ComponentType.SUPERCONDUCTOR, 15),
                 15, true), "a superconductor inside a host block lights the ordinary wire to fifteen");
-        // And the other direction: a superconductor RECEIVING from dust is free too, because the cheaper
-        // of the two wires pays (P1.53). Before P1.53 this was fifteen for the receiving direction and
-        // fourteen for the sending one - the asymmetry the author reported.
+        // And the other direction: a superconductor receiving from dust is free too, because the cheaper of
+        // the two wires pays.
         assertEquals(15, PowerSolver.afterHop(ComponentType.SUPERCONDUCTOR, ComponentType.DUST, 15),
                 "a superconductor receiving from dust keeps all fifteen");
         assertEquals(15, PowerSolver.afterHop(ComponentType.SUPERCONDUCTOR, ComponentType.SUPERCONDUCTOR,
                 15), "and a whole run of them carries what it was given unchanged");
-        // Dust beside dust still pays: the loop the charge exists for (P1.44) is untouched.
+        // Dust beside dust still pays: the loop the charge exists for is untouched.
         assertEquals(14, PowerSolver.afterHop(ComponentType.DUST, ComponentType.DUST, 15),
                 "two ordinary wires still cost one, which is what keeps a dust ring from holding");
     }
@@ -176,7 +153,7 @@ class HostWireHopChargeTest {
     void theEmissionAndTheReadersHopAreTwoStatements() {
         Slot hostDust = dust(14);
 
-        // What `select` answers - which source, and what it emits - is unchanged by this round.
+        // What `select` answers - which source, and what it emits - is one statement of the rule.
         BlockSignalSources.Read read = BlockSignalSources.select(hostDust, null, null, false, false,
                 Direction.EAST, false, false);
         assertEquals(BlockSignalSources.Source.WORLD_STORE, read.source());
@@ -189,42 +166,22 @@ class HostWireHopChargeTest {
                 "and none for anybody else - so the charge cannot be paid twice");
     }
 
-    // --------------------------------- 2b. the author's second measurement: a closed loop --
+    // --------------------------------------------------- 2b. the closed loop, edge by edge --
 
     /**
-     * <b>The author's second measurement, as arithmetic.</b>
+     * The chain as arithmetic: the four cells of {@code [wire][host][host][wire]} with the four edges of the
+     * loop written out, iterated to a fixed point with a hard bound.
      *
-     * <p>Verbatim: "actually it is <b>all</b> fifteen, because the dust it drives is fifteen and that
-     * charges the block in front of it back up again; <b>if no redstone dust is connected after it, the
-     * first one becomes fourteen</b>". Two facts, one shape: with the chain continued every cell sits at
-     * fifteen, and with the wire beyond the first block taken away the first block drops to fourteen.
+     * <p>The edges are the wire reading a host block (the reader's hop - the one that was free), a wire's
+     * strong power read through the host block beside it (vanilla arithmetic, which is not read through a
+     * block that holds a component), a host reading a neighbouring wire, and a host reading a neighbouring
+     * host's dust. Cutting the chain removes the second wire, the cell that carries the value back, so the
+     * first block keeps the one charged hop it always had.
      *
-     * <h2>The loop, edge by edge - and which edge was free</h2>
-     * The layout is the author's unit, {@code [wire][host][host][wire]}, repeated:
-     *
-     * <pre>
-     *   edge A  wire reads host block     -&gt; BlockSignalSources#hopChargedByReader   (P1.44: was FREE)
-     *   edge B  a wire's strong power is read through the host block beside it
-     *                                     -&gt; SignalGetter#getSignal:104-108 / #getDirectSignalTo,
-     *                                        RedStoneWireBlock#getDirectSignal:424-426  (vanilla; P1.44
-     *                                        no longer reads it through a block that holds a component)
-     *   edge C  host reads a neighbouring wire          -&gt; neighbourSignal (already charged, P1.19)
-     *   edge D  host reads a neighbouring host's dust   -&gt; afterHop       (already charged, P1.19)
-     * </pre>
-     *
-     * <p>The author's own reading of it, verbatim: "the dust it drives is fifteen and that charges the
-     * block in front of it back up again; if no redstone dust is connected after it, the first one
-     * becomes fourteen". Cutting the chain removes the second wire - the cell that carries the value
-     * back - and the first block is left with the one charged hop it always had: fourteen. That is why
-     * the two measurements are one defect, and why <b>both</b> fixes are needed: with edge A charged but
-     * edge B still read, the second block is still fifteen; with edge B closed but edge A free, the wire
-     * beside a host is worth exactly what the host is worth.
-     *
-     * <h2>Why this is a model rather than a call</h2>
-     * Edge B is vanilla arithmetic and needs a {@code ServerLevel} and real block states, which no offline
-     * test has; the mod-side edges are the production functions. So the fixture below is the four cells
-     * with those four edges written out, iterated to a fixed point with a hard bound - and it is the loop
-     * itself that is asserted, not one hop of it.
+     * <p>Both fixes are needed: with the reader's hop charged but the strong-power edge still read, the second
+     * block is still fifteen. That edge needs a {@code ServerLevel} and real block states, which no offline
+     * test has, so this is a model of the loop rather than a call into the game - and it is the loop itself
+     * that is asserted, not one hop of it.
      */
     private static int[] settleAuthorsChain(int cells, boolean chargeTheReaderHop,
                                             boolean readThroughHostBlocks) {
@@ -238,10 +195,9 @@ class HostWireHopChargeTest {
                 if (i % 3 == 0) {
                     continue; // wires are updated below, from the hosts they touch
                 }
-                // A host reads: every adjacent wire costs one hop (edge C), every adjacent host's own
-                // dust costs one hop (edge D), and every adjacent host's *block* hands over the strong
-                // power a wire gave it - uncharged, because that is a source reading, not a wire hop
-                // (edges A and B one cell back).
+                // A host reads: every adjacent wire costs one hop, every adjacent host's own dust costs one,
+                // and an adjacent host's *block* hands over the strong power a wire gave it, uncharged,
+                // because that is a source reading rather than a wire hop.
                 int best = 0;
                 for (int step = -1; step <= 1; step += 2) {
                     int at = i + step;
@@ -254,9 +210,8 @@ class HostWireHopChargeTest {
                         best = Math.max(best, PowerSolver.afterHop(ComponentType.DUST, ComponentType.DUST,
                                 next[at]));
                         if (readThroughHostBlocks) {
-                            // edge B as it used to be read: the neighbouring *block* hands over the strong
-                            // power a wire pushed into it. A block that holds a component is not a block of
-                            // stone, so P1.44 does not read this term any more.
+                            // The strong-power edge: a block that holds a component is not a block of stone, so
+                            // this term is not read at all.
                             for (int behind = -1; behind <= 1; behind += 2) {
                                 int wire = at + behind;
                                 if (wire >= 0 && wire < cells && wire % 3 == 0) {
@@ -275,8 +230,8 @@ class HostWireHopChargeTest {
                     if (host < 0 || host >= cells || host % 3 == 0) {
                         continue;
                     }
-                    // edge A: what the host answers this wire. Uncharged it is the host's own emission,
-                    // which is the pre-P1.44 behaviour this fixture is written against.
+                    // The reader's edge: uncharged it is the host's own emission, which is the behaviour this
+                    // fixture is written against.
                     best = Math.max(best, chargeTheReaderHop
                             ? BlockSignalSources.hopChargedByReader(dust(next[host]), next[host], true)
                             : next[host]);
@@ -294,9 +249,8 @@ class HostWireHopChargeTest {
     @Test
     @DisplayName("with the chain cut, the first block is fourteen - the one hop it always paid")
     void withNoWireAfterItTheFirstBlockIsFourteen() {
-        // Two cells only: the lever's wire and the first host. This must be true on every tree, before
-        // and after this round: it is the behaviour the author used to prove the loop exists.
-        assertEquals(14, settleAuthorsChain(2, false, true)[1], "no chain: the wire's one hop, old rules");
+        // Two cells only: the lever's wire and the first host - the one hop the first block always paid.
+        assertEquals(14, settleAuthorsChain(2, false, true)[1], "no chain: the wire's one hop, uncharged");
         assertEquals(14, settleAuthorsChain(2, true, true)[1], "no chain, reader hop charged");
         assertEquals(14, settleAuthorsChain(2, true, false)[1], "no chain, nothing to read back through");
     }
@@ -304,14 +258,12 @@ class HostWireHopChargeTest {
     @Test
     @DisplayName("with the chain continued the old rules hold every cell at fifteen: the loop's fixed point")
     void withTheChainContinuedTheOldRulesHoldEverythingAtFifteen() {
-        // This is the defect, reproduced, with the rules exactly as P1.43 had them: the strong power a
-        // wire pushes into the conducting block beside it is read through that block (edge B), and the
-        // wire beside a host is worth what the host is worth (edge A free). Fifteen then feeds itself.
+        // The old rules: the strong power a wire pushes into the conducting block beside it is read through
+        // that block, and the wire beside a host is worth what the host is worth - so fifteen feeds itself.
         int[] settled = settleAuthorsChain(11, false, true);
-        // Every cell that has a wire AFTER it is held at fifteen by the loop. The last cell is the chain
-        // end: there is nothing after it to read back through, so edge B has nothing to carry and it
-        // keeps the one hop it always paid - the author's "with nothing after it, the first block is
-        // fourteen", seen at the tail. The defect is the ten cells that ARE held up, not the tail.
+        // Every cell with a wire AFTER it is held at fifteen by the loop. The last cell is the chain end:
+        // there is nothing after it to read back through, so the loop cannot close there and it keeps the one
+        // hop it always paid. The defect is the ten cells that ARE held up, not the tail.
         for (int i = 0; i < settled.length - 1; i++) {
             assertEquals(15, settled[i],
                     "cell " + i + " of " + java.util.Arrays.toString(settled)
@@ -326,18 +278,16 @@ class HostWireHopChargeTest {
     @Test
     @DisplayName("closing one edge alone is not enough: the loop needs both rules to be broken")
     void closingOneEdgeAloneIsNotEnough() {
-        // Edge A charged, edge B still read: the group fades, but the block a wire strongly powers still
-        // answers fifteen to its neighbour, so the second cell never comes down. This is why the round
-        // changes two rules and not one.
+        // The reader's hop charged but the strong-power edge still read: the group fades, yet the block a wire
+        // strongly powers still answers fifteen to its neighbour, so the second cell never comes down.
         int[] hopOnly = settleAuthorsChain(11, true, true);
         assertEquals(14, hopOnly[1], "the first block is fourteen");
         assertEquals(15, hopOnly[2], "but the second is still fifteen: it reads the strong power the "
                 + "first block received from the wire beside it");
         assertEquals(14, hopOnly[3], "only the wire beyond it has come down");
 
-        // Edge B closed, edge A still free: the "all fifteen" latch is gone, but the fade is halved and
-        // the wire beside a host is worth exactly what the host is worth - the author's second complaint,
-        // still in place.
+        // The strong-power edge closed but the reader's hop still free: the "all fifteen" latch is gone, yet
+        // the wire beside a host is worth exactly what the host is worth, and the fade is halved.
         int[] bridgeOnly = settleAuthorsChain(11, false, false);
         assertEquals(13, bridgeOnly[2], "the second block does come down to thirteen");
         assertEquals(bridgeOnly[2], bridgeOnly[3],
@@ -357,7 +307,7 @@ class HostWireHopChargeTest {
                     "every cell is one step below the one before it: " + java.util.Arrays.toString(settled));
         }
         assertEquals(14, settled[1], "the first block: fourteen, exactly as when the chain is cut");
-        assertEquals(13, settled[2], "the second block: thirteen - the value the loop used to pump to 15");
+        assertEquals(13, settled[2], "the second block: thirteen rather than fifteen");
         assertEquals(12, settled[3], "the next outer dust: twelve");
         assertEquals(5, settled[10], "and the fifth group is still fading rather than holding: "
                 + java.util.Arrays.toString(settled));
@@ -371,9 +321,9 @@ class HostWireHopChargeTest {
         CarrierProjection.ProjectedHost aHost = host(STRUCTURE_A, A_LOCAL, A_WORLD, dust(9));
 
         assertFalse(CarrierProjection.readableBy(aHost, STRUCTURE_A),
-                "P1.41: a reader never takes its own projected host as an external supply");
+                "a reader never takes its own projected host as an external supply");
         assertTrue(CarrierProjection.readableBy(aHost, STRUCTURE_B),
-                "P1.38: and another structure's host at that position is the seam, which must keep "
+                "and another structure's host at that position is the seam, which must keep "
                         + "answering");
         assertTrue(CarrierProjection.readableBy(aHost, null),
                 "the world-side read names no reader and filters nothing, as before");
@@ -385,15 +335,14 @@ class HostWireHopChargeTest {
         String space = flat(
                 "src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierSpace.java");
         assertTrue(space.contains("io.signalIntoOwnFrame(queryPos, direction)"),
-                "the carrier half still reads the world through the owner-aware form - P1.41 / P1.42's "
-                        + "judgement is untouched by this round");
+                "the carrier half still reads the world through the owner-aware form");
         assertTrue(space.contains("Math.max(worldSignal, structureSignal)"),
                 "and the two halves are still combined as the larger");
 
         String network = flat(
                 "src/main/java/com/jiangyuefengyu/redstonecircuit/logic/InnerRedstoneNetwork.java");
         assertTrue(network.contains("refusingOwnProjectionAt"),
-                "P1.42's read-scoped refusal is still there");
+                "the read-scoped refusal is still there");
         assertTrue(network.contains("projectionMayAnswer"),
                 "asked at the one accessor both halves of a merged read go through");
         assertTrue(network.contains("return neighbourSignal(signal, state != null && state.is("
@@ -409,11 +358,9 @@ class HostWireHopChargeTest {
         String mixin = flat(
                 "src/main/java/com/jiangyuefengyu/redstonecircuit/mixin/BlockStateSignalMixin.java");
 
-        // These three assertions are the red light: on the P1.43 tree the mixin returns `read.answer()`
-        // and none of these strings exists anywhere, so the test fails at RUN time rather than only
-        // failing to compile (see the new API's other assertions in this class).
+        // Asserted on the mixin's source text: the free hop was a single return of the host's raw emission.
         assertFalse(mixin.contains("return read.answer();"),
-                "the mixin must no longer hand the reader the host's raw emission: that single return is "
+                "the mixin must not hand the reader the host's raw emission: that single return is "
                         + "the free hop the loop was built on");
         assertTrue(mixin.contains("BlockSignalSources.hopChargedByReader("),
                 "the mixin asks the rule for the reader's hop instead of returning the emission");
@@ -449,8 +396,8 @@ class HostWireHopChargeTest {
         String network = flat(
                 "src/main/java/com/jiangyuefengyu/redstonecircuit/logic/InnerRedstoneNetwork.java");
 
-        // The red light for this half: the condition below did not exist before this round, so on the
-        // P1.43 tree the strong-power-inclusive form was taken for every block that is a conductor.
+        // Asserted on the source text: the strong-power-inclusive read is refused for a coordinate that holds
+        // a component, because the block there IS the component rather than a block of stone.
         assertTrue(network.contains("RCConfig.hostAcceptsStrongPower() && !holdsComponentAt(blocks, pos) "
                         + "&& blocks instanceof SignalGetter signals)"),
                 "the strong-power-inclusive read is refused for a coordinate that holds a component: the "

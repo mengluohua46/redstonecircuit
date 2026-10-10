@@ -16,18 +16,10 @@ import org.junit.jupiter.api.Test;
 /**
  * <b>Pins "was any geometry actually emitted, and if not, which gate refused it".</b>
  *
- * <h2>The defect this exists for</h2>
- * The author's Create bearing reported {@code carrier frame drew 1, carriedHosts=1} on every frame and
- * showed nothing at all. {@code drew} counted <em>hosts that were collected</em>, so a host whose every
- * quad was refused by a colour of zero - or by the shader pack's solid-frame rule, or by
- * {@code showInnerComponents} - was counted exactly like a host that filled the screen. There was no
- * number anywhere in the log that could tell the two apart, and the reason is that the counting and the
- * drawing were two different pieces of code.
- *
- * <p>They are one now: {@link CarrierGeometry#shellQuadArgb} is the single implementation of "is this
- * quad drawn", called by both shell paths and by the diagnostics, and the tests below count quads through
- * it exactly as the renderer does. A gate that stops anything from being emitted is asserted to say so in
- * as many words, because the sentence - not the count - is what a reader of a log needs.
+ * <p>{@code drew} 数的是<em>被收集到</em>的 host: 每个 quad 都因颜色为 0、光影包规则或
+ * {@code showInnerComponents} 被拒的 host，和占满屏幕的 host 计数完全一样，日志里没有数字能分开它们 - 因为计数与
+ * 绘制曾经是两段代码。现在两者共用一个实现 {@link CarrierGeometry#shellQuadArgb}，每道拦住几何体的闸门都必须在文字
+ * 上说清原因，因为读日志的人要的是那句话而不是数字。
  */
 class CarrierGeometryTest {
 
@@ -103,9 +95,9 @@ class CarrierGeometryTest {
     void forceEmitOverridesThePerHostGates() {
         CarrierGeometry.Gates forced = gates(RCConfig.OverlayMode.GOGGLES, true, 0, 0, 0, true, true,
                 true);
-        // The override is about whether geometry reaches the buffer, so it substitutes unmistakable
-        // colours rather than obeying a zero that means "draw nothing"; the gates still report the zero,
-        // so the reader can see what the unforced frame would have done.
+        // The override is about whether geometry reaches the buffer, so it substitutes unmistakable colours
+        // rather than obeying a zero that means "draw nothing"; the gates still report the zero, so the
+        // reader can see what the unforced frame would have done.
         assertNotNull(forced.shellEmptiness(torch()),
                 "the gates still report that every colour is zero");
         assertTrue(forced.effectiveTint() != 0, "the override has to substitute a panel colour");

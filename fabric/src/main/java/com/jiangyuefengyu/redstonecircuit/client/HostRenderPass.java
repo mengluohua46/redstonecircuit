@@ -1,102 +1,137 @@
 package com.jiangyuefengyu.redstonecircuit.client;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import org.jetbrains.annotations.Nullable;
+import org.joml.Matrix4f;
+import org.joml.Quaternionf;
+import org.joml.Vector3d;
+import org.joml.Vector3f;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.RCRegistry;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierDrawCheck;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierFrame;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierHostCheck;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierIndex;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose;
 import com.jiangyuefengyu.redstonecircuit.client.InnerComponentModel.Box;
 import com.jiangyuefengyu.redstonecircuit.client.InnerComponentModel.Neighbours;
-import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.BlockAndTintGetter;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.level.ClipContext;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 
 /**
- * Draws what a block hides: the block's own inside, the component in it, and a frame around it.
+ * Draws what a block hides: the frame around it, the block's own inside, the component in it, and the same
+ * three things for a component riding a moving structure.
  *
  * <h2>Once per frame, not once per chunk</h2>
  * The previous build wrote the shell into the section's own vertex buffer through
  * {@code AddSectionGeometryEvent}. That was faster - sort, occlude and cull for free - but it made the
  * shell part of the world's geometry, and geometry cannot be switched off again without rebuilding the
- * section. The design needs exactly that switch (R6: the effect appears when the goggles go on and
- * disappears when they come off), and it needs the component drawn <em>on top</em> of the block, which
- * no section buffer can do. So the whole thing moved here: drawn every frame, from the client's cached
- * copy of what is where, and gated on the goggles without a packet or a rebuild.
+ * section. The design needs exactly that switch (the effect appears when the goggles go on and disappears
+ * when they come off), and it needs the component drawn <em>on top</em> of the block, which no section
+ * buffer can do. So the whole thing moved here: drawn every frame from the client's cached copy of what is
+ * where, and gated on the goggles without a packet or a rebuild.
  *
  * <h2>What is drawn, and in what order</h2>
  * <ol>
- *   <li>For every host in range that the player can see, <b>the block's own model, inside out</b> -
- *       drawn from vanilla's baked model for its state, with the pose mirrored in X so back-face
- *       culling keeps exactly the inside walls of the cube ({@link #drawHostInteriors}). This is what
- *       stands in for the block, because the block has been taken out of the chunk mesh by
- *       {@code BlockRenderDispatcherMixin} / {@code SodiumBlockRendererMixin} so that anything inside
- *       it can be seen at all.</li>
- *   <li>The component itself, from vanilla's own baked model where one fits and from our own boxes
- *       where none does, in vanilla's {@link RenderType#cutout()}. See {@link InnerComponentModel} for
- *       the shapes.</li>
+ *   <li>For every host in range that the player can see, <b>the block's own model, inside out</b> - drawn
+ *       from vanilla's baked model for its state, with the pose mirrored in X so back-face culling keeps
+ *       exactly the inside walls of the cube ({@link #drawHostInteriors}). The block has been taken out of
+ *       the chunk mesh ({@code BlockRenderDispatcherMixin}, {@code SodiumBlockRendererMixin}) so that
+ *       anything inside it can be seen at all, which is why the surface has to come from somewhere.</li>
+ *   <li>The component itself, from vanilla's own baked model where one fits and from our own boxes where
+ *       none does. See {@link InnerComponentVisuals} for the models and {@link InnerComponentModel} for the
+ *       boxes.</li>
  *   <li>The routing markers: which sides a component talks to, which the wrench pinned and which it
  *       cut.</li>
- *   <li>The frame around each host, and the wrench highlight: the frame of the block the wrench has
- *       picked and of the one being pointed at.</li>
+ *   <li>The frame around each host, and the wrench highlight: the border of the block the wrench has picked
+ *       and of the one being pointed at.</li>
  * </ol>
  *
- * <h2>One path, and only vanilla's render types</h2>
- * There is no render type of this mod's own anywhere in the overlay, and no branch on whether a shader
- * pack is drawing. Both of those were tried and both were wrong for the same reason: Iris picks a
- * program - and the extra vertex attributes a pack's shaders expect - from the <em>identity</em> of the
- * render type it is handed, so a type of ours gets no lighting and no surface to be lit, and a deferred
- * pack drops it. A type that skips the depth test, which is what made the inside visible in the first
- * place, can never be a type a pack knows.
+ * <h2>Every render type is vanilla's own, taken by reference</h2>
+ * There is no render type of this mod's own anywhere in the overlay. Iris picks a program - and the extra
+ * vertex attributes a pack's shaders expect - from the <em>identity</em> of the render type it is handed,
+ * so a type of ours gets no lighting and no surface to be lit, and a deferred pack drops it. A type that
+ * skips the depth test, which is what made the inside visible in the first place, can never be a type a
+ * pack knows; taking the block out of the mesh removes the reason for such a type at all. What the overlay
+ * draws is therefore vanilla {@code cutout} for everything solid and vanilla {@code translucent} for the
+ * frame and the highlight, and the line of sight is checked before a host is drawn or hidden, so a hidden
+ * host that is not then drawn - a hole in the world - cannot happen. See {@link HostRenderTypes}.
  *
- * <p>Taking the block out of the mesh removes the reason for that type at all, and the two ends then
- * look the same: vanilla {@code cutout()} for everything solid, vanilla {@code translucent()} for the
- * highlight. The line of sight is checked before a host is drawn or hidden, so a hidden host that is
- * not then drawn - a hole in the world - cannot happen; see {@link #collect}.
+ * <h2>The carried path</h2>
+ * A component inside a machine that moves is not at a whole block of the level, so it is collected from the
+ * carrier index instead and drawn inside its carrier's own frame ({@link CarrierFrame}): the block turns
+ * with the machine rather than staying axis-aligned in the world, and every number handed to the pose stack
+ * is an offset from the block's own centre rather than a plot coordinate, where {@code float} spacing would
+ * collapse a one-block cube to a point.
  *
- * <h2>How the pass is hooked on Fabric</h2>
- * NeoForge dispatched {@code RenderLevelStageEvent} for every stage and this class checked for
- * {@code AFTER_ENTITIES}. Fabric has one callback per stage, so the check is gone and
- * {@code RedstoneCircuitClient} registers {@link #render} on
- * {@code WorldRenderEvents.AFTER_ENTITIES} directly. The stage means the same thing on both loaders -
- * after entities, before the translucent terrain layer - and hands over the same pose stack and camera,
- * so the body below is the NeoForge one.
+ * <h2>How the pass is hooked on this loader</h2>
+ * Two callbacks, registered by {@link #register()}: {@code WorldRenderEvents.AFTER_ENTITIES} for the world
+ * path - after entities and before the translucent terrain layer, so water in front of a host still blends
+ * over it - and {@code WorldRenderEvents.AFTER_TRANSLUCENT} for the readings the carried half writes once
+ * per frame. {@code AFTER_ENTITIES} hands over the same pose stack and camera the level renderer is
+ * drawing with, translated by nothing but the camera, which is the form every vertex below is written in.
+ *
+ * <p>The carried geometry itself is submitted with the world path, and that is a property of this loader
+ * rather than a preference: its late callbacks run after every buffered quad has been drawn and may not
+ * write vertices at all, so a carried batch written there would never reach the frame. See
+ * {@link CarrierGeometry.StagePlan}.
  */
 @Environment(EnvType.CLIENT)
 public final class HostRenderPass {
 
     /**
-     * How far hosts are looked for, in sections.
-     *
-     * <p>Six sections is ninety-six blocks, which is past the point where a block's inside is legible;
-     * the loop itself is a walk over the occupied sections, so this only bounds how much is drawn.
+     * How far hosts are looked for, in sections. Six is ninety-six blocks, past the point where a block's
+     * inside is legible; the loop walks only the occupied sections, so this bounds how much is drawn.
      */
     private static final int SECTION_RADIUS = 6;
+
+    /**
+     * How far a carried host is drawn, in blocks; a little past the section radius above.
+     *
+     * <p>A carried host is measured from where it actually is - the carrier's position, not its origin,
+     * which may be anywhere. The number is the section radius in blocks with a block of slack, so the two
+     * paths reach roughly as far as each other.
+     */
+    private static final double DRAW_DISTANCE = SECTION_RADIUS * 16.0 + 16.0;
 
     /** A plain white block texture, used as the colour source for every quad drawn here. */
     private static final ResourceLocation OVERLAY_SPRITE =
@@ -109,9 +144,9 @@ public final class HostRenderPass {
     /**
      * The slice of the wire sprite that holds the line itself.
      *
-     * <p>The sprite is a 16x16 canvas with a one-pixel jogged line down the middle and nothing else, so
-     * taking the whole width would spread that line across a sixteenth of a bar - a hairline. Narrowing
-     * the slice to the columns the line actually uses is what gives a line of a believable thickness.
+     * <p>The sprite is a 16x16 canvas with a one-pixel jogged line down the middle and nothing else, so the
+     * whole width would spread that line across a sixteenth of a bar - a hairline. Narrowing the slice to
+     * the columns the line actually uses is what gives it a believable thickness.
      */
     private static final float WIRE_U0 = 5F / 16F;
     private static final float WIRE_U1 = 11F / 16F;
@@ -121,17 +156,109 @@ public final class HostRenderPass {
     /** The block being pointed at with the wrench in hand. */
     private static final int HOVER_FRAME = 0x90FFFFFF;
 
+    /**
+     * <b>The stage names this build PRINTS - and why nothing dispatches on them.</b>
+     *
+     * <p>The two stages are two separate callbacks here, registered by {@link #register()}, so there is no
+     * stage object to compare and no chance of a name comparison silently switching the overlay off. What
+     * remains is the printed spelling: the names, including the default namespace a stage name carries in
+     * the game's own code, are what a reader greps the frame summary for.
+     */
+    static final String WORLD_STAGE_NAME = "minecraft:after_entities";
+
+    static final String CARRIED_STAGE_NAME = "minecraft:after_translucent_blocks";
+
+    /**
+     * The fact that the world path's translucent frame is <b>not</b> flushed by us, and by whom instead.
+     *
+     * <p>Printed beside the two stages we do own, because a reader who finds {@code worldShellQuads} and
+     * looks for a matching "flushed at" has to be told there is none: the frame keeps vanilla's translucent
+     * render type identity, so the level renderer's own translucent section layer flushes it, after both of
+     * ours.
+     */
+    static final String WORLD_SHELL_STAGE = "handed to LevelRenderer, which flushes it in the same frame; "
+            + "type identity kept for Iris, NOT flushed by us and never alarmed on";
+
+    /**
+     * Which stage the carried geometry is submitted at.
+     *
+     * <p>Always the world stage, because this loader's late callbacks run after every buffered quad has
+     * been drawn and may not write vertices at all - see {@link CarrierGeometry.StagePlan}. The late
+     * callback still runs, because a flush line is a per-frame reading and a reading that is only written
+     * sometimes is not a reading.
+     */
+    private static final CarrierGeometry.StagePlan STAGE_PLAN = CarrierGeometry.StagePlan.WITH_WORLD;
+
+    /**
+     * Which render type each half of the carried picture is written with.
+     *
+     * <p>The components keep the depth-ignoring role the world path's own do, and the shell - a border
+     * whose colour carries a real alpha, like the wrench highlight - is blended. Both types are vanilla's,
+     * taken by reference; see {@link HostRenderTypes}.
+     */
+    private static final CarrierGeometry.RenderPlan RENDER_PLAN = CarrierGeometry.RenderPlan.OWN;
+
     private HostRenderPass() {
     }
 
     /**
-     * The per-frame overlay pass, registered on {@code WorldRenderEvents.AFTER_ENTITIES}.
+     * The two callbacks this pass is drawn from, and the tick that lets a stale carrier go.
      *
-     * <p>{@code AFTER_ENTITIES} is dispatched from {@code LevelRenderer.renderLevel} itself, which is
-     * the one place that runs the same way with and without a modded chunk renderer (Sodium included),
-     * and it is before the translucent chunk layer, so water in front of a host still blends over it.
+     * <p>Called once from the client entrypoint, because this loader has no event bus to subscribe on: the
+     * class has to say which callbacks it wants, and it is the client entrypoint that asks.
+     *
+     * <p>The tick sits on {@code END_CLIENT_TICK} and does one thing:
+     * {@link ClientHostCache#tickCarriers()} lets go of any carrier whose pose the server has stopped
+     * refreshing and hands its hosts back to the world path. Registered here rather than in the entrypoint
+     * so that everything this pass is driven by is in one place.
+     */
+    public static void register() {
+        // The world path: the hosts standing in the level, and the carried geometry with them.
+        WorldRenderEvents.AFTER_ENTITIES.register(HostRenderPass::render);
+        // The carried stage: the same frame's flush readings, written whether or not anything was carried.
+        WorldRenderEvents.AFTER_TRANSLUCENT.register(HostRenderPass::renderCarried);
+        ClientTickEvents.END_CLIENT_TICK.register(client -> onClientTick());
+    }
+
+    /** The client's own tick, which is where the carried picture is allowed to decay. */
+    private static void onClientTick() {
+        if (Minecraft.getInstance().level == null) {
+            return;
+        }
+        ClientHostCache.tickCarriers();
+    }
+
+    /**
+     * The world path, drawn once per frame from {@code WorldRenderEvents.AFTER_ENTITIES}.
+     *
+     * <p>That callback is dispatched from {@code LevelRenderer.renderLevel} itself, which is the one place
+     * that runs the same way with and without a modded chunk renderer (Sodium included). It is before the
+     * translucent chunk layer, so water in front of a host still blends over it, and before the block-entity
+     * pass, so a component is not painted over a chest beside it.
+     *
+     * <p>{@code AFTER_ENTITIES} also hands over the level renderer's own pose stack, so the pose the frames
+     * below are written in is the frame's own: translated by the camera and by nothing else.
      */
     public static void render(WorldRenderContext context) {
+        runStage(Stage.WORLD, context);
+    }
+
+    /**
+     * The carried stage, at {@code WorldRenderEvents.AFTER_TRANSLUCENT}.
+     *
+     * <p>Nothing is drawn here - the carried geometry was submitted with the world path - but the stage
+     * still runs, so that the frame summary's flush line describes this frame's submission rather than
+     * going quiet along with the geometry it reports. See {@link #runCarriedStage}.
+     */
+    static void renderCarried(WorldRenderContext context) {
+        runStage(Stage.CARRIED, context);
+    }
+
+    /**
+     * One of the two stages, with everything that differs between them decided here: each stage collects
+     * exactly what it draws, and the only state carried between them is the counter the frame summary needs.
+     */
+    private static void runStage(Stage stage, WorldRenderContext context) {
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
         LocalPlayer player = minecraft.player;
@@ -139,31 +266,48 @@ public final class HostRenderPass {
             return;
         }
 
-        RCConfig.OverlayMode mode = RCConfig.overlayMode();
-        boolean active = mode == RCConfig.OverlayMode.ALWAYS
-                || (mode == RCConfig.OverlayMode.GOGGLES && wearingGoggles(player));
+        boolean goggles = wearingGoggles(player);
+        CarrierGeometry.Gates gates = CarrierGeometry.Gates.of(RCConfig.overlayMode(), goggles);
+        boolean active = gates.active();
+        // The gates go into the trace before anything is collected, so the frame summary names this frame's
+        // configuration rather than the last one's.
+        CarrierRenderTrace.gates(level.dimension(), gates.describeWithVerdict() + effectiveColours(gates));
+        // One log line when the pass is off, and only on the transition: a player not wearing the goggles
+        // and a player whose config says OFF see the same empty screen, and neither is a rendering bug.
+        logInactiveOnce(level.dimension(), gates);
 
         Camera camera = context.camera();
-        List<Visible> visible = active ? collect(level, player, camera.getPosition()) : List.of();
+        Vec3 cameraPos = camera.getPosition();
+        if (!stage.collectsEverything()) {
+            runCarriedStage(level, player, context, cameraPos, gates, active);
+            return;
+        }
 
-        // One drawing path, always: the host block is taken out of the chunk mesh and drawn by the
-        // pass itself, inside out, while the components and the route markers are drawn with vanilla's
-        // own render types. That is what makes the effect identical with and without a shader pack -
-        // and it is why nothing here asks ShaderCompat which mode it is in. There used to be two paths;
-        // the branch was the bug, because the "shader" one was reached with a pack merely *selected*
-        // (Iris answers "a pack is in use" even when iris.properties has enableShaders=false) and it
-        // then drew the host as a frame only, leaving the block's own cube in the mesh to hide
-        // everything inside it.
+        List<Visible> visible = active ? collect(level, player, cameraPos) : List.of();
+        // BOTH COLLECTIONS HAPPEN HERE, AND SO DOES THE FRAME SUMMARY. A diagnostic must hang on the
+        // unconditional path: this stage is dispatched once per frame whenever the level renders and carries
+        // the heartbeat in CarrierRenderTrace#frameSummary, so a summary written anywhere else can go silent
+        // along with the feature it reports. The carried list costs one walk over the occupied sections and
+        // is the same list the carried stage draws, so collecting it here changes nothing about the picture.
+        // The frame's partial tick, taken once: the carried collection interpolates the poses with it, and so
+        // does the selection when the pick is inside a machine.
+        double partialTick = context.tickCounter().getGameTimeDeltaPartialTick(false);
+        CarriedResult collected = active
+                ? collectCarried(level, player, cameraPos, partialTick)
+                : CarriedResult.empty();
+        lastCarried = collected;
+        reportFrame(level, collected, gates, active);
+
+        // The mesher has to know exactly which blocks the overlay draws: one hidden from the mesh and then
+        // not drawn is a hole in the world, and one drawn while still in the mesh fights it. Publishing every
+        // frame also covers the overlay being switched off, which is what puts the blocks back. Only world
+        // hosts are published: a carried host's block is not in the chunk mesh at all, so there is nothing to
+        // hide.
         //
-        // The one thing switching the block out of the mesh must not do is leave a hole in the world,
-        // so it is tied to the overlay actually drawing the inside: with the inner components switched
-        // off in the config there is nothing to reveal and the block stays where it is.
-        boolean reveal = active && RCConfig.showInnerComponents();
-
-        // The mesher has to know exactly which blocks are drawn by hand: one that is hidden from the
-        // mesh and then not drawn is a hole in the world, and one that is drawn while still in the mesh
-        // fights it. Publishing every frame also covers the overlay being switched off, which is what
-        // puts the blocks back.
+        // The block leaves the mesh only while the overlay is really drawing its inside, which is why the
+        // flag is not a constant: with the inner components switched off in the config there is nothing to
+        // reveal, and a player whose goggles are off must get the ordinary block back.
+        boolean reveal = active && gates.drawsContents();
         List<BlockPos> drawn = new ArrayList<>();
         if (reveal) {
             for (Visible host : visible) {
@@ -172,42 +316,923 @@ public final class HostRenderPass {
         }
         ShaderCompat.publishHosts(drawn, reveal);
 
-        if (visible.isEmpty()) {
-            HostRenderTypes.BUFFERS.endBatch();
+        // THE CARRIED HALF, submitted with this stage. Collected above; drawn here, before anything this
+        // stage submits of its own, so nothing is disturbed by geometry written into another source.
+        CarriedResult carriedHere = carriedFor(active, collected);
+        boolean carriedDrawnHere = STAGE_PLAN.withWorld();
+
+        // THE PICK IS A BORDER COLOUR, NOT A SECOND BOX, so all this stage does is name the picked block and
+        // the shell pass paints it: a world pick names a world block, a pick inside a machine names a
+        // structure and a local block, and the two are told apart by the payload.
+        BlockPos selected = selectedWorldBlock(minecraft);
+        if (visible.isEmpty() && !carriedDrawnHere) {
+            // The world half of this frame is empty, so there is nothing for this stage to flush and the
+            // carried types must NOT be ended here: their vertices have not been written yet.
+            //
+            // The readings are still RECORDED, with a zero counter, and that is not tidiness: a per-frame
+            // reading must be written every frame or the alarm reports the previous frame's numbers as this
+            // frame's defect.
+            recordWorldStage(new Counter());
             return;
         }
-
-        BlockPos selected = WrenchClientState.selection();
         BlockPos hovered = hoveredHost(minecraft, player);
 
         AtlasUv uv = atlasUv();
         PoseStack pose = context.matrixStack();
         if (pose == null) {
-            // Only reachable through a third-party renderer that does not provide one; skipping the
-            // frame degrades the overlay instead of throwing every frame.
-            HostRenderTypes.BUFFERS.endBatch();
+            // Only reachable through a third-party renderer that does not provide one; skipping the frame
+            // degrades the overlay instead of throwing every frame. The readings are still written.
+            recordWorldStage(new Counter());
             return;
         }
+        // The pose the stage was entered on. Everything below runs inside a try/finally that puts the stack
+        // back on exactly this object, because vanilla's own LevelRenderer#checkPoseStack throws "Pose stack
+        // not empty" at the end of a frame whose stack is crooked, and that ends the game. Identity, not a
+        // guessed depth: a pose is only ever shared between a push and its matching pop.
+        PoseStack.Pose entry = pose.last();
         pose.pushPose();
-        Vec3 cameraPos = camera.getPosition();
         pose.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
         PoseStack.Pose last = pose.last();
 
-        // Order matters, and it matters more now that depth is honest everywhere. The block's inside-out
-        // model goes first: it is the surface the components are seen against, and it is what writes the
-        // depth that keeps the world behind the block from showing through. The components follow, in
-        // front of those walls. A component drawn first would be *behind* the wall it sits in front of
-        // as far as the depth buffer is concerned, and would disappear.
-        if (reveal) {
-            drawHostInteriors(pose, level, visible);
-            drawContents(pose, level, visible, uv);
-        }
-        drawFrames(last, level, visible, uv);
-        drawHighlight(last, level, selected, SELECTED_FRAME, uv);
-        drawHighlight(last, level, hovered, HOVER_FRAME, uv);
+        // WHAT WAS ACTUALLY EMITTED, counted where it is emitted - not inferred from how many hosts were
+        // collected. See CarrierGeometry.
+        Counter counter = new Counter();
+        // The carried half's own counter, since this stage owns its submission. Declared out here because
+        // the readings are written after the pose is unwound, exactly as the late stage writes them.
+        Counter carriedHereCounter = new Counter();
 
-        HostRenderTypes.BUFFERS.endBatch();
-        pose.popPose();
+        try {
+            // Order matters, and it matters more now that depth is honest everywhere. The block's
+            // inside-out model goes first: it is the surface the components are seen against, and it is what
+            // writes the depth that keeps the world behind the block from showing through. The components
+            // follow, in front of those walls. A component drawn first would be *behind* the wall it sits in
+            // front of as far as the depth buffer is concerned, and would disappear.
+            if (reveal) {
+                drawHostInteriors(pose, level, visible, counter);
+                drawContents(pose, level, visible, uv, counter);
+            }
+            drawShells(last, level, visible, uv, gates, counter, selected);
+            // Only the hover frame is a box of its own. The pick is not: it is the colour `drawShells` just
+            // used for the picked host's own border, and drawing a box here as well would put two frames at
+            // the same depth - which blend into a third colour and flicker.
+            drawHighlight(last, level, hovered, HOVER_FRAME, uv);
+
+            if (carriedDrawnHere) {
+                // The shell first, so the contents are crisp on top of it - the order the carried path has
+                // always used and the reason `CARRIED_FLUSH_ORDER` exists.
+                drawCarriedShellsInto(pose, level, carriedHere.hosts(), uv, gates, carriedHereCounter,
+                        cameraPos, RENDER_PLAN);
+                if (gates.drawsContents()) {
+                    drawCarriedContentsInto(pose, level, carriedHere.hosts(), uv, carriedHereCounter,
+                            cameraPos, RENDER_PLAN);
+                }
+                carriedHereCounter.hostsCollected = carriedHere.hosts().size();
+                carriedHereCounter.hostsDrawn = Math.max(carriedHereCounter.hostsWithShell,
+                        carriedHereCounter.hostsWithContent);
+                carriedHereCounter.acceptProbe();
+                recordCarriedStage(carriedHereCounter);
+            }
+
+            // Submit this stage's own sources BEFORE the pose is unwound, so the counter is the one that
+            // was filled.
+            recordWorldStage(counter);
+        } finally {
+            restorePose(pose, entry);
+        }
+        if (carriedDrawnHere) {
+            // The flush lines are written after the submission so they describe this frame's flush; the
+            // geometry line is the same pairing the late stage writes, and the stage name in it is the
+            // one this frame really used (see CarrierGeometry.StagePlan).
+            CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
+            CarrierRenderTrace.matrixProbe(level.dimension(), carriedHereCounter.matrixProbeLine(),
+                    level.getGameTime());
+            CarrierRenderTrace.geometry(level.dimension(),
+                    CarrierGeometry.Emitted.of(
+                            worldShellEmittedQuads + carriedHereCounter.shellQuads,
+                            worldOwnEmittedQuads + carriedHereCounter.contentQuads,
+                            worldCounter.hostsWithShell + carriedHereCounter.hostsWithShell,
+                            worldCounter.hostsWithContent + carriedHereCounter.hostsWithContent,
+                            worldCounter.hostsCollected + carriedHereCounter.hostsCollected,
+                            gateReason(gates, true), gateReason(gates, false),
+                            carriedHereCounter.zeroShellReason().isEmpty()
+                                    ? worldCounter.zeroShellReason()
+                                    : carriedHereCounter.zeroShellReason()),
+                    gates.describeWithVerdict() + effectiveColours(gates),
+                    carriedHereCounter.example(List.of(), carriedHere.hosts(), gates),
+                    carriedHereCounter.matrixProbeLine());
+        }
+    }
+
+    /**
+     * The carried collection the world stage should draw. Always an empty list while the pass is off, never
+     * the list that happened to be collected last frame.
+     */
+    private static CarriedResult carriedFor(boolean active, CarriedResult collected) {
+        if (!STAGE_PLAN.withWorld()) {
+            return CarriedResult.empty();
+        }
+        return active ? collected : CarriedResult.empty();
+    }
+
+    /**
+     * <b>Submits the world source and records this frame's world readings - always, from one place.</b> The
+     * emitted numbers are what the drawing loops handed out <em>this</em> frame and the flushed ones are what
+     * the source held at <em>this</em> frame's submission; writing them from two call sites is how they came
+     * apart, since the empty-world path submits the batch too.
+     */
+    private static void recordWorldStage(Counter counter) {
+        HostRenderTypes.endWorldBatch();
+        worldCounter = counter;
+        worldFlushedThisSession = true;
+        // What the loops emitted for OUR source: the contents, plus the block interiors, which share it.
+        // The frame is not here - see `worldShellEmittedQuads`.
+        worldOwnEmittedQuads = counter.contentQuads + counter.interiorQuads;
+        worldOwnFlushedQuads = HostBufferTally.flushedQuads(HostBufferTally.Sink.WORLD,
+                HostBufferTally.Kind.CONTENTS)
+                + HostBufferTally.flushedQuads(HostBufferTally.Sink.WORLD,
+                        HostBufferTally.Kind.INTERIOR);
+        worldContentQuadsFlushed = HostBufferTally.flushedQuads(HostBufferTally.Sink.WORLD,
+                HostBufferTally.Kind.CONTENTS);
+        // The frame, reported apart because its submitter is not us: it is a hand-over we can only count on
+        // the way out. See HostBufferTally.Sink#RENDERER.
+        worldShellEmittedQuads = counter.shellQuads;
+        worldShellHandedOverQuads = HostBufferTally.handedOverQuads(HostBufferTally.Sink.RENDERER,
+                HostBufferTally.Kind.SHELL);
+    }
+
+    /**
+     * Puts the pose stack back on the pose a stage was entered on, whatever happened in between.
+     *
+     * <p>Vanilla's {@code LevelRenderer#checkPoseStack} throws {@code IllegalStateException("Pose stack not
+     * empty")} at the end of a frame whose pose stack is not back to its base, and that check takes the game
+     * down rather than warning. The stack is walked back until the top <em>is</em> the pose the stage entered
+     * on - identity, not a count of pushes - so a draw call that throws mid-way cannot leave the frame
+     * crooked. The rule itself lives in {@link PoseStackGuard}, a class free of this package's other types so
+     * that it can be tested without a game running; this wrapper is only here to report.
+     */
+    private static void restorePose(PoseStack pose, PoseStack.Pose entry) {
+        int popped = PoseStackGuard.restore(pose, entry);
+        if (popped > 1) {
+            RCConfig.LOGGER.warn("[redstonecircuit] client: the pose stack was {} level(s) deeper than "
+                    + "this stage left it, so {} extra level(s) were popped - without that, vanilla's own "
+                    + "end-of-frame check throws 'Pose stack not empty' and takes the game down. A push "
+                    + "without a pop is a bug, not a tidiness issue", popped, popped - 1);
+        }
+    }
+
+    /**
+     * The carried stage: the frame's flush readings, written whether or not anything was carried.
+     *
+     * <p>Thin about reporting, by design - the frame summary is written by the <b>world</b> stage (see
+     * {@code runStage}), so that it appears whether or not this stage ever runs. All this stage adds is the
+     * flush counts.
+     *
+     * <p>The drawing half below is the path this build does not take ({@link #STAGE_PLAN} submits the
+     * carried geometry with the world path) and is kept because the decision it depends on is a property of
+     * the renderer rather than of this class: were a stage that may write vertices to exist after the
+     * terrain layers, the geometry would move back here and nothing else would have to change.
+     */
+    private static void runCarriedStage(ClientLevel level, LocalPlayer player, WorldRenderContext context,
+                                        Vec3 cameraPos, CarrierGeometry.Gates gates, boolean active) {
+        // THE EARLY MODE: the world stage already drew and flushed this frame's carried geometry, so there is
+        // nothing left to draw and drawing it again would put a second copy of every component into a batch
+        // that has been submitted.
+        if (STAGE_PLAN.withWorld()) {
+            CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
+            CarrierRenderTrace.matrixProbe(level.dimension(), carriedCounter.matrixProbeLine(),
+                    level.getGameTime());
+            return;
+        }
+
+        double partialTick = context.tickCounter().getGameTimeDeltaPartialTick(false);
+        CarriedResult collected = lastCarried == null
+                ? (active ? collectCarried(level, player, cameraPos, partialTick) : CarriedResult.empty())
+                : lastCarried;
+        List<Carried> carried = collected.hosts();
+
+        if (carried.isEmpty()) {
+            // Nothing was written, but the buffer is submitted anyway: a frame whose carried hosts all
+            // disappeared must not leave the previous frame's vertices queued for the next endBatch. The
+            // readings are recorded here too, for the same reason the world stage records them on its
+            // empty path - a per-frame reading that is only written sometimes is not a reading.
+            //
+            // A picked host is IN this list when it is drawn at all (it is a host riding a structure like any
+            // other, and the pick is a colour on its own border - see `drawCarriedShellsInto`), so a frame
+            // that reaches this line has no box of its own to draw either.
+            recordCarriedStage(new Counter());
+            CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
+            return;
+        }
+
+        AtlasUv uv = atlasUv();
+        PoseStack pose = context.matrixStack();
+        if (pose == null) {
+            // This loader does not promise a pose stack before AFTER_ENTITIES; skipping the frame degrades
+            // the overlay instead of throwing every frame.
+            recordCarriedStage(new Counter());
+            return;
+        }
+        PoseStack.Pose entry = pose.last();
+        pose.pushPose();
+        pose.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
+
+        Counter counter = new Counter();
+        try {
+            // The shell is drawn first so that its own call site can take the matrix probe before the
+            // contents do. A frame drawn the other way round would report the contents' matrix with no shell
+            // matrix to compare it against, and the shellContentGap line would go quiet exactly when the two
+            // call sites disagreeing is the thing worth knowing.
+            drawCarriedShellsInto(pose, level, carried, uv, gates, counter, cameraPos, RENDER_PLAN);
+            if (gates.drawsContents()) {
+                // Both carried halves test depth on this loader, and their order in the frame is then their
+                // order on screen: drawing the contents last keeps the component crisp instead of washing it
+                // out under the border that is there to frame it.
+                drawCarriedContentsInto(pose, level, carried, uv, counter, cameraPos, RENDER_PLAN);
+            }
+        } finally {
+            // Same guarantee as the world stage's: this stage's push is matched on every way out, even a
+            // throwing draw call. See restorePose.
+            restorePose(pose, entry);
+        }
+        carriedCounter = counter;
+
+        counter.hostsCollected = carried.size();
+        counter.hostsDrawn = Math.max(counter.hostsWithShell, counter.hostsWithContent);
+        counter.acceptProbe();
+
+        // THE FLUSH ITSELF, and the reason the carried path has a stage of its own.
+        recordCarriedStage(counter);
+        // Recorded after the submission, so the line the next frame summary carries describes this frame's
+        // flush rather than the one before it.
+        CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
+
+        CarrierRenderTrace.matrixProbe(level.dimension(), counter.matrixProbeLine(),
+                level.getGameTime());
+        CarrierRenderTrace.geometry(level.dimension(),
+                CarrierGeometry.Emitted.of(
+                        worldShellEmittedQuads + counter.shellQuads,
+                        worldOwnEmittedQuads + counter.contentQuads,
+                        worldCounter.hostsWithShell + counter.hostsWithShell,
+                        worldCounter.hostsWithContent + counter.hostsWithContent,
+                        worldCounter.hostsCollected + counter.hostsCollected,
+                        gateReason(gates, true), gateReason(gates, false),
+                        counter.zeroShellReason().isEmpty() ? worldCounter.zeroShellReason()
+                                : counter.zeroShellReason()),
+                gates.describeWithVerdict() + effectiveColours(gates),
+                counter.example(List.of(), carried, gates), counter.matrixProbeLine());
+    }
+
+    /**
+     * <b>The compact numbers, plus the guidance only when this frame's shape differs from the last.</b>
+     *
+     * <p>The one call the renderer makes: {@link #flushStageLine()} is the per-frame half and
+     * {@link #flushStageExplanation()} is the guidance, appended only when {@link #frameExplanationDue()}
+     * says the frame's shape changed - the first frame of a session, a frame whose stage or flush state
+     * moved, or any frame with an alarm.
+     */
+    static String flushStageReport() {
+        return flushStageLine() + (frameExplanationDue() ? flushStageExplanation() : "");
+    }
+
+    /**
+     * <b>The answer to "was the carried geometry flushed after the structure was drawn".</b>
+     *
+     * <p>Built from the numbers this pass recorded at each {@code endBatch}, naming the stage each one ran
+     * at. A reader compares the carried stage against the world stage: the carried one must be the later, or
+     * a host riding a machine is covered by the machine's own blocks however many quads it emitted. On this
+     * loader it is the same stage on purpose, and the line prints the stage really used - see
+     * {@link CarrierGeometry.StagePlan}.
+     *
+     * <p><b>Numbers only, and that is deliberate</b>: the line is written for every frame summary, so it
+     * carries nothing that does not change between frames. The stage names are properties of the build and
+     * are printed whether or not the stage has run; the counts and one word,
+     * {@code flushed=fresh|carried-over}, are properties of the frame, and a stage that has not run since
+     * the client started says so rather than printing a zero that reads like "it ran and wrote nothing". The
+     * world frame has no stage of ours to name, and says so rather than looking like a stage that never ran:
+     * it keeps vanilla's translucent render type identity, so the level renderer's own translucent section
+     * layer flushes it, after both of ours.
+     */
+    static String flushStageLine() {
+        return "worldQuadsFlushedAt=" + Stage.WORLD.stageName() + " worldOwnQuads=" + worldOwnFlushedQuads
+                + " (worldOwnEmittedQuads=" + worldOwnEmittedQuads + " worldContentQuads="
+                + worldContentQuadsFlushed + ")"
+                + (worldFlushedThisSession ? "" : " flushed=NOT-YET-THIS-SESSION(0 is 'not yet', not 'wrote "
+                        + "nothing')")
+                + " worldShellQuads=" + worldShellEmittedQuads + " worldShellHandedOverQuads="
+                + worldShellHandedOverQuads + " (" + WORLD_SHELL_STAGE + ")"
+                + " carriedQuadsFlushedAt=" + STAGE_PLAN.stageName() + " carriedQuads="
+                + carriedQuadsFlushed + " (carriedShellQuads=" + carriedShellQuadsFlushed
+                + " carriedContentQuads=" + carriedContentQuadsFlushed + " carriedEmittedQuads="
+                + carriedEmittedQuads + ")"
+                + (carriedFlushedThisSession ? ""
+                        : " flushed=NOT-YET-THIS-SESSION(0 is 'not yet', not 'wrote nothing')")
+                + " " + HostBufferTally.describe();
+    }
+
+    /**
+     * <b>The guidance, as one string, printed when the frame's shape changes rather than every frame.</b>
+     *
+     * <p>Three facts a reader needs in order not to misread the line above, none of which changes between two
+     * frames of one session: the carried geometry is submitted with the world path, because this loader's
+     * late callbacks may not write vertices at all; {@code worldOwnQuads} must equal
+     * {@code worldOwnEmittedQuads} and {@code carriedQuads} must equal {@code carriedEmittedQuads}, because
+     * where they differ the geometry went into a batch that had already been submitted; and the world
+     * <b>frame</b> is outside that equation, being handed to {@code LevelRenderer} with a handed-over count
+     * and no flush of ours.
+     */
+    static String flushStageExplanation() {
+        return " *** the carried geometry is submitted with the world path in every configuration on this "
+                + "loader, and that is not a regression: " + STAGE_PLAN.why()
+                + ", because a callback that runs after the terrain layers may not write vertices. If "
+                + "carriedQuadsFlushedAt ever reads as a later stage than the world one, a host riding a "
+                + "structure is covered by that structure's own blocks. worldOwnQuads must equal "
+                + "worldOwnEmittedQuads and carriedQuads must equal carriedEmittedQuads; where they "
+                + "differ the geometry was written into a batch that had already been submitted. The "
+                + "world FRAME is deliberately outside that equation: it is handed to LevelRenderer, so it "
+                + "has a handed-over count and no flush of ours ***";
+    }
+
+    /**
+     * Whether this frame's explanation has to be printed: the first frame of a session, a frame whose shape
+     * differs from the previous one, or a frame carrying an alarm.
+     *
+     * <p>One bounded string comparison per frame: the shape string is a handful of names and booleans the
+     * renderer already has, and the state is process-lifetime and fixed-size. {@link #flushAlarms()} is never
+     * gated.
+     */
+    static boolean frameExplanationDue() {
+        String shape = frameShape();
+        boolean due = !shape.equals(lastFrameShape);
+        lastFrameShape = shape;
+        return due;
+    }
+
+    /**
+     * The part of a frame the explanation is about: which stage each half reached, whether each half has
+     * flushed at all this session, and the alarm signature.
+     *
+     * <p>The quad counts are <b>not</b> in it: a machine turning on the spot changes them every frame, and a
+     * gate keyed on those would print the guidance at frame rate.
+     */
+    private static String frameShape() {
+        return Stage.WORLD.stageName() + '|' + Stage.CARRIED.stageName()
+                + "|worldFlushed=" + worldFlushedThisSession
+                + "|carriedFlushed=" + carriedFlushedThisSession
+                + "|alarms=" + flushAlarms();
+    }
+
+    /** The last frame shape the explanation was printed for; see {@link #frameExplanationDue()}. */
+    private static String lastFrameShape = "";
+
+    /** Forgets the gate, so the next frame explains itself from the first frame again. */
+    static void resetFrameLogForTest() {
+        lastFrameShape = "";
+    }
+
+    /**
+     * The gate's seam: makes the previous frame look like a different verdict, so a test can drive the
+     * transition without a render thread.
+     */
+    static final Consumer<String> NOTE_FOR_TEST =
+            shape -> lastFrameShape = shape == null ? "" : shape;
+
+    /**
+     * <b>The alarms: geometry that was emitted and never submitted.</b>
+     *
+     * <p>Two independent facts, either of which is a defect on its own: a stage emitted quads and flushed
+     * none of its own ({@link HostBufferTally#nothingFlushedWhileEmitting}), and vertices written into a
+     * source <em>after</em> that source was flushed, which is the signature of a draw point aiming at a
+     * finished batch. Empty on every healthy frame, so its presence in a log is the finding.
+     */
+    static String flushAlarms() {
+        StringBuilder sb = new StringBuilder();
+        String carriedAlarm = HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.CARRIED,
+                carriedEmittedQuads, carriedOwnFlushedQuads);
+        if (carriedAlarm != null) {
+            sb.append(' ').append(carriedAlarm);
+        }
+        // The wrong-buffer detector, for either of our sources: a draw point writing into a source we have
+        // already submitted is caught even on a frame where the stage also submitted something of its own.
+        if (HostBufferTally.postFlushWrites(HostBufferTally.Sink.WORLD) > 0) {
+            sb.append(" *** WRONG BUFFER: vertices were written into the WORLD source after this build "
+                    + "submitted it at ").append(Stage.WORLD.stageName()).append(", which is where a draw "
+                    + "point that should have used CARRIED_BUFFERS ends up ***")
+                    .append(HostBufferTally.postFlushSentence());
+        }
+        if (HostBufferTally.postFlushWrites(HostBufferTally.Sink.CARRIED) > 0) {
+            sb.append(" *** WRONG BUFFER: vertices were written into the CARRIED source after this build "
+                    + "submitted it at ").append(Stage.CARRIED.stageName()).append(" ***")
+                    .append(HostBufferTally.postFlushSentence());
+        }
+        // ONLY the world geometry this build submits: the world frame is excluded by construction, so a
+        // frame that drew only the frame cannot be read as a defect. See HostBufferTally.Sink#RENDERER.
+        String worldAlarm = HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.WORLD,
+                worldOwnEmittedQuads, worldOwnFlushedQuads);
+        if (worldAlarm != null) {
+            sb.append(' ').append(worldAlarm);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Submits the carried source and records this frame's carried readings; see {@link #recordWorldStage}.
+     *
+     * <p>Both sink kinds in this source are ours to submit, so the pair here covers the whole carried
+     * picture: {@code carriedEmittedQuads} is what the loops handed out and {@code carriedOwnFlushedQuads}
+     * is what the source held when it was submitted.
+     */
+    private static void recordCarriedStage(Counter counter) {
+        HostRenderTypes.endCarriedBatch();
+        carriedCounter = counter;
+        carriedFlushedThisSession = true;
+        carriedEmittedQuads = counter.shellQuads + counter.contentQuads;
+        carriedOwnFlushedQuads = HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
+                HostBufferTally.Kind.SHELL)
+                + HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
+                        HostBufferTally.Kind.CONTENTS);
+        carriedQuadsFlushed = carriedOwnFlushedQuads;
+        carriedShellQuadsFlushed = HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
+                HostBufferTally.Kind.SHELL);
+        carriedContentQuadsFlushed = HostBufferTally.flushedQuads(HostBufferTally.Sink.CARRIED,
+                HostBufferTally.Kind.CONTENTS);
+    }
+
+    /**
+     * The frame counters, recorded where the hosts and their skip reasons are known.
+     *
+     * <p>Split out of {@code collectCarried} so that the collection pass has no logging side effect: a
+     * collector that also writes the frame summary cannot be called twice in a frame.
+     */
+    private static void reportFrame(ClientLevel level, CarriedResult collected,
+                                    CarrierGeometry.Gates gates, boolean active) {
+        if (!active) {
+            // The pass is off, and the log says so: returning in silence would make "the overlay is switched
+            // off" and "the overlay is on and nothing reaches the screen" the same log - a session with no
+            // frame summary at all. Same throttle, same clock, zeros, and the gates' own sentence, which
+            // names the mode, the goggles and which of them closed the pass.
+            CarrierRenderTrace.frameSummaryInactive(level.dimension(),
+                    gates.describeWithVerdict() + effectiveColours(gates), level.getGameTime());
+            return;
+        }
+        int drawn = collected.hosts().size();
+        // THE CLIENT'S OWN CLOCK, passed down so the diagnostics can space their lines out in ticks rather
+        // than in frames: "at most one line per second" has to mean a second whatever frame rate the
+        // player's machine runs at.
+        long nowTicks = level.getGameTime();
+        CarrierRenderTrace.frame(level.dimension(), drawn, collected.skippedNoPose(),
+                collected.skippedFar(), collected.skippedStalePose(), collected.landedWorldHost(),
+                collected.landedDeferred(), collected.carriedWorldHost(),
+                collected.drawnOffStructure(), collected.plotSpaceHosts(),
+                collected.worstPoseAgeTicks(), collected.sight().tally());
+        CarrierRenderTrace.frameSummary(level.dimension(), drawn, collected.skippedNoPose(),
+                collected.skippedFar(), collected.skippedStalePose(), collected.landedWorldHost(),
+                collected.landedDeferred(), collected.carriedWorldHost(),
+                collected.worstPoseAgeTicks(), nowTicks);
+        // The worked example, logged on a change and otherwise at most once a second. See CarrierDrawCheck
+        // for how to read the pair of positions.
+        CarrierRenderTrace.drawCheck(level.dimension(), collected.example(),
+                collected.drawnOffStructure(), collected.plotSpaceHosts(),
+                collected.worstPoseAgeTicks(), nowTicks);
+        // The B2 example: built by the collector (see CarriedResult#sight), so a frame that asked no sight
+        // question records nothing rather than reusing the last line it did ask.
+        CarrierRenderTrace.sightDetail(level.dimension(), collected.sight().describe());
+        CarrierRenderTrace.sight(level.dimension(), nowTicks);
+        // The origin sweep LAST, never before the two calls above: its rollup reports the renderer's own
+        // skippedStalePose/skippedFar, which the `frame` call has just recorded.
+        CarrierRenderTrace.originSweep(level.dimension(), nowTicks, SECTION_RADIUS,
+                sweepShift(collected));
+    }
+
+    /**
+     * The point the origin walk's radius is measured from.
+     *
+     * <p>The eye the sight question was asked from is handed over rather than a fresh camera read that
+     * could be a frame newer; a frame that asked no sight question falls back to the camera entity's
+     * position, which is what the collector would have used.
+     */
+    @Nullable
+    private static BlockPos sweepShift(CarriedResult collected) {
+        CarrierHostCheck example = collected.sight().example();
+        if (example != null && example.eye() != null) {
+            return example.eye();
+        }
+        var camera = Minecraft.getInstance().getCameraEntity();
+        return camera == null ? null : BlockPos.containing(camera.getEyePosition());
+    }
+
+    /**
+     * Which pose a carrier is being drawn from, written when that changes and never per frame.
+     *
+     * <p>The two sources are indistinguishable on screen, so one line per carrier per transition is what
+     * makes "the pose really used" checkable without measuring anything.
+     */
+    private static final Set<CarrierId> LIVE_POSE_CARRIERS = ConcurrentHashMap.newKeySet();
+
+    private static void notePoseSource(CarrierId carrier, @Nullable CarrierPose live) {
+        if (live == null) {
+            if (LIVE_POSE_CARRIERS.remove(carrier)) {
+                RCConfig.LOGGER.info("[redstonecircuit] client: carrier {} is drawn from the NETWORK pose "
+                        + "(Sable answers no render pose for it: a Create contraption, no Sable, or a "
+                        + "sub-level the client does not hold)", carrier.shortId());
+            }
+        } else if (LIVE_POSE_CARRIERS.add(carrier)) {
+            RCConfig.LOGGER.info("[redstonecircuit] client: carrier {} is drawn from Sable's own "
+                    + "renderPose(partialTick) - the components are at the machine's own position in every "
+                    + "frame", carrier.shortId());
+        }
+    }
+
+    /** The counter the last frame's world stage filled, for the frame summary. */
+    private static Counter worldCounter = new Counter();
+
+    /** A fresh counter, for tests that drive the matrix probes without a level. */
+    static Counter newCounter() {
+        return new Counter();
+    }
+
+    /** Takes one probe, for tests that drive the matrix probes without a level. */
+    static void probeForTest(Counter counter, String label, String carrier, PoseStack.Pose pose,
+                             CarrierFrame frame, float[] base, Vector3d camera) {
+        counter.probe(label, carrier, pose, frame, base, camera);
+    }
+
+    /** The probe line a counter has accumulated, for tests that drive the matrix probes. */
+    static String probeLineForTest(Counter counter) {
+        counter.acceptProbe();
+        return counter.matrixProbeLine();
+    }
+
+    /** The counter the last frame's carried stage filled, for the frame summary. */
+    private static Counter carriedCounter = new Counter();
+
+    /**
+     * The carried collection the world stage made this frame, for the carried stage to draw.
+     *
+     * <p>The world stage collects both lists so that the frame summary - the diagnostic - hangs on the one
+     * stage that is certain to run; the carried stage then draws that same list rather than collecting a
+     * second, possibly different, one. Null only before the first frame of a session, in which case the
+     * carried stage collects for itself.
+     */
+    @Nullable
+    private static CarriedResult lastCarried;
+
+    /**
+     * Quads of world geometry this build is responsible for submitting, and how many it submitted.
+     *
+     * <p>The pair that must agree. {@code worldOwnEmittedQuads} counts the world <b>contents</b> and the
+     * block interiors the loops wrote into our own source, and {@code worldOwnFlushedQuads} is what that
+     * source held when we submitted it. The world <b>frame</b> is not in either: it goes into the level
+     * renderer's source, which we never submit. See {@link HostBufferTally.Sink}.
+     */
+    private static int worldOwnEmittedQuads;
+    private static int worldOwnFlushedQuads;
+
+    /** Quads of world contents only, for a reader who wants the component number on its own. */
+    private static int worldContentQuadsFlushed;
+
+    /**
+     * The world frame: emitted, and handed over.
+     *
+     * <p>Reported as its own pair because its submitter is not this build: the handed-over count is what we
+     * gave {@code LevelRenderer}, whose translucent section layer flushes it later in the same frame.
+     */
+    private static int worldShellEmittedQuads;
+    private static int worldShellHandedOverQuads;
+
+    /**
+     * The stage the world path <em>is</em> flushed at, and whether it has run yet.
+     *
+     * <p>Two separate facts: the stage name is a property of the build - the pass always runs at
+     * {@code after_entities} - so a diagnostic can print it before the first frame, while the quad count and
+     * the "already flushed" flag are properties of the frame.
+     */
+    private static boolean worldFlushedThisSession;
+
+    /** How many quads the carried stage flushed, and at which stage. */
+    private static int carriedQuadsFlushed;
+    private static int carriedShellQuadsFlushed;
+    private static int carriedContentQuadsFlushed;
+
+    /**
+     * Quads the carried stage's drawing loops handed out, and what its source held when submitted.
+     *
+     * <p>Both sink kinds are ours here, so this pair covers the whole of the carried picture.
+     */
+    private static int carriedEmittedQuads;
+    private static int carriedOwnFlushedQuads;
+
+    /** Whether the carried stage has run since the client started; see {@link #worldFlushedThisSession}. */
+    private static boolean carriedFlushedThisSession;
+
+    /**
+     * The two stages this pass draws in.
+     *
+     * <p>A small enum rather than two bare bodies because the tests have to ask the same question without a
+     * render callback, which cannot be constructed outside the game.
+     */
+    enum Stage {
+
+        /** The world path: {@code AFTER_ENTITIES}, before the translucent chunk layer. */
+        WORLD(WORLD_STAGE_NAME, 1),
+
+        /**
+         * The carried path: after every terrain layer the game draws, and the stage this pass's flush
+         * readings are written at.
+         */
+        CARRIED(CARRIED_STAGE_NAME, 6);
+
+        private final String stageName;
+        private final int order;
+
+        Stage(String stageName, int order) {
+            this.stageName = stageName;
+            this.order = order;
+        }
+
+        /** The name this build <b>prints</b> for the stage, namespace and all; see {@link #WORLD_STAGE_NAME}. */
+        String stageName() {
+            return stageName;
+        }
+
+        /**
+         * Where this stage sits in a frame, as an explicit rank.
+         *
+         * <p>The numbers are the order of the level renderer's own stages - sky, solid, cutout-mipped, cutout,
+         * entities, block entities, translucent, tripwire, particles, weather, level - and they exist so that
+         * "the carried flush really is later" is an assertion a unit test can make with no game running. Only
+         * their order is a contract; the values are not.
+         */
+        int order() {
+            return order;
+        }
+
+        /** Whether this stage draws the hosts standing in the world, as opposed to the carried ones. */
+        boolean collectsEverything() {
+            return this == WORLD;
+        }
+    }
+
+    /**
+     * Why the shell could not be drawn, for the diagnostics; {@code null} when it could.
+     *
+     * <p>The same gates the drawing loop consults, asked once more so the frame summary's zero can be read
+     * without guessing which of them did it.
+     */
+    @Nullable
+    private static String gateReason(CarrierGeometry.Gates gates, boolean shell) {
+        return shell ? gates.shellEmptiness(null) : gates.contentsEmptiness();
+    }
+
+    /** The gates as they really applied, for the diagnostics: the colours a forced frame substituted. */
+    private static String effectiveColours(CarrierGeometry.Gates gates) {
+        if (!gates.forceEmit()) {
+            return "";
+        }
+        return " (forceOverlayDraw is ON: the shell is drawn with tint="
+                + CarrierGeometry.hex(gates.effectiveTint()) + " frame="
+                + CarrierGeometry.hex(gates.effectiveFrame(null)) + " so it cannot be mistaken for a "
+                + "configuration)";
+    }
+
+    /** The last dimension whose "the overlay is off" line was written, so it is a transition. */
+    @Nullable
+    private static ResourceKey<Level> inactiveLogged;
+
+    /** One line when the overlay is not running, and one when it starts again. */
+    private static void logInactiveOnce(ResourceKey<Level> dimension, CarrierGeometry.Gates gates) {
+        String reason = gates.inactiveReason();
+        if (reason == null) {
+            if (inactiveLogged != null) {
+                inactiveLogged = null;
+                RCConfig.LOGGER.info("[redstonecircuit] client: host overlay ACTIVE again - {}",
+                        gates.describe());
+            }
+            return;
+        }
+        if (dimension.equals(inactiveLogged)) {
+            return;
+        }
+        inactiveLogged = dimension;
+        RCConfig.LOGGER.info("[redstonecircuit] client: host overlay is NOT drawing - {}. {}",
+                reason, gates.describe());
+    }
+
+    /**
+     * What one frame actually wrote into the vertex buffers.
+     *
+     * <p>The distinction this type exists for: {@code hostsCollected} is a host that was handled, and
+     * {@code shellQuads}/{@code contentQuads} are what reached the buffers. A frame with the first non-zero
+     * and the second zero is a host that drew nothing, which the log must never leave unsaid.
+     */
+    static final class Counter {
+        int shellQuads;
+        int contentQuads;
+
+        /**
+         * Quads of the block's own inside-out model, which shares our world source with the contents.
+         *
+         * <p>Counted because it belongs in the "did we submit what we drew" equation; kept apart from
+         * {@code contentQuads} because no config gate controls it.
+         */
+        int interiorQuads;
+        int hostsWithShell;
+        int hostsWithContent;
+        int hostsCollected;
+        int hostsDrawn;
+
+        /**
+         * <b>Shell quads the per-quad colour rule refused, and the one fact that explains a zero.</b>
+         *
+         * <p>{@link CarrierGeometry#shellQuadArgb} returns {@code 0} for exactly two reasons: the resolved
+         * colour is zero, or the centre panel is left out while the four rims are still drawn. The second can
+         * never empty a whole host, so a host that emitted <b>nothing</b> while its host-level gates were all
+         * open was refused by a colour of zero. Counted so the frame summary can say which of those it was
+         * instead of leaving the reader to guess between "a setting is zero", "the renderer is broken" and "a
+         * one-frame transient".
+         */
+        int shellQuadsRefusedByColour;
+
+        /**
+         * Hosts collected with no slot at all.
+         *
+         * <p>A host with no slot has no component to draw and no border colour, so it emits nothing by
+         * construction - the one shape of "collected and drew nothing" that is neither a setting nor a
+         * renderer fault.
+         */
+        int hostsWithoutSlot;
+
+        /**
+         * The matrix probes taken this frame: one from the contents call site and one from the shell's, for
+         * the same host.
+         *
+         * <p>Two, because the check is two-sided and the two sides are known at different moments: the
+         * contents probe while the contents path's pose is on the stack - the only place the anchor
+         * translation is known - and the shell probe while the shell's is, which additionally compares the
+         * two call sites' offsets with each other.
+         */
+        private final List<CarrierMatrixProbe> probes = new ArrayList<>();
+        @Nullable
+        private String matrixProbeLine;
+
+        /** At most this many probes per frame, so a machine full of hosts cannot flood the log. */
+        static final int MAX_PROBES = 3;
+
+        /** Hosts whose shell emitted at least one quad. */
+        void shellEmitted() {
+            hostsWithShell++;
+        }
+
+        /** Whether the contents-side probe has been taken for this frame yet. */
+        boolean hasProbe() {
+            return probes.size() >= MAX_PROBES;
+        }
+
+        /**
+         * <b>Record the matrix the next vertex is handed, and the offsets it is used with.</b>
+         *
+         * <p>The matrix is copied, not referenced: a {@code PoseStack.Pose} is mutated in place for the rest
+         * of the frame, so a reference would report whatever it had become by the time the line was written.
+         *
+         * <p>A block's local coordinate names its <b>corner</b>, so a block model's vertices are the usual
+         * {@code 0..1} measured from it: the model's corner sits at {@code local} and its centre at
+         * {@code local + 0.5} on each axis. The shell's unit cube and the model's {@code 0..1} cube are
+         * literally the same cube, and the only difference between the two call sites is how that base
+         * reaches the vertices - the shell adds it to each vertex itself, the contents path pushes it as a
+         * pose translation and emits at the origin. So the centre offset belongs to the shell's probe only;
+         * adding it unconditionally measures the contents' <b>corner</b> and reports a non-zero gap on
+         * geometry that lies exactly on the block. The gap is zero by construction, whatever {@code R},
+         * {@code local} or {@code pivot} is.
+         *
+         * @param label {@code contents} or {@code shell}: which call site this matrix belongs to
+         * @param base the offset that site writes its geometry at, in frame space, measured from the
+         *     host block's <b>corner</b>: zero for the shell, the anchor fraction for the contents
+         */
+        void probe(String label, String carrier, PoseStack.Pose pose, CarrierFrame frame,
+                   float[] base, Vector3d camera) {
+            if (hasProbe()) {
+                return;
+            }
+            Vector3d cornerExpected = frame.worldOf(frame.localX(), frame.localY(), frame.localZ(),
+                    new Vector3d());
+            Vector3d centreExpected = frame.blockCentre(new Vector3d());
+            probes.add(new CarrierMatrixProbe(label, carrier, frame.rotation() != null, frame.scale(),
+                    new Vector3d(frame.position()),
+                    new Vector3f(base[0] + (float) CarrierPose.BLOCK_CENTRE,
+                            base[1] + (float) CarrierPose.BLOCK_CENTRE,
+                            base[2] + (float) CarrierPose.BLOCK_CENTRE),
+                    new Vector3f(base[0], base[1], base[2]),
+                    centreExpected, cornerExpected, new Matrix4f(pose.pose()), new Vector3d(camera)));
+        }
+
+        /**
+         * Turns the probes into one line, once the frame is over - called after the draw paths, because
+         * printing from inside the loop would write a line per host per frame. When both call sites were
+         * probed for the same host, the distance between them is appended: that is the number that catches
+         * the shell and the contents being drawn in different frames.
+         */
+        void acceptProbe() {
+            if (probes.isEmpty()) {
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (CarrierMatrixProbe probe : probes) {
+                if (sb.length() > 0) {
+                    sb.append(" | ");
+                }
+                sb.append(probe.describe());
+            }
+            if (probes.size() >= 2) {
+                double gap = probes.get(0).centreWorld().distance(probes.get(1).centreWorld());
+                sb.append(String.format(Locale.ROOT,
+                        " | shellContentGap=%.4f %s", gap,
+                        gap > CarrierMatrixProbe.MATRIX_TOLERANCE
+                                ? "*** THE SHELL AND THE COMPONENT INSIDE IT ARE DRAWN IN DIFFERENT "
+                                        + "FRAMES - the two call sites disagree about where the block is "
+                                        + "***"
+                                : "OK-same-frame (the shell and the component are probed at the block "
+                                        + "centre by both call sites)"));
+            }
+            matrixProbeLine = sb.toString();
+            probes.clear();
+        }
+
+        /** The matrix probe line for this frame, or {@code null}. */
+        @Nullable
+        String matrixProbeLine() {
+            return matrixProbeLine;
+        }
+
+        /**
+         * One host to name in the log: the first whose geometry was refused, not the first that worked.
+         */
+        @Nullable
+        private String example(List<Visible> visible, List<Carried> carried,
+                               CarrierGeometry.Gates gates) {
+            for (Visible host : visible) {
+                if (refusedByGates(gates, host.slot())) {
+                    return "host=" + host.pos().toShortString() + " kind=world "
+                            + refusal(gates, host.slot());
+                }
+            }
+            for (Carried host : carried) {
+                if (refusedByGates(gates, host.slot())) {
+                    return "host=" + host.origin().toShortString() + " local="
+                            + host.local().toShortString() + " kind=carried "
+                            + refusal(gates, host.slot());
+                }
+            }
+            return null;
+        }
+
+        /** True when both halves of this host emit nothing, by the same gates the loops use. */
+        private static boolean refusedByGates(CarrierGeometry.Gates gates, Slot slot) {
+            return gates.shellEmptiness(slot) != null && gates.contentsEmptiness() != null;
+        }
+
+        /** The two reasons, as the sentence the frame summary carries. */
+        private static String refusal(CarrierGeometry.Gates gates, Slot slot) {
+            if (gates.shellEmptiness(slot) == null) {
+                return "shellQuads=0 (the host was collected and its shell still emitted nothing - a "
+                        + "layer or buffer problem, not a setting)";
+            }
+            return "shellQuads=0 (" + gates.shellEmptiness(slot) + "), contentQuads=0 ("
+                    + (gates.contentsEmptiness() == null ? "the component itself emitted no quads"
+                            : gates.contentsEmptiness())
+                    + ")";
+        }
+
+        /** One line for the frame summary: what the counters add up to. */
+        String describe() {
+            return "shellQuads=" + shellQuads + " contentQuads=" + contentQuads
+                    + " hostsDrawn=" + hostsDrawn + " of collected=" + hostsCollected
+                    + " refusedShellQuads=" + shellQuadsRefusedByColour
+                    + " hostsWithoutSlot=" + hostsWithoutSlot;
+        }
+
+        /**
+         * Why a frame that emitted shell quads emitted none, in the sentence the frame summary carries.
+         *
+         * <p>A {@code shellQuads=0} beside open gates is true and useless on its own: it cannot distinguish
+         * a colour of zero from a transient. This appends the count that does - see
+         * {@link #shellQuadsRefusedByColour} and {@code hostsWithoutSlot}.
+         */
+        String zeroShellReason() {
+            if (shellQuads > 0) {
+                return "";
+            }
+            if (hostsWithoutSlot > 0) {
+                return " *** ZERO SHELL QUADS: " + hostsWithoutSlot + " of " + hostsCollected
+                        + " host(s) were collected with NO SLOT, which can emit nothing by "
+                        + "construction - the component's data has not reached the client yet ***";
+            }
+            if (shellQuadsRefusedByColour > 0) {
+                return " *** ZERO SHELL QUADS: every one of the " + shellQuadsRefusedByColour
+                        + " quads the colour rule was asked about was REFUSED (argb=0), so the host "
+                        + "collected but no colour resolved. With the gates above open this is a "
+                        + "one-frame transient or a fault - check the next frame's shellQuads ***";
+            }
+            return "";
+        }
     }
 
     // --------------------------------------------------------- what to draw --
@@ -216,13 +1241,87 @@ public final class HostRenderPass {
     private record Visible(BlockPos pos, Slot slot) {
     }
 
+    /**
+     * One host riding a moving structure: where the block came from, what is inside it, and the frame that
+     * carries it.
+     *
+     * <p>{@code origin} is kept for the light query and for the world half of the neighbour question - the
+     * drawing itself happens at {@code local}, transformed by {@code pose}. {@code riding} says which frames
+     * the neighbour question may be asked in: only a host drawn inside its carrier's pose is <em>in</em> the
+     * structure, and only such a host has neighbours in the structure's own coordinates; a fallback drawn at
+     * a world block asks the world index alone.
+     *
+     * <p>{@code frame} is built once here and handed to <b>both</b> draw paths, so the shell and the
+     * component inside it are measured from the same point whatever either of them does with it.
+     */
+    private record Carried(CarrierId carrier, BlockPos origin, BlockPos local, Slot slot,
+                           CarrierPose pose, CarrierFrame frame, boolean riding) {
+    }
+
+    /**
+     * What one carried collection found: the hosts to draw, and why the others were not drawn.
+     *
+     * <p>The skip counts travel with the list rather than being written into the trace from inside the
+     * collector, because the collector runs for the frame that is being reported - see {@link #reportFrame}.
+     *
+     * @param hosts the hosts this frame will draw
+     * @param skippedNoPose carriers the client was never given a position for
+     * @param skippedFar carriers past the draw distance
+     * @param skippedStalePose carriers whose pose stopped arriving
+     * @param worstPoseAgeTicks the age of the oldest pose drawn from, or {@code -1}
+     * @param landedWorldHost landed hosts the world path is drawing instead
+     * @param landedDeferred landed hosts drawn here because the world path cannot yet
+     * @param carriedWorldHost stale-carrier hosts the world path is drawing instead
+     * @param drawnOffStructure hosts drawn far from the position their carrier reports
+     * @param plotSpaceHosts hosts whose local coordinates are in a Sable-style plot space
+     * @param example one worked host, or {@code null} when none was carried
+     * @param sight the sight half of the frame: how many hosts were asked, and one worked example
+     */
+    private record CarriedResult(List<Carried> hosts, int skippedNoPose, int skippedFar,
+                                 int skippedStalePose, long worstPoseAgeTicks, int landedWorldHost,
+                                 int landedDeferred, int carriedWorldHost, int drawnOffStructure,
+                                 int plotSpaceHosts, @Nullable CarrierDrawCheck example,
+                                 SightStats sight) {
+
+        /** The empty collection: nothing was carried, so nothing was asked and nothing was skipped. */
+        private static CarriedResult empty() {
+            return new CarriedResult(List.of(), 0, 0, 0, -1L, 0, 0, 0, 0, 0, null, SightStats.NONE);
+        }
+    }
+
+    /**
+     * The sight half of one frame: the five counters, and the one worked host the B2 line names.
+     *
+     * <p>Carried out of the collector with the hosts for the same reason the skip counts are: the collector
+     * has to stay repeatable, and the summary describes the frame these numbers belong to.
+     *
+     * @param tally how many hosts were asked, and how the ray answered
+     * @param example the host the B2 line names, or {@code null} when the frame asked nothing
+     */
+    private record SightStats(CarrierHostCheck.Tally tally, @Nullable CarrierHostCheck example) {
+
+        /** No sight question was asked this frame. */
+        private static final SightStats NONE = new SightStats(CarrierHostCheck.Tally.NONE, null);
+
+        // `example()` is the record's own accessor, and it is the only one kept: the generated accessor
+        // cannot drift from the component list.
+
+        /** The B2 line for this frame, or {@code null} when there is nothing to name. */
+        @Nullable
+        private String describe() {
+            return example == null ? null : example.describeSightWithTarget();
+        }
+    }
+
     private static List<Visible> collect(ClientLevel level, LocalPlayer player, Vec3 cameraPos) {
         BlockPos origin = BlockPos.containing(cameraPos);
         List<Visible> visible = new ArrayList<>();
         ClientHostCache.forEachNear(level.dimension(), origin, SECTION_RADIUS, (pos, slot) -> {
-            if (slot == null || level.getBlockState(pos).isAir()) {
-                // The server has not told us this block is gone (yet); drawing a shell in mid-air
-                // would look like a bug in the world rather than in the data.
+            if (!ClientHostCache.worldPathDraws(level, level.dimension(), pos, slot)) {
+                // Either the client has no component for this position, or the block the component
+                // belongs to is not there (yet). Drawing a shell in mid-air would look like a bug in
+                // the world rather than in the data - and this is the *same* question the carried path
+                // asks before it lets a landed record yield, so the two cannot disagree.
                 return;
             }
             if (canSee(level, player, cameraPos, pos)) {
@@ -233,25 +1332,417 @@ public final class HostRenderPass {
     }
 
     /**
+     * The hosts riding a moving structure, with the pose of the structure carrying them - plus the ones that
+     * have fallen back to their original world blocks.
+     *
+     * <p>Filters, in this order: <b>the carrier's own position</b> against the camera, because a carried
+     * host's origin can be a hundred blocks behind a machine that has flown over the horizon, and <b>line of
+     * sight from where the component actually is</b> - the ray goes to the transformed position, not to the
+     * origin, which is empty world where the block came from.
+     *
+     * <p>Three things can stop a host being drawn, each with its own counter because each means something
+     * different: {@code skippedNoPose} (the client was never told where the carrier is), {@code skippedFar},
+     * and {@code skippedStalePose} (it was told, but not recently enough to trust).
+     *
+     * <p>A host that has fallen back (see {@code ClientHostCache}) takes the same route as a carried one,
+     * with a pose that puts its block back exactly where it came from, so the fallback cannot become a
+     * second renderer with its own bugs. <b>A fallback yields only when the world path really draws</b> -
+     * {@link ClientHostCache#worldPathDraws}, the same judge {@link #collect} uses, which asks for
+     * <em>both</em> a block and a world host the client knows about; yielding to a world path that is
+     * refusing to draw would leave the component drawn by nothing at all, and {@code landedDeferred} counts
+     * the frames that would have been.
+     */
+    private static CarriedResult collectCarried(ClientLevel level, LocalPlayer player, Vec3 cameraPos,
+                                                 double partialTick) {
+        BlockPos near = BlockPos.containing(cameraPos);
+        double reach = DRAW_DISTANCE;
+        double reachSquared = reach * reach;
+        List<Carried> out = new ArrayList<>();
+        Vector3d world = new Vector3d();
+        // Why a host in range was not drawn, kept apart from "was drawn": no pose means the client was never
+        // told where the carrier is, a carrier past the draw distance is simply too far, and a stale pose
+        // means the client stopped trusting where it was told. Three different bugs, and these say which.
+        int[] skipped = new int[3];
+        // Landed hosts (put down, carrier gone) passed over because a real block stands at the landing
+        // position: the world path draws those, and drawing the candidate as well would put two shells on one
+        // block.
+        int[] landedWorldHost = new int[1];
+        // Landed hosts drawn at their landing position because the world path cannot draw there yet: the sync
+        // has announced the host but the block has not come back.
+        int[] landedDeferred = new int[1];
+        // Hosts whose carrier went stale mid-flight that this frame passed over because the world path really
+        // draws their origin block. The same decision as the landed one on the other fallback position, and
+        // counted apart from it because "put down" and "let go of" are different facts.
+        int[] carriedWorldHost = new int[1];
+        // The draw check, counted per frame: `drawn` counts emitted geometry and cannot tell "drawn here"
+        // from "drawn a million blocks away", while these two can. `offStructure` is the shape of "the log
+        // says it drew and the player sees nothing"; `plotSpace` is the fact that explains it, since local
+        // coordinates in the Sable plot range are correct when the pose that came with them is Sable's own.
+        int[] drawnOffStructure = new int[1];
+        int[] plotSpaceHosts = new int[1];
+        // How old the pose behind this frame is, in client ticks, worst case among the hosts actually drawn:
+        // the pose arithmetic is perfectly self-consistent about a stale pose as well as about a current one,
+        // so a zero distance between the two positions says nothing about freshness and this does.
+        long[] worstPoseAge = new long[1];
+        // One worked example, so a single `drawCheck` line can be logged with both coordinates rather than
+        // only the counts. First host of the frame, not the worst one: every host of one carrier shares the
+        // same pose.
+        CarrierDrawCheck[] example = new CarrierDrawCheck[1];
+        // The sight half of the frame: five counters and one worked example, all read out of the ray the
+        // sight rule already casts - see `castSightRay`. They accumulate in one array slot because the lambda
+        // below reassigns them, and travel out in the CarriedResult, so the collector stays stateless.
+        CarrierHostCheck.Tally[] sightTally = { CarrierHostCheck.Tally.NONE };
+        // The example the B2 line prints: the first host whose ray was refused if there is one, because
+        // "something is in the way" is the report this line exists for, and otherwise the first host asked
+        // about.
+        CarrierHostCheck[] sightExample = new CarrierHostCheck[1];
+        // How many carried hosts this frame asked about and how many it collected, so the B2 line's
+        // `hosts=collected/asked` is the frame's own count.
+        int[] hostsAsked = new int[1];
+        int[] hostsCollected = new int[1];
+        // The eye block the sight question is asked from, computed once per frame from the same Vec3 the ray
+        // is cast with, so the coordinate the line prints and the ray cannot come from two different eyes.
+        final BlockPos eyeBlock = BlockPos.containing(cameraPos);
+        // SABLE'S OWN RENDER POSE, ASKED ONCE PER CARRIER PER FRAME. Sable samples its own snapshot buffer to
+        // draw a structure, and the poses the server sends us come through our own channel - two timelines
+        // that beat against each other, which is what the components flickering between the leading position
+        // and the block's is. `ClientSubLevel#renderPose` is the pose Sable draws with, so asking for it makes
+        // the two the same number; a carrier Sable cannot answer for (a Create contraption, no Sable, a
+        // sub-level the client does not hold) keeps the interpolated network pose, so no path is left with no
+        // pose at all.
+        final Map<CarrierId, CarrierPose> liveRenderPoses = new HashMap<>();
+        ClientHostCache.forEachDrawable(level.dimension(), near, SECTION_RADIUS, partialTick, drawable -> {
+            CarrierIndex.CarriedView view = drawable.view();
+            // One partial tick per frame, so one answer per carrier is enough for the whole frame.
+            CarrierPose live = liveRenderPoses.computeIfAbsent(view.carrier(),
+                    carrier -> PhysicsCompat.renderPoseOf(level, carrier, (float) partialTick));
+            notePoseSource(view.carrier(), live);
+            CarrierPose pose = live != null ? live : drawable.pose();
+            if (pose == null) {
+                if (drawable.isFallback()) {
+                    // No pose, so the host is drawn at a world block: the landing position for a host
+                    // the structure put down, the block it came from for one whose carrier was let go
+                    // of mid-flight. The two are different promises and `Drawable#fallbackPos` is the
+                    // one place that decides between them.
+                    BlockPos fallback = drawable.fallbackPos();
+                    // The very same call the world path's own gate makes, so "would the world path draw
+                    // here" is answered in exactly one way for both paths - including the chunk-loaded
+                    // test, which is part of the answer rather than an extra opinion of this call site.
+                    boolean worldDrawsHere = ClientHostCache.worldPathDraws(level, level.dimension(),
+                            fallback, view.slot());
+                    boolean worldHost = ClientHostCache.slotAt(level.dimension(), fallback) != null;
+                    // One decision with two exhaustive answers: the world path draws here, or this record
+                    // does; there is no third outcome, which is exactly what the "yielded to a world path
+                    // that was refusing to draw" defect was.
+                    if (worldDrawsHere) {
+                        // A host the sync knows about *and* a block to draw it over, so this candidate
+                        // yields rather than putting a second shell on the same block.
+                        if (drawable.landed()) {
+                            landedWorldHost[0]++;
+                        } else {
+                            carriedWorldHost[0]++;
+                        }
+                        return;
+                    }
+                    if (drawable.landed() && worldHost) {
+                        // A world host is announced here but the block has not come back yet, so the
+                        // world path refuses to draw and this record is the only path left. Counted
+                        // because it is exactly the frame window the "invisible after landing" defect
+                        // lived in: the component is drawn, and the count says why it had to be.
+                        landedDeferred[0]++;
+                    }
+                    Vec3 home = Vec3.atCenterOf(fallback);
+                    // THE SAME RAY, IN BOTH ROLES. A fallback is a host drawn at a world block, so its
+                    // sight answer is the world path's own question - but it is cast through the one
+                    // sight rule so that the decision here and the decision reported cannot be two rays.
+                    // The classification is discarded for this case: a fallback's line is the drawCheck
+                    // one, and only a host inside a structure has a B2 line to write.
+                    //
+                    // `null` = the ordinary question, because a fallback's block IS the world block it is
+                    // drawn at: that block is the one at `fallback`, so there is only one frame to ask in.
+                    if (!castSightRay(level, player, cameraPos, home, fallback, null, new SightRay())) {
+                        return;
+                    }
+                    // A fallback is drawn at a world block, so its frame is the block's own centre and
+                    // the offsets are the sub-block residuals - the same small numbers the world path
+                    // produces. See `FALLBACK_POSE` for why its pose is the identity.
+                    BlockPos fallbackLocal = view.localPos();
+                    out.add(new Carried(view.carrier(), fallback, fallbackLocal, view.slot(),
+                            FALLBACK_POSE, CarrierFrame.forBlock(FALLBACK_POSE,
+                                    new Vector3d(fallbackLocal.getX(), fallbackLocal.getY(),
+                                            fallbackLocal.getZ())), false));
+                    return;
+                }
+                // A host under a carrier the client was never given a position for: nothing honest can
+                // be drawn, and this is the counter that names it.
+                skipped[0]++;
+                return;
+            }
+            if (ClientHostCache.carrierPoseAge(view.carrier()) > ClientHostCache.staleTicks()) {
+                // Stale but not yet swept: the carrier has gone quiet and the next client tick will
+                // let it go. Counted here so a frame that drew nothing can never again report no reason
+                // for it - which is exactly the gap that made this defect invisible.
+                skipped[2]++;
+                return;
+            }
+            if (pose.position().distanceSquared(cameraPos.x, cameraPos.y, cameraPos.z) > reachSquared) {
+                skipped[1]++;
+                return;
+            }
+            pose.blockCentre(new Vector3d(view.localPos().getX(), view.localPos().getY(),
+                    view.localPos().getZ()), world);
+            Vec3 target = new Vec3(world.x, world.y, world.z);
+            // THE SIGHT QUESTION, ANSWERED AND COUNTED: the ray and the decision are the rule's own, and the
+            // answer is kept because "refused because the ray hit a wall in front" and "there was no point to
+            // aim at" would otherwise be the same empty screen and the same silent log. The counters are per
+            // frame and mean nothing to the picture. See `CarrierHostCheck.Sight`.
+            //
+            // THE TARGET IS THE RENDERER'S OWN PROJECTION (`pose.blockCentre`, above), not a second call to
+            // `CarrierProjection.project`: the two are the same arithmetic, and using the value the decision
+            // was made from is what makes `drawnWorld=` and the picture the same point.
+            BlockPos targetBlock = BlockPos.containing(world.x, world.y, world.z);
+            // THE SAME BLOCK, IN THE FRAME THE RAY REPORTS HITS IN. A Sable host's block lives at its local
+            // coordinate - a plot coordinate, which is a real coordinate in the same level - and Sable's own
+            // ray tracing reports hits on its geometry in that frame, so "did the ray meet the component's
+            // own block" has two possible answers and both must be accepted or the machine becomes its own
+            // occluder. Only a plot-space coordinate can be compared this way: an anchor-relative local
+            // coordinate is a small number a world hit could coincide with.
+            BlockPos ownBlockInItsOwnFrame = CarrierDrawCheck.plotSpace(view.localPos())
+                    ? view.localPos()
+                    : null;
+            SightRay hostRay = new SightRay();
+            boolean visible = castSightRay(level, player, cameraPos, target, targetBlock,
+                    ownBlockInItsOwnFrame, hostRay);
+            sightTally[0] = sightTally[0].plus(hostRay.outcome);
+            hostsAsked[0]++;
+            if (sightExample[0] == null || hostRay.outcome == CarrierHostCheck.Sight.REFUSED_HIT
+                    && sightExample[0].sight() != CarrierHostCheck.Sight.REFUSED_HIT) {
+                // The first host asked about, unless a later one was refused - "something is in the way"
+                // is the report the line exists for. The counts are filled in when the collection ends;
+                // the record below carries the per-host numbers, and `sight(...)` replaces them with the
+                // frame's.
+                sightExample[0] = new CarrierHostCheck(view.carrier(),
+                        CarrierHostCheck.section(view.origin()),
+                        CarrierHostCheck.section(BlockPos.containing(pose.position().x(),
+                                pose.position().y(), pose.position().z())),
+                        eyeBlock, true, view.localPos(), targetBlock, eyeBlock, hostRay.outcome,
+                        hostRay.hit == null ? null : hostRay.hit.getBlockPos(), 1, 1,
+                        ClientHostCache.carrierPoseAge(view.carrier()), view.origin());
+            }
+            if (!visible) {
+                return;
+            }
+            // THE DRAW CHECK. `world` is where this host is about to be drawn and the pose's own position is
+            // where its structure says it is, so the distance between them is the one number that
+            // distinguishes "we drew the component where the machine is" from "we drew it somewhere
+            // else entirely". The structure's own bounds centre would be a better anchor, but it is not
+            // on the wire - the pose is, and it is a pivot that is always within a machine's own extent,
+            // which is far tighter than the orders of magnitude this check exists to catch.
+            CarrierDrawCheck check = new CarrierDrawCheck(view.carrier(), view.localPos(),
+                    new Vector3d(world), new Vector3d(pose.position()),
+                    ClientHostCache.carrierPoseAge(view.carrier()));
+            long age = check.poseAgeTicks();
+            if (age > worstPoseAge[0]) {
+                worstPoseAge[0] = age;
+            }
+            if (example[0] == null || check.poseIsStale() && !example[0].poseIsStale()) {
+                // The example is the first host of the frame, unless a later one is drawn from a stale
+                // pose - a stale host is the one worth naming, and there is at most one stale pose per
+                // carrier, so preferring it costs nothing and makes the logged line the informative one.
+                example[0] = check;
+            } else if (plotSpaceHosts[0] == 0 && check.plotSpaceLocal()) {
+                example[0] = check;
+            }
+            if (check.plotSpaceLocal()) {
+                plotSpaceHosts[0]++;
+            }
+            if (check.drawnFarFromStructure()) {
+                drawnOffStructure[0]++;
+            }
+            out.add(new Carried(view.carrier(), view.origin(), view.localPos(), view.slot(), pose,
+                    CarrierFrame.forBlock(pose, new Vector3d(view.localPos().getX(),
+                            view.localPos().getY(), view.localPos().getZ())), true));
+        });
+        // A stale carrier is counted here from the frame that first sees it: the client tick that turns
+        // it into fallbacks runs twenty times a second, so the window in which a stale carrier has not
+        // been swept is at most a frame or two - and during it this counter is what explains a frame
+        // that drew nothing. There is no second pass over the carriers to catch hosts outside the section
+        // radius: a host the player cannot see is not one the counter is about.
+        //
+        // The counts are RETURNED rather than recorded here, because the trace has to be written with the
+        // counters of the frame the summary describes; writing them from inside a collector also made the
+        // collector unrepeatable. See `runStage`.
+        return new CarriedResult(out, skipped[0], skipped[1], skipped[2], worstPoseAge[0],
+                landedWorldHost[0], landedDeferred[0], carriedWorldHost[0], drawnOffStructure[0],
+                plotSpaceHosts[0], example[0], sight(sightTally[0], sightExample[0], hostsAsked[0],
+                        hostsCollected[0]));
+    }
+
+    /**
+     * The sight half of one collection, with the frame's own host counts folded into the example.
+     *
+     * <p>Folded here rather than at the example's construction site because the counts are only complete
+     * once the walk has finished: the example is chosen part-way through, and a per-carrier line whose
+     * {@code hosts=} said {@code 1/1} while the frame collected three would be a line that disagrees
+     * with itself.
+     */
+    private static SightStats sight(CarrierHostCheck.Tally tally, @Nullable CarrierHostCheck example,
+                                    int asked, int collected) {
+        if (asked == 0 && example == null) {
+            return SightStats.NONE;
+        }
+        CarrierHostCheck filled = example == null ? null : new CarrierHostCheck(example.carrier(),
+                example.originSection(), example.poseSection(), example.cameraSection(),
+                example.collected(), example.localPos(), example.drawnWorld(), example.eye(),
+                example.sight(), example.hit(), collected, asked, example.poseAgeTicks(),
+                example.origin());
+        return new SightStats(tally, filled);
+    }
+
+    /**
+     * The pose a fallen-back host is drawn through: the identity, at the origin of the frame.
+     *
+     * <p>{@code world = position + orientation * (local - pivot) * scale} with every term at its
+     * default reduces to {@code local}, and the render pass has already translated the stack by the
+     * camera, so a host drawn with this pose lands exactly on the block it came from - which is what
+     * the fallback promises. Constant because {@link CarrierPose} is immutable and this is the same
+     * value every frame.
+     */
+    private static final CarrierPose FALLBACK_POSE = CarrierPose.at(new Vector3d());
+
+    /**
      * Whether the player can see this block, i.e. whether the component inside may be drawn over it.
      *
-     * <p>{@code seeInnerComponentsThroughWalls} skips the ray, which is the X-ray version of the
-     * feature. Note what it does <em>not</em> do: it cannot make a host behind a wall disappear from
-     * the world. Every host that is hidden from the chunk mesh is drawn here by construction - the two
-     * lists are the same list - so a host the ray never reached keeps its block in the mesh and simply
-     * is not revealed.
+     * <p>A ray from the eye to the block's centre, against collision shapes: a solid block in the way
+     * hides the host, while glass and other non-colliding decoration does not. With
+     * {@code seeInnerComponentsThroughWalls} the check is skipped and every host in range is drawn,
+     * which is the X-ray version of the feature.
      */
     private static boolean canSee(ClientLevel level, LocalPlayer player, Vec3 eye, BlockPos pos) {
         if (RCConfig.seeInnerComponentsThroughWalls()) {
             return true;
         }
-        Vec3 target = Vec3.atCenterOf(pos);
         if (pos.equals(BlockPos.containing(eye))) {
             return true;
         }
+        Vec3 target = Vec3.atCenterOf(pos);
+        // A world host is always a real block, so an unobstructed ray either hits nothing or hits the
+        // host itself - a hit on a neighbour means an actual wall is in the way.
         BlockHitResult hit = level.clip(new ClipContext(eye, target, ClipContext.Block.COLLIDER,
                 ClipContext.Fluid.NONE, player));
         return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(pos);
+    }
+
+    /**
+     * Whether the eye can reach an arbitrary point, for a component that is not at a world block.
+     *
+     * <p>The boolean face of {@link #castSightRay}, which holds the rule and the four shapes behind it.
+     */
+    private static boolean canSeePoint(ClientLevel level, LocalPlayer player, Vec3 eye, Vec3 target) {
+        // Delegating rather than repeating the arithmetic is what makes "the ray the diagnostic reports" and
+        // "the ray the picture depends on" the same ray by construction. The ordinary question, because every
+        // caller of this form aims at a real world point; the carried path's own frame - the plot coordinate
+        // its block really lives at - is asked there, where that coordinate is in hand.
+        return castSightRay(level, player, eye, target, BlockPos.containing(target), null,
+                new SightRay());
+    }
+
+    /**
+     * <b>The sight rule, and the four shapes behind its answer.</b>
+     *
+     * <p>A boolean says one of three things was true - "nothing was in the way", "the ray hit a wall in front
+     * of the component", "no point could be aimed at" - and those are three different findings the log cannot
+     * tell apart. This method casts the ray and records which one produced the decision, so the value
+     * {@link #canSeePoint} returns and the value the diagnostic reports cannot disagree: there is one ray.
+     *
+     * <p>Only used for carried hosts. Their position is inside a contraption, so the structure's own blocks
+     * can legitimately be the first thing a ray hits - which is not a wall between the player and the
+     * component, it is the machine the component is part of. Requiring a clear line would make every
+     * component in a machine invisible from most angles, so the question is the weaker one: is there solid
+     * geometry <b>strictly in front of</b> the target? Anything at or beyond it is the structure itself.
+     *
+     * @param target the point to reach, or {@code null} when the projection produced nothing - in which case
+     *     no ray is cast and the answer is {@code false}: an unaimable point is never drawn
+     * @param targetBlock the block the target is in, for the classification; may be {@code null}
+     * @param ownBlockInItsOwnFrame the block the component is in, in the frame the ray reports its hits in,
+     *     or {@code null} when that is the same frame as {@code target}'s; see {@code CarriedSight#isVisible}
+     * @param out filled in with the decision and the shape behind it; caller-owned so the collector's hot
+     *     path allocates nothing it does not have to
+     * @return the decision, i.e. the boolean the picture depends on
+     */
+    private static boolean castSightRay(ClientLevel level, LocalPlayer player, Vec3 eye,
+                                        @Nullable Vec3 target, @Nullable BlockPos targetBlock,
+                                        @Nullable BlockPos ownBlockInItsOwnFrame, SightRay out) {
+        out.reset();
+        out.targetBlock = targetBlock;
+        if (target == null) {
+            // No point to aim at. This branch is unreachable from the renderer (both call sites compute a
+            // point), and the answer is settled by two rules this project has already written down rather
+            // than by convenience: an uncomputable point is visible, and a render-visibility judgement may
+            // only widen what the previous one drew - narrowing it twice rendered nothing at all.
+            //
+            // So: drawn, with the honest label. UNKNOWN_TARGET still says "we could not work out where this
+            // is" and is still counted, so the line does not claim a clean ray.
+            out.accepted = true;
+            out.outcome = CarrierHostCheck.Sight.UNKNOWN_TARGET;
+            return true;
+        }
+        if (RCConfig.seeInnerComponentsThroughWalls()) {
+            out.accepted = true;
+            out.outcome = CarrierHostCheck.Sight.DRAWN;
+            return true;
+        }
+        // THE DECISION IS `CarriedSight`'S, NOT A SECOND COPY OF IT. Writing the rule out here as a comparison
+        // between the squared distance to the hit point and the squared distance to the aim point, with a
+        // quarter-block slack subtracted from the latter, asks the "strictly in front" question in the wrong
+        // currency and refuses a component whose own block the ray reached. `CarriedSight` holds the rule as
+        // four named cases, so this method keeps only the two things it is for: cast the ray, and label the
+        // answer. The block the aim point is in comes from the caller when it has it and is
+        // `BlockPos.containing` otherwise - the game's own floor either way.
+        BlockPos aimedAt = targetBlock != null ? targetBlock : BlockPos.containing(target);
+        BlockHitResult hit = level.clip(new ClipContext(eye, target, ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE, player));
+        CarriedSight.Ray ray = hit.getType() == HitResult.Type.MISS
+                ? CarriedSight.Ray.miss()
+                : CarriedSight.Ray.hit(hit.getBlockPos());
+        boolean accepted = CarriedSight.isVisible(eye.x, eye.y, eye.z, aimedAt, ray,
+                ownBlockInItsOwnFrame);
+        out.accepted = accepted;
+        out.hit = hit;
+        // The classification is the pure half of this rule (`Sight#ofFacts`), and the boolean it is given
+        // is the one this method is about to return - so "the label agrees with the decision" is a
+        // property of the arithmetic rather than of the order of these two lines.
+        out.outcome = CarrierHostCheck.Sight.ofFacts(true, accepted,
+                hit.getType() == HitResult.Type.BLOCK);
+        return accepted;
+    }
+
+    /**
+     * One sight ray's result: the decision, and which of the four shapes produced it.
+     *
+     * <p>Caller-owned and filled in place. One instance per answered question, which is one small object
+     * per collected host on a loop that already clips a ray per collected host - the block clip is orders
+     * of magnitude the larger cost, and a shared instance would be a correctness hazard the moment two
+     * questions are in flight.
+     */
+    private static final class SightRay {
+        /** What the picture depends on: the boolean the sight rule answers. */
+        private boolean accepted;
+        /** Which of the four shapes produced it. */
+        private CarrierHostCheck.Sight outcome = CarrierHostCheck.Sight.UNKNOWN_TARGET;
+        /** The ray's result, or {@code null} when no ray was cast. */
+        @Nullable
+        private BlockHitResult hit;
+        /** The block that was aimed at, or {@code null}. */
+        @Nullable
+        private BlockPos targetBlock;
+
+        private void reset() {
+            accepted = false;
+            outcome = CarrierHostCheck.Sight.UNKNOWN_TARGET;
+            hit = null;
+            targetBlock = null;
+        }
     }
 
     /** The host the player's wrench is pointing at, or {@code null}. */
@@ -271,67 +1762,422 @@ public final class HostRenderPass {
         return ClientHostCache.slotAt(minecraft.level.dimension(), pos) != null ? pos : null;
     }
 
-    // -------------------------------------------------------------- drawing --
+    /**
+     * Whether this <b>world</b> block is the block the wrench picked.
+     *
+     * <p>The pick is a border colour rather than a box of its own: the picked block is drawn with the selection
+     * colour in the frame it already has, so one frame per block is drawn by the path that was always drawing
+     * it, and the selection needs no geometry, no buffer, no stage and no pose of its own. Both shell passes
+     * ask this, and the pair of facts they compare differs - a world host is identified by its world
+     * position, a carried host by its structure and its local block, because that is the pair that names one
+     * block of one machine.
+     *
+     * <p>A pick inside a machine names a structure instead, and must not colour a world host that happens to
+     * sit at the position the pick is drawn at - which is why the carried identity has to be null here too.
+     */
+    private static boolean isThePick(BlockPos pos) {
+        return WrenchClientState.isLiveHost() && WrenchClientState.carriedCarrier() == null
+                && pos.equals(WrenchClientState.selection());
+    }
+
+    /** Whether this host riding a structure is the block the wrench picked; see {@link #isThePick(BlockPos)}. */
+    private static boolean isThePick(CarrierId carrier, BlockPos local) {
+        return WrenchClientState.isLiveHost() && carrier != null && local != null
+                && carrier.equals(WrenchClientState.carriedCarrier())
+                && local.equals(WrenchClientState.carriedLocal());
+    }
 
     /**
-     * The border around each host: the frame without the frosted panel, so the block's inside stays
-     * readable and the mark reads as a marker rather than a paint job over the whole face.
+     * <b>The world block this frame's pick names, or {@code null}.</b>
      *
-     * <p>There used to be a translucent centre panel as well. It cannot survive the single-path design:
-     * it is drawn after the components into a type that does not write depth, so it would blend over
-     * whatever is inside the block and mute it - which is exactly the effect the overlay exists to
-     * provide. Only the frame is drawn, in every mode, which also makes the block's border the one
-     * thing that reads the same on every machine.
+     * <p>The pick arrives as "this block, and the server's answer to whether it still holds a component", and
+     * the local checks that could be added on top of it all disagree with it about the same two cases: the
+     * position a carried pick names is where the machine <em>draws</em> the block and the world has air there
+     * by construction, a carried host has no world host record, and the server's flag alone is computed when
+     * the pick is sent, so a pick whose block was taken by a structure afterwards stays "live". A stale pick
+     * and a live carried host are the same coordinate, the same air and the same absence of a record, so the
+     * decision is the server's, recomputed every tick.
      *
-     * <p>{@code hostOverlayColor} is therefore only used for the wrench highlight's background now;
-     * the frame colour and the superconducting wire's colour are what this draws, and a host whose
-     * {@code type} is superconducting gets the wire colour because "which of these two blocks is the
-     * lossless one" is the first thing a player asks of a row of them.
+     * <p>The chunk check stays, and is not a second opinion: there is nothing to draw in a chunk the client has
+     * not got, and asking the level about one is how a renderer crashes on a position it was never sent the
+     * world for.
      */
-    private static void drawFrames(PoseStack.Pose pose, ClientLevel level, List<Visible> hosts,
-                                   AtlasUv uv) {
-        int frame = RCConfig.hostOverlayFrameColor();
-        int wireFrame = RCConfig.superconductorFrameColor();
-        if (frame == 0 && wireFrame == 0) {
+    @Nullable
+    private static BlockPos selectedWorldBlock(Minecraft minecraft) {
+        BlockPos picked = WrenchClientState.selection();
+        ClientLevel level = minecraft.level;
+        if (picked == null || level == null || WrenchClientState.carriedCarrier() != null) {
+            return null;
+        }
+        return liveSelection(picked, WrenchClientState.isLiveHost(), level.hasChunkAt(picked));
+    }
+
+    /**
+     * The rule above, as a pure function - the whole of it, so it is a unit test rather than a game.
+     *
+     * @param picked the position the server named, or {@code null}
+     * @param liveHost the server's answer: this pick still points at a block that holds a component
+     * @param loaded whether the client has the chunk, which is a fact about this client and not about the
+     *     pick
+     * @return the position, or {@code null} when it is not drawn
+     */
+    @Nullable
+    static BlockPos liveSelection(@Nullable BlockPos picked, boolean liveHost, boolean loaded) {
+        return picked == null || !liveHost || !loaded ? null : picked;
+    }
+
+    // -------------------------------------------------------------- drawing --
+
+    /** The frame around each host: the border, in the colour that host's own gates resolve to. */
+    private static void drawShells(PoseStack.Pose pose, ClientLevel level, List<Visible> hosts,
+                                   AtlasUv uv, CarrierGeometry.Gates gates, Counter counter,
+                                   @Nullable BlockPos selected) {
+        int tint = gates.effectiveTint();
+        int frame = gates.frame();
+        int wireFrame = gates.wireFrame();
+        // The pick, which is a border colour and not a second box: the block the wrench picked is drawn with
+        // the selection colour in the frame it already has, so a list that holds the pick is drawn even when
+        // every colour resolves to nothing - otherwise a player whose overlay colours are all zero would have
+        // no way to see which block the wrench has picked. (With the overlay off the pass collects nothing,
+        // so there is no frame to colour; the pick is shown BY the overlay's border.)
+        boolean holdsThePick = false;
+        for (Visible host : hosts) {
+            if (isThePick(host.pos())) {
+                holdsThePick = true;
+                break;
+            }
+        }
+        if (tint == 0 && frame == 0 && wireFrame == 0 && !holdsThePick) {
             return;
         }
-        VertexConsumer buffer = solidBuffer();
+        // Only the border is drawn, in every mode, and that is a property of this build's render types:
+        // the centre panel would be written after the components into a type that does not write depth, so
+        // it would blend over exactly what the overlay exists to show. The debug override switches the rule
+        // off as well, so what reaches the buffer can be seen.
+        boolean solidFrames = !gates.forceEmit();
+        VertexConsumer buffer = worldShellBuffer();
         float[] normal = new float[3];
         float[] point = new float[3];
 
         for (Visible host : hosts) {
-            boolean superconducting = host.slot().type == ComponentType.SUPERCONDUCTOR;
-            int hostFrame = superconducting ? wireFrame : frame;
-            if (hostFrame == 0) {
-                continue;
-            }
+            // A block holding superconducting wire gets its own border colour: the wire inside is small, and
+            // "which of these two blocks is the lossless one" is the first thing a player asks, so the border
+            // - the part that reads from a distance - answers it. The pick outranks all of that: this block is
+            // the one the wrench's near end names, and forcing `withFrame` on makes the border exist even for
+            // a host whose own colour resolves to nothing, while the panel stays out of it.
+            int hostFrame = isThePick(host.pos()) ? SELECTED_FRAME : gates.effectiveFrame(host.slot());
+            boolean withFrame = hostFrame != 0;
             int light = lightFor(level, host.pos());
+            float baseX = host.pos().getX();
+            float baseY = host.pos().getY();
+            float baseZ = host.pos().getZ();
+            int before = counter.shellQuads;
             for (int face = 0; face < HostShell.FACE_COUNT; face++) {
                 HostShell.normal(face, normal);
-                // Quad 0 is the centre panel; the rest are the border.
-                for (int quad = 1; quad < HostShell.quadsPerFace(true); quad++) {
-                    float[] tile = HostShell.tile(quad, true);
-                    emitShellQuad(buffer, pose, host.pos(), face, tile, hostFrame, light, uv,
+                for (int quad = 0; quad < HostShell.quadsPerFace(withFrame); quad++) {
+                    float[] tile = HostShell.tile(quad, withFrame);
+                    int argb = CarrierGeometry.shellQuadArgb(withFrame, quad, tint, hostFrame,
+                            solidFrames);
+                    if (argb == 0) {
+                        // Counted, because a host that emits nothing at all has to name its own cause: see
+                        // Counter#shellQuadsRefusedByColour.
+                        counter.shellQuadsRefusedByColour++;
+                        continue;
+                    }
+                    emitShellQuad(buffer, pose, baseX, baseY, baseZ, face, tile, argb, light, uv,
                             normal, point);
+                    counter.shellQuads++;
                 }
+            }
+            if (counter.shellQuads > before) {
+                counter.shellEmitted();
             }
         }
     }
 
-    private static void emitShellQuad(VertexConsumer buffer, PoseStack.Pose pose, BlockPos pos,
-                                      int face, float[] tile, int argb, int light, AtlasUv uv,
-                                      float[] normal, float[] point) {
-        shellVertex(buffer, pose, pos, face, tile[0], tile[1], argb, light, uv, normal, point);
-        shellVertex(buffer, pose, pos, face, tile[2], tile[1], argb, light, uv, normal, point);
-        shellVertex(buffer, pose, pos, face, tile[2], tile[3], argb, light, uv, normal, point);
-        shellVertex(buffer, pose, pos, face, tile[0], tile[3], argb, light, uv, normal, point);
+    /**
+     * The same frame, for hosts that are riding a moving structure.
+     *
+     * <p>Structurally a mirror of {@link #drawShells}, with the one difference that is the whole point of the
+     * carried path: every host is drawn inside its carrier's own frame, so the block turns with the machine
+     * instead of staying axis-aligned in the world.
+     *
+     * <p><b>Every number handed to the pose stack here is an offset from the centre of the host block, never a
+     * plot coordinate</b> - at a Sable plot coordinate the {@code float} spacing is 2, so {@code 20481032.0f +
+     * 0.5f} is {@code 20481032.0f} and all thirty vertices of a face land on top of each other. See
+     * {@link CarrierFrame}.
+     */
+    private static void drawCarriedShellsInto(PoseStack pose, ClientLevel level, List<Carried> hosts,
+                                              AtlasUv uv, CarrierGeometry.Gates gates, Counter counter,
+                                              Vec3 cameraPos, CarrierGeometry.RenderPlan plan) {
+        int tint = gates.effectiveTint();
+        int frame = gates.frame();
+        int wireFrame = gates.wireFrame();
+        if (hosts.isEmpty()) {
+            return;
+        }
+        // The same rule as the world path's shell: a host the wrench picked is drawn with the selection colour
+        // in its own border, and it is drawn whether or not any colour gate is open - see `drawShells`.
+        boolean holdsThePick = false;
+        for (Carried host : hosts) {
+            if (isThePick(host.carrier(), host.local())) {
+                holdsThePick = true;
+                break;
+            }
+        }
+        if (tint == 0 && frame == 0 && wireFrame == 0 && !holdsThePick) {
+            return;
+        }
+        boolean solidFrames = !gates.forceEmit();
+        // THE CARRIED SOURCE, NOT THE WORLD ONE: the world source's batch was submitted earlier in this same
+        // stage, so every quad written there would be counted and none submitted. See HostRenderTypes.
+        VertexConsumer buffer = carriedShellBuffer(plan);
+        float[] normal = new float[3];
+        float[] point = new float[3];
+        float[] base = new float[3];
+        Vector3d world = new Vector3d();
+
+        for (Carried host : hosts) {
+            // The pick, exactly as on the world path - and it is named by the structure and the local block,
+            // because that pair is what identifies one block of one machine.
+            int hostFrame = isThePick(host.carrier(), host.local())
+                    ? SELECTED_FRAME
+                    : gates.effectiveFrame(host.slot());
+            boolean withFrame = hostFrame != 0;
+            if (host.slot() == null) {
+                // A host with no slot has no component and no border colour, so it emits nothing by
+                // construction. Counted rather than drawn around, so the frame that has one says so
+                // instead of reporting "not one vertex came out of it".
+                counter.hostsWithoutSlot++;
+                continue;
+            }
+            CarrierFrame carrierFrame = host.frame();
+            carrierFrame.blockCentre(world);
+            int light = lightAt(level, world);
+            // A block's local coordinate names its CORNER, so the shell's unit cube is measured from
+            // `local - pivot` - computed in double, and the only place `local` appears at all.
+            carrierFrame.cornerOffset(base);
+
+            pose.pushPose();
+            applyCarrierFrame(pose, carrierFrame);
+            // The shell's own probe: the shell's base is added to each vertex rather than pushed as a
+            // translation, so the matrix is `T(position) · R · S` and the base is passed separately.
+            // Both probe points are the host block's own, so `matrixDelta` and `span` are the whole
+            // question here - see CarrierMatrixProbe.
+            counter.probe("shell", host.carrier().shortId(), pose.last(), carrierFrame, base,
+                    new Vector3d(cameraPos.x, cameraPos.y, cameraPos.z));
+            int before = counter.shellQuads;
+            for (int face = 0; face < HostShell.FACE_COUNT; face++) {
+                HostShell.normal(face, normal);
+                for (int quad = 0; quad < HostShell.quadsPerFace(withFrame); quad++) {
+                    float[] tile = HostShell.tile(quad, withFrame);
+                    int argb = CarrierGeometry.shellQuadArgb(withFrame, quad, tint, hostFrame,
+                            solidFrames);
+                    if (argb == 0) {
+                        // Counted, because a host that emits nothing at all has to name its own cause:
+                        // see Counter#shellQuadsRefusedByColour.
+                        counter.shellQuadsRefusedByColour++;
+                        continue;
+                    }
+                    emitShellQuad(buffer, pose.last(), base[0], base[1], base[2], face, tile, argb,
+                            light, uv, normal, point);
+                    counter.shellQuads++;
+                }
+            }
+            if (counter.shellQuads > before) {
+                counter.shellEmitted();
+            }
+            pose.popPose();
+        }
     }
 
-    private static void shellVertex(VertexConsumer buffer, PoseStack.Pose pose, BlockPos pos,
-                                    int face, float a, float b, int argb, int light, AtlasUv uv,
-                                    float[] normal, float[] point) {
+    /**
+     * Pushes a carrier's frame onto the stack: <b>{@code T(position) · R · S}, in that order.</b>
+     *
+     * <p>A {@code PoseStack} right-multiplies, and {@link CarrierPose#transformMatrix} states
+     * {@code position + R·(p - pivot)}: translating by the pivot and by the position in the wrong order
+     * agrees with that only at {@code R = I}, which is what makes the frame flash into view for one frame of
+     * each turn and vanish again. This method is the {@code T(position) · R · S} half of the contract; the
+     * {@code (p - pivot)} half is the per-vertex offset, computed in {@code double} by {@link CarrierFrame} so
+     * that a Sable plot coordinate never reaches a {@code float}.
+     *
+     * <p>There is no translation by the pivot, and that is a requirement: it is a two-million-block number
+     * for a sub-level, {@code PoseStack.translate} takes a {@code float}, and at that magnitude the spacing
+     * between representable values is 2 - so such a translation collapses a one-block shell to a point.
+     *
+     * <p>Package-private rather than private so that a test can drive it: the order is invisible on screen
+     * for all but one frame of a turn.
+     */
+    static void applyCarrierFrame(PoseStack pose, CarrierFrame carrier) {
+        pose.translate(carrier.position().x(), carrier.position().y(), carrier.position().z());
+        Quaternionf rotation = carrier.rotation();
+        if (rotation != null) {
+            pose.mulPose(rotation);
+        }
+        if (carrier.scale() != 1.0F) {
+            pose.scale(carrier.scale(), carrier.scale(), carrier.scale());
+        }
+    }
+
+    /**
+     * The base the carried contents are emitted at, in the carrier's frame: the component's placement is
+     * measured from it, and it is the same base the shell emits its vertices at, which is what makes the
+     * shell and the component one object rather than two. See {@link CarrierFrame#cornerOffset}.
+     *
+     * @param out a three-element array to write into, so the render loop allocates nothing
+     */
+    static float[] carriedModelBase(CarrierFrame frame, float[] out) {
+        return frame.cornerOffset(out);
+    }
+
+    /**
+     * The base the <b>world</b> contents are emitted at: the host block's own corner, in world coordinates.
+     *
+     * <p>The world path's half of the same contract {@link #carriedModelBase} states for the carried one. It
+     * is a method rather than two lines inside {@link #drawContents} so that a test can drive <em>this</em>
+     * expression: a test that recomputes what the renderer is supposed to do can only ever agree with itself.
+     *
+     * @param pos the host block's position, which is what the world path's pose stack expects, because that
+     *     stack is translated by the camera and by nothing else
+     * @param out a three-element array to write into, so the render loop allocates nothing
+     */
+    static float[] worldVertexBase(@Nullable BlockPos pos, float[] out) {
+        if (pos == null) {
+            out[0] = 0F;
+            out[1] = 0F;
+            out[2] = 0F;
+            return out;
+        }
+        out[0] = pos.getX();
+        out[1] = pos.getY();
+        out[2] = pos.getZ();
+        return out;
+    }
+
+    /**
+     * The world path's drawing loop, for the tests, with the client-derived parts supplied.
+     *
+     * <p>Everything {@code drawContents} derives from a live {@code ClientLevel} / {@code Minecraft} is passed
+     * in: the boxes come from the component model, which is pure arithmetic, and the lightmap value never
+     * reaches a vertex position. That lets a unit test emit real geometry through the world path - the
+     * exporter is the same {@link #emitBoxes} the renderer uses - instead of asserting a formula twice.
+     */
+    static void emitWorldBoxesForTest(PoseStack.Pose pose, VertexConsumer buffer, BlockPos pos, Slot slot,
+                                      List<Box> boxes, AtlasUv uv, BoxScratch scratch) {
+        emitBoxes(pose, buffer, worldVertexBase(pos, new float[3]), slot, boxes, uv, 0, scratch);
+    }
+
+    /** The component inside each carried host, drawn in the carrier's own frame. */
+    private static void drawCarriedContentsInto(PoseStack pose, ClientLevel level, List<Carried> hosts,
+                                                AtlasUv uv, Counter counter, Vec3 cameraPos,
+                                                CarrierGeometry.RenderPlan plan) {
+        if (hosts.isEmpty()) {
+            return;
+        }
+        // THE CARRIED SOURCE, NOT THE WORLD ONE: the world source's batch was already submitted, so every
+        // carried component quad written there would be absent on screen while the counter still reported
+        // it. See HostRenderTypes.
+        VertexConsumer buffer = carriedContentsBuffer(plan);
+        BlockRenderDispatcher dispatcher = Minecraft.getInstance().getBlockRenderer();
+        List<Box> boxes = new ArrayList<>();
+        BoxScratch scratch = new BoxScratch();
+        Vector3d world = new Vector3d();
+        float[] anchorOffset = new float[3];
+        // One per frame, not one per side per host: "which structure's own coordinate holds a component" is
+        // the same question for every host of the frame, and the carrier index answers it by walking its
+        // sections - asked per side it would be six walks of it per host.
+        Map<Long, CarrierId> inStructure = ClientHostCache.carriedLocalIndex(level.dimension());
+
+        for (Carried host : hosts) {
+            Slot slot = host.slot();
+            // The neighbours are asked in TWO frames: the structure's own coordinates (a wire's neighbours
+            // inside the same machine) and the world index at the block's origin. See `neighboursOf`.
+            Neighbours neighbours = neighboursOf(level, host, inStructure);
+            CarrierFrame carrierFrame = host.frame();
+            carrierFrame.blockCentre(world);
+            int light = lightAt(level, world);
+
+            // THE COMPONENT IS PLACED BY THE SAME FRAME THE SHELL USES, and this is where that matters.
+            //
+            // A block model's vertices are the usual 0..1 measured from the block's CORNER, while the
+            // frame's vertex space is measured from the pivot, so one small offset reconciles the two:
+            // `local - pivot`, computed in double, which for a Sable sub-level cancels two two-million-block
+            // numbers down to about half a block. After it, everything the model renderer sees is a fraction
+            // of a block. The offset is ADDED TO EACH VERTEX rather than pushed as a `pose.translate` - the
+            // form the shell uses and therefore the form the matrix probe can compare: the contents' matrix is
+            // then `T(position) · R · S`, literally the shell's matrix, and the two call sites differ only in
+            // the base they emit at. See Counter#probe.
+            carriedModelBase(carrierFrame, anchorOffset);
+
+            pose.pushPose();
+            applyCarrierFrame(pose, carrierFrame);
+
+            // THE MATRIX THE CONTENTS ARE HANDED. See CarrierMatrixProbe: paired with the shell's probe for
+            // the same host, this is the number that says whether the shell and the component are in one
+            // frame - and with the base passed here it must be zero for every pose, rotation and local
+            // coordinate.
+            if (!counter.hasProbe()) {
+                counter.probe("contents", host.carrier().shortId(), pose.last(), carrierFrame,
+                        anchorOffset, new Vector3d(cameraPos.x, cameraPos.y, cameraPos.z));
+            }
+
+            int emitted = 0;
+            InnerComponentVisuals.Visual visual = InnerComponentVisuals.of(slot, neighbours);
+            if (visual == null) {
+                boxes.clear();
+                InnerComponentModel.boxes(slot, neighbours, boxes);
+                emitted += emitBoxes(pose.last(), buffer, anchorOffset, slot, boxes, uv, light,
+                        scratch);
+                pose.popPose();
+                counter.contentQuads += emitted / 4;
+                if (emitted > 0) {
+                    counter.hostsWithContent++;
+                }
+                continue;
+            }
+            emitted += drawModel(pose, buffer, anchorOffset, visual, light, dispatcher);
+
+            boxes.clear();
+            ConnectionBars.bars(slot, neighbours, boxes);
+            emitted += emitBoxes(pose.last(), buffer, anchorOffset, slot, boxes, uv, light, scratch);
+            pose.popPose();
+            counter.contentQuads += emitted / 4;
+            if (emitted > 0) {
+                counter.hostsWithContent++;
+            }
+        }
+    }
+
+    /**
+     * Emits one quad of a shell face, at {@code (baseX, baseY, baseZ)}.
+     *
+     * <p>Three plain floats rather than a {@link BlockPos} because the callers measure from different things:
+     * a block's world corner for the world path and the wrench highlight, the host block's corner inside its
+     * carrier's frame for the carried path - and for the same reason the carried contents path takes the same
+     * kind of base rather than pushing a second {@code translate}. <b>Both terms are small</b>, and that is a
+     * requirement: the sum is computed in {@code double} and narrowed once, so a carried frame in a Sable
+     * plot space cannot lose its own block. See {@link CarrierFrame}.
+     */
+    private static void emitShellQuad(VertexConsumer buffer, PoseStack.Pose pose, float baseX,
+                                      float baseY, float baseZ, int face, float[] tile, int argb,
+                                      int light, AtlasUv uv, float[] normal, float[] point) {
+        shellVertex(buffer, pose, baseX, baseY, baseZ, face, tile[0], tile[1], argb, light, uv, normal,
+                point);
+        shellVertex(buffer, pose, baseX, baseY, baseZ, face, tile[2], tile[1], argb, light, uv, normal,
+                point);
+        shellVertex(buffer, pose, baseX, baseY, baseZ, face, tile[2], tile[3], argb, light, uv, normal,
+                point);
+        shellVertex(buffer, pose, baseX, baseY, baseZ, face, tile[0], tile[3], argb, light, uv, normal,
+                point);
+    }
+
+    private static void shellVertex(VertexConsumer buffer, PoseStack.Pose pose, float baseX,
+                                    float baseY, float baseZ, int face, float a, float b, int argb,
+                                    int light, AtlasUv uv, float[] normal, float[] point) {
         HostShell.corner(face, a, b, point);
-        buffer.addVertex(pose, pos.getX() + point[0], pos.getY() + point[1], pos.getZ() + point[2])
+        buffer.addVertex(pose, (float) ((double) baseX + point[0]),
+                        (float) ((double) baseY + point[1]),
+                        (float) ((double) baseZ + point[2]))
                 .setColor(argb)
                 .setUv(uv.flatU(), uv.flatV())
                 .setLight(light)
@@ -339,41 +2185,102 @@ public final class HostRenderPass {
     }
 
     /**
-     * The buffer every solid part of the overlay is written into: the block's inside-out model, the
-     * components, the route markers and the frame.
+     * <b>The WORLD path's frame buffer.</b> Used by {@link #drawShells} and {@link #drawHighlight} - the
+     * hosts standing in the world, and the wrench's own marks - and by nothing else.
      *
-     * <p>It is vanilla's own {@link RenderType#cutout()}, fetched by reference rather than built to
-     * look like it, because a shader pack recognises a render type by identity - a type of ours that
-     * copies every field is still a stranger to Iris and gets no program, which is how the components
-     * came to be dropped by the deferred packs. Cutout rather than translucent because these are
-     * vanilla's block textures and vanilla draws them as cutout: the transparent pixels around a torch
-     * have to be discarded, not blended, or they sort against each other and smear.
+     * <p>Vanilla's own translucent type, taken by reference, through the level renderer's own source: the very
+     * instance glass and water use, so a shader pack recognises the geometry, and it is submitted by the level
+     * renderer's translucent section layer later in the same frame - which is why the handed-over count is the
+     * only number this build can report for it. A frame's colour carries a real alpha and blending is the
+     * whole point of it, so translucent is the type it belongs in.
+     *
+     * <p><b>The name is the contract:</b> a method named after the <em>path it belongs to</em> cannot be
+     * borrowed by the other path without the mistake being visible in the diff.
      */
-    private static VertexConsumer solidBuffer() {
-        return HostRenderTypes.BUFFERS.getBuffer(HostRenderTypes.SOLID);
+    private static VertexConsumer worldShellBuffer() {
+        return tally(Minecraft.getInstance().renderBuffers().bufferSource()
+                .getBuffer(HostRenderTypes.SHELL), HostBufferTally.Sink.RENDERER,
+                HostBufferTally.Kind.SHELL);
     }
 
-    /** The type the wrench highlight is drawn with: vanilla's translucent, through the same source. */
-    private static VertexConsumer highlightBuffer() {
-        return HostRenderTypes.BUFFERS.getBuffer(HostRenderTypes.HIGHLIGHT);
+    /**
+     * <b>The WORLD path's contents buffer.</b> Used by {@link #drawContents} and by nothing else.
+     *
+     * <p>Vanilla's cutout, taken by reference: these are vanilla's block textures, and the transparent pixels
+     * around a torch or a lever have to be discarded rather than blended. Depth <em>is</em> tested and
+     * written, which is what keeps the world behind the block from showing through the walls the inside-out
+     * model drew; the block itself is out of the chunk mesh, so there is nothing for a component to hide
+     * behind.
+     */
+    private static VertexConsumer worldContentsBuffer() {
+        return tally(HostRenderTypes.BUFFERS.getBuffer(HostRenderTypes.CONTENTS),
+                HostBufferTally.Sink.WORLD, HostBufferTally.Kind.CONTENTS);
+    }
+
+    /**
+     * <b>The CARRIED path's frame buffer</b>: the same source the carried stage flushes, and only that.
+     *
+     * <p>A border whose colour carries a real alpha, drawn with vanilla's translucent type by reference.
+     * Through {@code CARRIED_BUFFERS} rather than the level renderer's own source, because the carried
+     * geometry is written in a different frame from the world path's and is submitted by this build.
+     */
+    private static VertexConsumer carriedShellBuffer(CarrierGeometry.RenderPlan plan) {
+        return tally(HostRenderTypes.CARRIED_BUFFERS.getBuffer(plan.vanillaShellType()
+                ? HostRenderTypes.SHELL
+                : HostRenderTypes.CARRIED_SHELL),
+                HostBufferTally.Sink.CARRIED, HostBufferTally.Kind.SHELL);
+    }
+
+    /**
+     * <b>The CARRIED path's contents buffer</b>: the same source the carried stage flushes.
+     *
+     * <p>Vanilla's cutout, through a source of its own, because the world path's source was submitted earlier
+     * in the same frame and a vertex written after its source was ended is gone.
+     *
+     * <p><b>The type does not change with the shader question.</b> It becoming a type that <em>tests</em>
+     * depth where the world path's does not is exactly the difference between them; see
+     * {@link CarrierGeometry.RenderPlan#vanillaContentsType()}.
+     */
+    private static VertexConsumer carriedContentsBuffer(CarrierGeometry.RenderPlan plan) {
+        return tally(HostRenderTypes.CARRIED_BUFFERS.getBuffer(plan.vanillaContentsType()
+                ? HostRenderTypes.CONTENTS
+                : HostRenderTypes.CARRIED_CONTENTS),
+                HostBufferTally.Sink.CARRIED, HostBufferTally.Kind.CONTENTS);
+    }
+
+    /**
+     * Wraps a consumer so every vertex written through it is counted for one sink and kind.
+     *
+     * <p>The count has to be taken at the vertex, not at the decision: a {@code VertexConsumer} obtained from
+     * a source that has already been flushed still accepts vertices, and the only difference between it and a
+     * live one is what happens to them afterwards.
+     */
+    private static VertexConsumer tally(VertexConsumer delegate, HostBufferTally.Sink sink,
+                                        HostBufferTally.Kind kind) {
+        return new CountingVertexConsumer(delegate, sink, kind);
     }
 
     /**
      * Draws each host's own block model inside out, with vanilla's cutout type.
      *
      * <p>This is what stands in for the block: the block has been taken out of the chunk mesh (see
-     * {@code BlockRenderDispatcherMixin} and {@code SodiumBlockRendererMixin}) so that anything inside
-     * it can be seen at all, so the surface seen when looking at it has to come from somewhere. Drawing
-     * the model with a mirrored pose turns every quad around, and with back-face culling on, what
-     * survives is exactly the inside walls of the block - a closed, textured box seen from within. So
-     * nothing behind the block shows through, and the components inside sit in front of those walls.
+     * {@code BlockRenderDispatcherMixin} and {@code SodiumBlockRendererMixin}) so that anything inside it can
+     * be seen at all, so the surface seen when looking at it has to come from somewhere. Drawing the model
+     * with a mirrored pose turns every quad around, and with back-face culling on, what survives is exactly
+     * the inside walls of the block - a closed, textured box seen from within. So nothing behind the block
+     * shows through, and the components inside sit in front of those walls.
      *
-     * <p>The pose mirrors in X about the block's centre, which maps the unit cube onto itself: the
-     * block's own shape is preserved and only its winding - and the texture, which is symmetric on
-     * almost every block a player would hide redstone in - changes.
+     * <p>The pose mirrors in X about the block's centre, which maps the unit cube onto itself: the block's own
+     * shape is preserved and only its winding - and the texture, which is symmetric on almost every block a
+     * player would hide redstone in - changes.
      */
-    private static void drawHostInteriors(PoseStack pose, ClientLevel level, List<Visible> hosts) {
-        VertexConsumer buffer = solidBuffer();
+    private static void drawHostInteriors(PoseStack pose, ClientLevel level, List<Visible> hosts,
+                                          Counter counter) {
+        // The block's own surface, drawn by hand because the block has left the chunk mesh. It shares the
+        // world source with the world contents, and is tallied apart because no config gate controls it.
+        CountingVertexConsumer buffer = new CountingVertexConsumer(
+                HostRenderTypes.BUFFERS.getBuffer(HostRenderTypes.SOLID),
+                HostBufferTally.Sink.WORLD, HostBufferTally.Kind.INTERIOR);
         BlockRenderDispatcher dispatcher = Minecraft.getInstance().getBlockRenderer();
         for (Visible host : hosts) {
             var state = level.getBlockState(host.pos());
@@ -386,98 +2293,139 @@ public final class HostRenderPass {
             pose.translate(host.pos().getX(), host.pos().getY(), host.pos().getZ());
             pose.translate(1.0, 0.0, 0.0);
             pose.scale(-1.0F, 1.0F, 1.0F);
-            // Our own quad writes rather than ModelBlockRenderer#renderModel, for the reason spelled out
-            // in BakedModelRenderer: through the model renderer this geometry never reached the screen.
+            // Our own quad writes rather than the game's model renderer, for the reason spelled out in
+            // BakedModelRenderer: through that call this geometry never reached the screen.
             BakedModelRenderer.draw(pose.last(), buffer, state, model, 1.0F, 1.0F, 1.0F, light,
                     OverlayTexture.NO_OVERLAY);
             pose.popPose();
+            // Counted from the same vertices the tally saw, so the "did we submit what we drew" equation
+            // covers this geometry too. Assigned rather than added to, because the consumer carries the
+            // running total for the whole loop. See `recordWorldStage`.
+            counter.interiorQuads = buffer.vertices() / 4;
         }
     }
 
-    /** The component inside each host, drawn over the block's own face. */
-    private static void drawContents(PoseStack pose, ClientLevel level, List<Visible> hosts,
-                                     AtlasUv uv) {
-        VertexConsumer buffer = solidBuffer();
+    /**
+     * The component inside each host, drawn over the block's own face.
+     *
+     * <p>Unlike the carried path, this one is drawn through the pass's own pose - {@code T(-cameraPos)} and
+     * nothing else - so its vertices are <b>world coordinates</b>: the block's position plus the block-local
+     * {@code 0..1} the model and the boxes are built in. That is the same form the frame uses, and the same
+     * form the carried path arrives at by a different route.
+     */
+    private static void drawContents(PoseStack pose, ClientLevel level, List<Visible> hosts, AtlasUv uv,
+                                     Counter counter) {
+        VertexConsumer buffer = worldContentsBuffer();
         BlockRenderDispatcher dispatcher = Minecraft.getInstance().getBlockRenderer();
         List<Box> boxes = new ArrayList<>();
         BoxScratch scratch = new BoxScratch();
+        // The world path's base: the block's own corner, in world coordinates, because its pose stack
+        // sits at the camera and names nothing else. The carried path's base is the same expression
+        // measured in the carrier's frame - which is the point, and why both are a plain float triple.
+        float[] base = new float[3];
 
         for (Visible host : hosts) {
             Slot slot = host.slot();
             Neighbours neighbours = neighboursOf(level, host.pos());
             int light = lightFor(level, host.pos());
+            worldVertexBase(host.pos(), base);
 
-            // The component itself: vanilla's own model wherever one fits (everywhere except the
-            // pressure plate, which cannot be placed yet), our coloured boxes where none does.
+            // The component itself: vanilla's own model wherever one fits, our coloured boxes where none
+            // does.
             InnerComponentVisuals.Visual visual = InnerComponentVisuals.of(slot, neighbours);
             if (visual == null) {
                 boxes.clear();
                 InnerComponentModel.boxes(slot, neighbours, boxes);
-                drawBoxes(pose.last(), buffer, host.pos(), slot, boxes, uv, light, scratch);
+                int fallback = emitBoxes(pose.last(), buffer, base, slot, boxes, uv, light, scratch);
+                counter.contentQuads += fallback / 4;
+                if (fallback > 0) {
+                    counter.hostsWithContent++;
+                }
                 continue;
             }
-            drawModel(pose, buffer, host.pos(), visual, light, dispatcher);
+            int emitted = drawModel(pose, buffer, base, visual, light, dispatcher);
 
             // Then the routing: which sides this component talks to, which the wrench pinned and which
             // it cut. Vanilla has no such idea, so those markers stay ours - and for a wire the flat
             // lines of an ordinary connection are already part of the model drawn above.
             boxes.clear();
             ConnectionBars.bars(slot, neighbours, boxes);
-            drawBoxes(pose.last(), buffer, host.pos(), slot, boxes, uv, light, scratch);
+            emitted += emitBoxes(pose.last(), buffer, base, slot, boxes, uv, light, scratch);
+            counter.contentQuads += emitted / 4;
+            if (emitted > 0) {
+                counter.hostsWithContent++;
+            }
         }
     }
 
     /**
      * Draws one component from vanilla's baked model for its state.
      *
-     * <p>The model is looked up per frame rather than cached, because the state carries the whole
-     * picture - which way a repeater reads, its delay, whether it is lit, which of a wire's sides are
-     * drawn - and the lookup is a map hit on a state the game has already baked. The rotation comes
-     * with it: a variant's rotation is applied when the model is baked, so nothing here has to know
-     * that a repeater reading from the north is drawn with a half turn.
+     * <p>The model is looked up per frame rather than cached, because the state carries the whole picture -
+     * which way a repeater reads, its delay, whether it is lit, which of a wire's sides are drawn - and the
+     * lookup is a map hit on a state the game has already baked. The rotation comes with it, since a variant's
+     * rotation is applied when the model is baked, so nothing here has to know that a repeater reading from
+     * the north is drawn with a half turn.
      *
-     * <p>The quads themselves are written by {@link BakedModelRenderer} rather than handed to
-     * {@code ModelBlockRenderer#renderModel}: through the model renderer this geometry never reached
-     * the screen on this loader, while our own vertex writes into the very buffer that already draws
-     * the frame do.
+     * <p>The caller has already placed the pose stack - at the camera for the world path, at the carrier's
+     * frame for the carried one - so the model needs only {@code base}: the block's corner in whichever of
+     * those two spaces the stack is in.
+     *
+     * <p>The quads are written by {@link BakedModelRenderer} rather than handed to
+     * {@code ModelBlockRenderer#renderModel}: through the model renderer this geometry never reached the
+     * screen on this loader, while our own vertex writes into the very buffer that already draws the frame do.
+     *
+     * @return how many vertices the model wrote, so the caller can count real geometry rather than a host it
+     *     hoped had produced some
      */
-    private static void drawModel(PoseStack pose, VertexConsumer buffer, BlockPos pos,
-                                  InnerComponentVisuals.Visual visual, int light,
-                                  BlockRenderDispatcher dispatcher) {
+    private static int drawModel(PoseStack pose, VertexConsumer buffer, float[] base,
+                                 InnerComponentVisuals.Visual visual, int light,
+                                 BlockRenderDispatcher dispatcher) {
         BakedModel model = dispatcher.getBlockModelShaper().getBlockModel(visual.state());
         if (model == null) {
-            // Nothing baked for this state (a resource pack mid-reload, or a state the game has no
-            // model for): skipping the component degrades the overlay instead of throwing every frame.
-            return;
+            // Nothing baked for this state (a resource pack mid-reload, or a state the game has no model
+            // for): skipping the component degrades the overlay instead of throwing every frame.
+            return 0;
         }
+        // Counted where the vertices are written rather than where the draw was decided: a consumer for a
+        // batch that has already been flushed still accepts vertices.
+        CountingVertexConsumer measured = new CountingVertexConsumer(buffer);
         pose.pushPose();
-        pose.translate(pos.getX(), pos.getY(), pos.getZ());
+        pose.translate(base[0], base[1], base[2]);
         pose.mulPose(visual.transform());
-        BakedModelRenderer.drawAndNote(pose.last(), buffer, visual.state(), model,
+        BakedModelRenderer.drawAndNote(pose.last(), measured, visual.state(), model,
                 visual.red(), visual.green(), visual.blue(), light, OverlayTexture.NO_OVERLAY);
         pose.popPose();
+        return measured.vertices();
     }
 
     /**
-     * Emits our own boxes: a length of wire per connection, the wrench's markers, and the fallback
-     * shape for any component no vanilla model fits.
+     * Emits our own boxes: a length of wire per connection, the wrench's markers, and the fallback shape for
+     * any component no vanilla model fits.
      *
      * <p>A box marked {@link Box#textured()} is drawn with the wire art, spread over its faces, so a
-     * connection reads as redstone; the art is mostly transparent, and cutout throws the transparent
-     * pixels away, which is what turns the box into a thin line. Everything else is a flat colour.
+     * connection reads as redstone; the art is mostly transparent, and cutout throws the transparent pixels
+     * away, which is what turns the box into a thin line. Everything else is a flat colour. The corners are
+     * the block-local {@code 0..1} ones {@link InnerComponentModel.Basis#point} produced, translated by
+     * {@code base}: the world path passes the block's world position, because its pose stack is at the
+     * camera, while the carried path passes the host's own corner in the carrier's frame. Neither ever puts a
+     * plot coordinate into a {@code float}.
+     *
+     * @return how many vertices were written
      */
-    private static void drawBoxes(PoseStack.Pose pose, VertexConsumer buffer, BlockPos pos, Slot slot,
-                                  List<Box> boxes, AtlasUv uv, int light, BoxScratch scratch) {
+    private static int emitBoxes(PoseStack.Pose pose, VertexConsumer buffer, float[] base, Slot slot,
+                                 List<Box> boxes, AtlasUv uv, int light, BoxScratch scratch) {
         // The boxes are built in component space, so they have to be carried into the block by the same
         // frame the component is drawn in - see InnerComponentModel.Basis#of(Slot).
         InnerComponentModel.Basis basis = InnerComponentModel.Basis.of(slot);
+        int vertices = 0;
         for (Box box : boxes) {
             float[][] local = InnerComponentModel.corners(box);
             for (int i = 0; i < local.length; i++) {
                 basis.point(local[i][0], local[i][1], local[i][2], scratch.mapped);
-                scratch.corners[i][0] = pos.getX() + scratch.mapped[0];
-                scratch.corners[i][1] = pos.getY() + scratch.mapped[1];
-                scratch.corners[i][2] = pos.getZ() + scratch.mapped[2];
+                scratch.corners[i][0] = base[0] + scratch.mapped[0];
+                scratch.corners[i][1] = base[1] + scratch.mapped[1];
+                scratch.corners[i][2] = base[2] + scratch.mapped[2];
             }
             for (int face = 0; face < InnerComponentModel.faceCount(); face++) {
                 int[] indices = InnerComponentModel.face(face);
@@ -496,8 +2444,87 @@ public final class HostRenderPass {
                             .setUv(scratch.uv[0], scratch.uv[1])
                             .setLight(light)
                             .setNormal(pose, scratch.normal[0], scratch.normal[1], scratch.normal[2]);
+                    vertices++;
                 }
             }
+        }
+        return vertices;
+    }
+
+    /**
+     * A vertex consumer that forwards everything and counts what went through it - the one way to answer
+     * "was any geometry actually emitted" without parsing the vertex buffer, since a model renderer writes
+     * through whatever it is handed.
+     *
+     * <p>Two jobs, and the second one is the important one: with no sink it is a <b>local</b> counter, used
+     * by {@code drawModel} to learn how many vertices a model produced; with a sink it also reports every
+     * vertex to {@link HostBufferTally}, and that is the count the frame summary prints, because it is taken
+     * where the vertex is written rather than where the quad was decided. A consumer for a batch that has
+     * already been flushed still accepts vertices; only this count can tell the difference.
+     */
+    private static final class CountingVertexConsumer implements VertexConsumer {
+
+        private final VertexConsumer delegate;
+        /** Which source this consumer was obtained from, or {@code null} for a local count only. */
+        @Nullable
+        private final HostBufferTally.Sink sink;
+        @Nullable
+        private final HostBufferTally.Kind kind;
+        private int vertices;
+
+        /** A local counter: counts for the caller, reports nothing to the session tally. */
+        CountingVertexConsumer(VertexConsumer delegate) {
+            this(delegate, null, null);
+        }
+
+        CountingVertexConsumer(VertexConsumer delegate, @Nullable HostBufferTally.Sink sink,
+                               @Nullable HostBufferTally.Kind kind) {
+            this.delegate = delegate;
+            this.sink = sink;
+            this.kind = kind;
+        }
+
+        int vertices() {
+            return vertices;
+        }
+
+        @Override
+        public VertexConsumer addVertex(float x, float y, float z) {
+            vertices++;
+            if (sink != null && kind != null) {
+                HostBufferTally.written(sink, kind, 1);
+            }
+            return delegate.addVertex(x, y, z);
+        }
+
+        @Override
+        public VertexConsumer setColor(int red, int green, int blue, int alpha) {
+            delegate.setColor(red, green, blue, alpha);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setUv(float u, float v) {
+            delegate.setUv(u, v);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setUv1(int u, int v) {
+            delegate.setUv1(u, v);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setUv2(int u, int v) {
+            delegate.setUv2(u, v);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer setNormal(float x, float y, float z) {
+            delegate.setNormal(x, y, z);
+            return this;
         }
     }
 
@@ -546,7 +2573,7 @@ public final class HostRenderPass {
     }
 
     /** Reused for a whole frame, so drawing does not allocate once per host block. */
-    private static final class BoxScratch {
+    static final class BoxScratch {
         final float[][] corners = new float[8][3];
         final float[] mapped = new float[3];
         final float[] normal = new float[3];
@@ -559,23 +2586,65 @@ public final class HostRenderPass {
     }
 
     /**
+     * <b>Which of a riding host's six neighbours hold a component of their own - in both frames.</b>
+     *
+     * <p>A riding host asks the structure's own coordinates (a neighbour inside the same machine) and the
+     * world index at the block's origin (an ordinary host block still standing where the machine came from).
+     * It has to ask both: the carrier index is keyed by the structure's own coordinate and the world index
+     * holds the hosts standing in the world, so asking one alone answers "no neighbour" on all six sides and
+     * every inner wire is drawn as a bare dot however it is really wired. The solver never had that defect -
+     * {@code CarrierSpace#nodeAt} asks the carrier index at the local coordinate - and the drawing must not
+     * disagree with it about the same question.
+     *
+     * <p>A fallback host - drawn at a world block because its carrier's pose went stale - asks the world
+     * frame only: it is not inside the structure any more.
+     *
+     * @param inStructure per-frame "local coordinate -&gt; the carrier holding a component there", from
+     *     {@link ClientHostCache#carriedLocalIndex}
+     */
+    private static Neighbours neighboursOf(ClientLevel level, Carried host,
+                                           Map<Long, CarrierId> inStructure) {
+        BlockPos local = host.local();
+        BlockPos origin = host.origin();
+        CarrierId carrier = host.carrier();
+        boolean riding = host.riding();
+        return direction -> carriedNeighbourHolds(
+                riding && local != null ? inStructure.get(local.relative(direction).asLong()) : null,
+                carrier,
+                ClientHostCache.slotAt(level.dimension(), origin.relative(direction)) != null);
+    }
+
+    /**
+     * <b>The one rule behind a carried host's connection arms, pure so it can be pinned without a level.</b>
+     * A neighbour is either another host of <em>the same structure</em>, one block away in the structure's
+     * own coordinates, or a host the world index still holds where the block came from.
+     *
+     * <p>The carrier identity is compared rather than assumed: a Create contraption's local coordinates are
+     * 0..15 around its anchor, so two contraptions can hold a host at the same local coordinate, and that is
+     * a coincidence, not a connection. Comparing it can only ever refuse an arm, never invent one.
+     *
+     * @param inStructure the carrier holding a component at the neighbouring local coordinate, or
+     *     {@code null} when that coordinate is empty (or the host is not riding)
+     * @param self the carrier the host being drawn belongs to
+     * @param worldIndex whether the world host index holds a component at the neighbour's world position
+     */
+    static boolean carriedNeighbourHolds(@Nullable CarrierId inStructure, @Nullable CarrierId self,
+                                         boolean worldIndex) {
+        return worldIndex || inStructure != null && self != null && self.equals(inStructure);
+    }
+
+    /**
      * The border of one block, in a highlight colour.
      *
-     * <p>Only the rims are drawn - the frame without the panel - so the block underneath stays readable
-     * and the mark reads as a selection rather than a paint job.
-     *
-     * <p>This is the one part of the overlay still drawn with {@code translucent()}: the colour passed
-     * in carries a real alpha (see the two constants above), and blending is the whole point of a
-     * highlight. Vanilla's own translucent type is still a type every shader pack knows by name, so it
-     * costs nothing under a pack, and it is flushed here rather than in the level renderer's
-     * translucent pass because it is written into this pass's own buffer source.
+     * <p>Only the rims of the shell are drawn - the frame without the panel - so the block underneath stays
+     * readable and the mark reads as a selection rather than a paint job.
      */
     private static void drawHighlight(PoseStack.Pose pose, ClientLevel level, @Nullable BlockPos pos,
                                       int argb, AtlasUv uv) {
         if (pos == null || level == null) {
             return;
         }
-        VertexConsumer buffer = highlightBuffer();
+        VertexConsumer buffer = worldShellBuffer();
         int light = lightFor(level, pos);
         float[] normal = new float[3];
         float[] point = new float[3];
@@ -584,7 +2653,8 @@ public final class HostRenderPass {
             // Quad 0 is the centre panel; the rest are the border.
             for (int quad = 1; quad < HostShell.quadsPerFace(true); quad++) {
                 float[] tile = HostShell.tile(quad, true);
-                emitShellQuad(buffer, pose, pos, face, tile, argb, light, uv, normal, point);
+                emitShellQuad(buffer, pose, pos.getX(), pos.getY(), pos.getZ(), face, tile, argb,
+                        light, uv, normal, point);
             }
         }
     }
@@ -594,21 +2664,20 @@ public final class HostRenderPass {
     /**
      * The light at a block, floored so a buried component is never black.
      *
-     * <p>Without a shader pack the floor is on the block light alone. The component sits in the shade
-     * of its own block, and the block's inside-out model drawn behind it carries the world's own
-     * lighting, so a low floor still looks like part of the world.
+     * <p>Without a shader pack the floor is on the block light alone. The component sits in the shade of its
+     * own block, and the block's inside-out model drawn behind it carries the world's own lighting, so a low
+     * floor still looks like part of the world.
      *
-     * <p>With a pack selected the floor is raised on both halves. The block's own faces are gone from
-     * the mesh, so this number is most of what lights the inside - and the packs that lean hardest on
-     * shadows and ambient occlusion (Eclipse, for one) darken geometry further, because the extra
-     * vertex data their shaders use for that is filled by their own terrain pipeline and never by code
-     * drawing by hand. Twelve rather than full brightness on purpose - at fifteen the inside glows and
-     * stops reading as part of the world.
+     * <p>With a pack selected the floor is raised on both halves. The block's own faces are drawn by hand
+     * rather than by the pack's terrain pipeline, so this number is most of what lights the inside - and the
+     * packs that lean hardest on shadows and ambient occlusion (Eclipse, for one) darken geometry further,
+     * because the extra vertex data their shaders use for that is filled by their own terrain pipeline and
+     * never by code drawing by hand. Twelve rather than full brightness on purpose - at fifteen the inside
+     * glows and stops reading as part of the world.
      *
-     * <p>This is the one thing the shader check is still for. It is a brightness adjustment, not a
-     * choice of drawing path: with a pack merely <em>selected</em> (Iris answers yes even when
-     * {@code iris.properties} has {@code enableShaders=false}) the worst case is an inside that is a
-     * little brighter than it needed to be, instead of a whole different renderer.
+     * <p>This is a brightness adjustment, not a choice of drawing path: with a pack merely <em>selected</em>
+     * (Iris answers yes even when {@code iris.properties} has {@code enableShaders=false}) the worst case is
+     * an inside that is a little brighter than it needed to be, instead of a whole different renderer.
      */
     private static int lightFor(BlockAndTintGetter level, BlockPos pos) {
         int light = LevelRenderer.getLightColor(level, pos);
@@ -618,6 +2687,21 @@ public final class HostRenderPass {
             return (Math.max(block, 12) << 4) | Math.max(sky, 12);
         }
         return block >= 8 ? light : (light & ~0xF0) | (8 << 4);
+    }
+
+    /**
+     * The light at an arbitrary point in the world, for a component that is not at a whole block.
+     *
+     * <p>Used by the carried path, and <b>block light only</b> with a floor: a component inside a machine is
+     * in the shade of the machine, and the sky value at a point in mid-air is a poor description of what a
+     * player can read anyway - taking only the block half keeps a machine that flies into the dark legible.
+     * The point is rounded to a block, because the light map is indexed by whole blocks.
+     */
+    private static int lightAt(ClientLevel level, Vector3d point) {
+        int light = LevelRenderer.getLightColor(level, BlockPos.containing(point.x, point.y, point.z));
+        int block = (light >> 4) & 0xF;
+        int floor = ShaderCompat.vanillaGeometry() ? 12 : 8;
+        return (Math.max(block, floor) << 4) | (light & 0xF);
     }
 
     /** Writes the outward normal of a face into {@code out}, from its four corners. */
@@ -705,7 +2789,7 @@ public final class HostRenderPass {
     }
 
     /** The white texel, and the wire art's rectangle, in the block atlas. */
-    private record AtlasUv(float flatU, float flatV, float wireU0, float wireU1, float wireV0,
-                           float wireV1) {
+    record AtlasUv(float flatU, float flatV, float wireU0, float wireU1, float wireV0,
+                   float wireV1) {
     }
 }

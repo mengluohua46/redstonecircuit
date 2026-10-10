@@ -23,33 +23,18 @@ import org.joml.Vector3d;
 /**
  * <b>The three-state verdict on a miss, and the bounded local-coordinate scan behind it.</b>
  *
- * <h2>The log this exists for</h2>
- * The author's P1.22 run produced <b>101 trace lines and 101 misses</b>, and every one of them said the
- * same thing: {@code MISS: no live carried host answers for this position}. Two facts in that log made
- * that answer useless:
- *
- * <ul>
- *   <li>the coordinate the click carried, {@code raw=20481032, 127, 20499464}, is <b>exactly</b> the
- *       {@code local=} of a claim made eighteen seconds earlier -
- *       {@code carrier claim s:b22c7587 world=-30, -60, -40 local=20481032, 127, 20499464
- *       type=RETAINING_REPEATER} - and the other 28 misses name {@code 20481032, 128, 20501512}, which is
- *       exactly the {@code local=} of {@code s:088a5ad7};</li>
- *   <li>and yet the only line the resolver wrote could not distinguish "there is no record at this
- *       coordinate" from "there is one and it is not live" from "I never got as far as the index".</li>
- * </ul>
- *
- * <p>So the three shapes are pinned here, together with the bound on the scan that produces them. This is
- * what the next log has to be able to answer, and it is also the question the resolver itself should have
- * been asking - see {@code CarrierStore#scanLocalCoordinate}.
+ * <p>一次 miss 必须能区分"这个坐标没有记录"、"有记录但已经落下"、"根本没走到索引"三种情况，
+ * 所以裁定文本以 {@code RECORD_ABSENT} / {@code RECORD_NOT_LIVE} / {@code RECORD_AMBIGUOUS} 开头，
+ * 扫描按 {@code MAX_CARRIERS_SCANNED} 封顶。
  */
 class CarrierMissVerdictTest {
 
-    /** The author's own claim, verbatim: carrier and coordinate. */
+    /** The carrier the click landed on, and its local coordinate. */
     private static final CarrierId THE_REPEATER =
             CarrierId.subLevel(UUID.fromString("00000000-0000-0000-0000-00000000b22c"));
     private static final BlockPos REPEATER_LOCAL = new BlockPos(20481032, 127, 20499464);
 
-    /** The second claim from the same log. */
+    /** A second carrier, claimed at another local coordinate. */
     private static final CarrierId THE_DUST =
             CarrierId.subLevel(UUID.fromString("00000000-0000-0000-0000-00000000088a"));
     private static final BlockPos DUST_LOCAL = new BlockPos(20481032, 128, 20501512);
@@ -88,10 +73,9 @@ class CarrierMissVerdictTest {
     // ------------------------------------------------------------------- the scan --
 
     @Test
-    @DisplayName("the author's own six carriers resolve by coordinate alone, with no pose and no level")
+    @DisplayName("six carriers resolve by coordinate alone, with no pose and no level")
     void theAuthorsWorldIsFoundByCoordinateAlone() {
-        // The six claims from the log, each one host, at the coordinates the log gives - and the two the
-        // author actually clicked are among them, unchanged.
+        // Six claims, each one host; the two that were clicked are among them, unchanged.
         carry(CarrierId.subLevel(UUID.randomUUID()), new BlockPos(20481032, 127, 20485128),
                 new BlockPos(-61, -60, 5), ComponentType.SUPERCONDUCTOR);
         carry(CarrierId.subLevel(UUID.randomUUID()), new BlockPos(20481032, 127, 20487176),
@@ -107,7 +91,7 @@ class CarrierMissVerdictTest {
         CarrierStore.LocalScan repeater = CarrierStore.scanLocalCoordinate(index, REPEATER_LOCAL);
         assertEquals(1, repeater.records().size(), "exactly one record is keyed by the clicked coordinate");
         assertEquals(THE_REPEATER, repeater.records().get(0).carrier(),
-                "and it is the carrier the author's own claim names");
+                "and it is the carrier claimed at that coordinate");
         assertEquals(6, repeater.scanned(), "all six carriers were examined");
         assertFalse(repeater.capped());
         assertFalse(repeater.records().get(0).host().landed(), "the record is riding");
@@ -117,7 +101,7 @@ class CarrierMissVerdictTest {
         assertEquals(THE_DUST, dust.records().get(0).carrier());
 
         assertTrue(CarrierStore.scanLocalCoordinate(index, NOWHERE).isEmpty(),
-                "a world coordinate the author clicked resolves to nothing - which is correct");
+                "a world coordinate that was never a local coordinate resolves to nothing");
         assertTrue(CarrierStore.scanLocalCoordinate(null, REPEATER_LOCAL).isEmpty());
         assertTrue(CarrierStore.scanLocalCoordinate(index, null).isEmpty());
     }
@@ -184,7 +168,7 @@ class CarrierMissVerdictTest {
     }
 
     @Test
-    @DisplayName("a LIVE record at the clicked coordinate is named as exactly that - the resolver's defect")
+    @DisplayName("a LIVE record at the clicked coordinate is named as exactly that")
     void aLiveRecordSaysSoInSoManyWords() {
         carry(THE_REPEATER, REPEATER_LOCAL, new BlockPos(-30, -60, -40), ComponentType.RETAINING_REPEATER);
         carry(THE_DUST, DUST_LOCAL, new BlockPos(-31, -60, -40), ComponentType.DUST);
@@ -248,9 +232,8 @@ class CarrierMissVerdictTest {
         carry(THE_REPEATER, REPEATER_LOCAL, new BlockPos(-30, -60, -40), ComponentType.RETAINING_REPEATER);
         CarrierEntryTrace.Miss miss = new CarrierEntryTrace.Miss();
 
-        // The carrier layer has to be armed for the resolver to get past its first guard, and the
-        // projection table has to name a dimension for it to be asked at all - the same two pieces of
-        // global state CarriedBlockRemovalTest sets up, and both restored afterwards.
+        // The carrier layer has to be armed to get past the resolver's first guard, and the projection
+        // table has to name a dimension to be asked at all; both are restored afterwards.
         CarrierStore.CarrierSource previous = CarrierStore.source();
         try {
             CarrierStore.install(new BareSource());

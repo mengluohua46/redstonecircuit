@@ -14,15 +14,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The solver's log, counted instead of printed - and the one warning that survives.</b>
+ * The solver's log, counted instead of printed - and the one warning that survives.
  *
- * <h2>The measurement these tests encode</h2>
- * The author's P1.22 log was 52.5 MB, and 242,588 of its lines were four per-step solver lines
- * ({@code world change at …} 86,543; {@code output change at host …} 77,416; {@code recompute seed=…}
- * 31,045; {@code <TYPE> at … power n -> n-1 (supply=…)} 47,584) - about 400 lines a second for a
- * one-minute test. So there are two things to pin: that those four become <b>one counted line per
- * window</b>, and that "a host recomputed dozens of times inside one tick" becomes <b>visible</b>
- * instead of being averaged away by the counting.
+ * <p>The four per-step solver lines ({@code world change at …}, {@code output change at host …},
+ * {@code recompute seed=…}, {@code <TYPE> at … power n -> n-1 (supply=…)}) become <b>one counted line per window</b>,
+ * and "a host recomputed dozens of times inside one tick" becomes <b>visible</b> instead of being averaged away by the
+ * counting.
  */
 class SolverLogTest {
 
@@ -40,10 +37,8 @@ class SolverLogTest {
     }
 
     /**
-     * Runs a whole summary window of level ticks and answers what the last one wrote.
-     *
-     * <p>The window is counted in ticks this code saw rather than against a level clock, so a test can
-     * drive it without a level - and that counting is itself what makes "in the last N ticks" true.
+     * Runs a whole summary window of level ticks and answers what the last one wrote. The window is counted in ticks
+     * this code saw rather than against a level clock, so a test can drive it without a level.
      */
     private static List<String> endWindow() {
         List<String> last = List.of();

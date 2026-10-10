@@ -51,6 +51,21 @@ public final class SlotNode implements PowerEnvironment.Node {
     }
 
     @Override
+    public ControllerRule.Setting controller() {
+        return slot.controller;
+    }
+
+    @Override
+    public int transformer() {
+        return slot.transformer;
+    }
+
+    @Override
+    public void noteInput(int input) {
+        slot.lastInput = input;
+    }
+
+    @Override
     public boolean open(Direction direction) {
         return slot.isOpen(direction);
     }

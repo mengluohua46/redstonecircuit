@@ -34,22 +34,9 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests the second {@code PowerEnvironment}: one structure's inside, seen through the carried index.
  *
- * <h2>The three claims this pins down</h2>
- * <ol>
- *   <li><b>Only this structure's hosts answer.</b> Two machines can carry a block at the same local
- *       coordinate, and a solve in one of them must not be able to see the other. This is the property
- *       that makes "local coordinates" a coordinate system rather than a convention.</li>
- *   <li><b>With no bridge the outside is zero, on every side; with one it is the world the structure
- *       is really in.</b> Zero is the boundary P1 drew and {@code carrierFreezeWorldIo = true} still
- *       asks for - a solve that leaked a world signal in would power a machine from a world it has
- *       left. P4's bridge is the other case: the neighbour's <em>local</em> coordinate is projected to
- *       a world position through the carrier's pose, the local side is turned into a world direction,
- *       and the world is read there. Both are asserted below, against a fake world holding exactly one
- *       number at exactly one position.</li>
- *   <li><b>Block reads go to the structure, not to the world.</b> The one query that needs the machine's
- *       own view of itself - whether a coordinate is a redstone conductor - must read the
- *       {@code BlockGetter} the compat half supplies, in local coordinates.</li>
- * </ol>
+ * <p>只有本结构的 host 应答，同一局部坐标在别的结构上是另一个元件；无 bridge 时外部各面为 0，
+ * 有 bridge 时把邻居的局部坐标按搬运姿态投影成世界坐标再读世界；方块查询走结构自己的
+ * {@code BlockGetter}，用局部坐标。
  */
 class CarrierSpaceTest {
 
@@ -81,12 +68,9 @@ class CarrierSpaceTest {
     /**
      * The structure's own blocks.
      *
-     * <p>Every read throws, and that is the point. A real {@code BlockState} needs the registry a
-     * running game builds, and a unit test has none - {@code Blocks.AIR.defaultBlockState()} blows up
-     * before it returns anything. So instead of pretending to be a structure, this records what it was
-     * asked for: the part of {@code CarrierSpace#isRedstoneConductor} that can go wrong without a game
-     * is <em>which coordinate reaches the structure</em>, and that is exactly what an exception
-     * carrying the coordinate proves.
+     * <p>每次读取都抛异常: 真正的 {@code BlockState} 需要游戏跑起来建好的注册表，单元测试里没有，
+     * {@code Blocks.AIR.defaultBlockState()} 就会先炸。所以这里改为记录被问到的坐标 - 无游戏时
+     * {@code CarrierSpace#isRedstoneConductor} 能出错的地方正是"哪个坐标到了结构"，异常带着坐标即证明。
      */
     private static final class FakeBlocks implements BlockGetter {
 
@@ -110,8 +94,7 @@ class CarrierSpaceTest {
             return Fluids.EMPTY.defaultFluidState();
         }
 
-        // The height accessor half of BlockGetter; nothing here reads it, but it has to be answered
-        // for the interface to be implemented at all.
+        // The height accessor half of BlockGetter; unused here, but the interface needs an answer.
         @Override
         public int getHeight() {
             return 384;
@@ -205,7 +188,7 @@ class CarrierSpaceTest {
         carry(CONTRAPTION, pos(1, 0, 2), pos(10, 64, 10), ComponentType.DUST);
         CarrierSpace space = new CarrierSpace(CONTRAPTION, index, world, null, null);
 
-        assertFalse(space.isBridged(), "no io means the P1/P2 boundary");
+        assertFalse(space.isBridged(), "no io means the frozen boundary");
         assertEquals(0, space.externalSignal(), "omnidirectional supply");
         for (Direction direction : Direction.values()) {
             assertEquals(0, space.externalSignal(direction), "and per side: " + direction);
@@ -213,14 +196,9 @@ class CarrierSpaceTest {
     }
 
     /**
-     * P4's world-to-inside half, end to end and without a game.
-     *
-     * <p>The component is at local {@code (1, 0, 2)} of a structure whose pivot sits at
-     * {@code (10, 64, 10)}, so its own world position is {@code (11, 64, 12)} and the block to its
-     * east is {@code (12, 64, 12)}. The fake world answers 9 at exactly that position, through exactly
-     * the direction a query from the host towards that neighbour would use - {@code EAST} - and
-     * nowhere else. So "the machine reads the world it is really next to" is the whole of what this
-     * asserts.
+     * The world-to-inside half, end to end and without a game: the component at local {@code (1, 0, 2)}
+     * of a structure pivoted at {@code (10, 64, 10)} sits at world {@code (11, 64, 12)}, so the fake world
+     * answers 9 at its east neighbour {@code (12, 64, 12)} - through {@code EAST} and nowhere else.
      */
     @Test
     @DisplayName("with a bridge the outside is read at the position the structure currently occupies")
@@ -275,17 +253,15 @@ class CarrierSpaceTest {
         FakeBlocks blocks = new FakeBlocks();
         CarrierSpace space = new CarrierSpace(CONTRAPTION, index, world, id -> blocks, null);
 
-        // The block read has to happen - the solver's one question that needs the machine's own view
-        // of itself rather than the index - and it has to be asked about the local coordinate.
+        // The solver's one question that needs the machine's own view of itself, asked in local coordinates.
         UnsupportedOperationException asked = assertThrows(UnsupportedOperationException.class,
                 () -> space.isRedstoneConductor(4, 0, 0));
         assertTrue(asked.getMessage().contains(pos(4, 0, 0).toString()), asked.getMessage());
         assertEquals(List.of(pos(4, 0, 0)), blocks.queried,
                 "and the structure was asked about the local coordinate, not about a world position");
 
-        // With no way to read the structure - the state before the compat half installed itself, or a
-        // machine that has just come apart - the answer degrades to "no" rather than throwing. Nothing
-        // in the solve loop asks, so this can only ever under-report.
+        // With no way to read the structure the answer degrades to "no" instead of throwing; nothing in
+        // the solve loop asks, so this can only under-report.
         FakeBlocks unread = new FakeBlocks();
         CarrierSpace withoutBlocks = new CarrierSpace(CONTRAPTION, index, world, null, null);
         assertFalse(withoutBlocks.isRedstoneConductor(4, 0, 0));

@@ -21,71 +21,30 @@ import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>The one trace line every "a click or a break arrived at a carrier entry point" writes — and the
- * bounded, throttled candidate list that goes with a miss.</b>
+ * The one trace line every "a click or a break arrived at a carrier entry point" writes, and the bounded, throttled
+ * candidate list that goes with a miss.
  *
- * <h2>Why this round exists, and what it is not allowed to do</h2>
- * Two rounds in a row were spent guessing at <em>why</em> a whole family of gestures never worked on a
- * physicalised block (the wrench, the rotation rod, storing a component, and the drop when the block is
- * broken after the structure has moved). Each guess was a coordinate frame - the plot coordinate, then a
- * stale pose - and each guess was wrong. This class exists so the next log answers the question instead
- * of narrowing it: <b>which entry point was called, with which raw coordinate, and what the resolver made
- * of it.</b>
+ * <p><b>Diagnostics only.</b> Nothing here resolves a host, cancels an event, writes a record or drops an item; every
+ * method either formats a string, decides whether a line may be printed, or reads the index to describe it. Which
+ * entry point was called, with which raw coordinate, and what the resolver made of it, is the whole question.
  *
- * <p>It is therefore <b>diagnostics only</b>. Nothing here resolves a host, cancels an event, writes a
- * record or drops an item. Every method either formats a string, decides whether a line may be printed,
- * or reads the index to describe it. The entry points keep their decisions exactly as they were; the only
- * thing that changed at a call site is that a line is written around the decision.
+ * <p>The outcomes are {@link Outcome#MATCH} (the coordinate resolved to a live carried host, and the line carries the
+ * carrier, the host's <b>local</b> coordinate and the world position the pose projects it to right now),
+ * {@link Outcome#MISS} (it did not resolve; the line says which resolver and which frame were used, because "I asked
+ * the wrong table" and "the table is empty" are different faults) and {@link Outcome#REFUSED} (it resolved and
+ * something downstream said no; the refusal travels verbatim).
  *
- * <h2>The three outcomes, and why there are exactly three</h2>
- * The failure modes this family of features has had are indistinguishable from each other in a log
- * unless every entry writes the same shape:
+ * <p>A hit is always written. A miss or a refusal is throttled by shape - the entry point, the outcome and, only while
+ * the dimension holds at least one carrier, the raw coordinate - so a repeated failing click prints one line per
+ * {@value #REPEAT_WINDOW_TICKS} ticks, while two <em>different</em> coordinates always print. The candidate list has
+ * its own, coarser window: at most one block per {@value #CANDIDATE_WINDOW_TICKS} ticks.
  *
- * <ul>
- *   <li>{@link Outcome#MATCH} - the raw coordinate resolved to a live carried host. The line carries the
- *       carrier, the host's <b>local</b> coordinate and the <b>world position the pose projects it to
- *       right now</b>, which is the pair a coordinate-frame defect shows up as.</li>
- *   <li>{@link Outcome#MISS} - the entry point ran and the coordinate did not resolve. The line says
- *       <b>what was used to look it up</b> (which resolver, which frame, and how much the index holds at
- *       that moment), because "I asked the wrong table" and "the table is empty" are different bugs.</li>
- *   <li>{@link Outcome#REFUSED} - it resolved and something downstream said no. The line carries the
- *       refusal verbatim, so a switch, a rule or a guard is named rather than guessed at.</li>
- * </ul>
- *
- * <h2>One line per event, and a miss cannot fill the log</h2>
- * A player right-clicking a block with a bare hand or a wrench produces an event per click, and on a
- * world with no carrier at all that is an event that can never resolve. So:
- *
- * <ol>
- *   <li><b>A hit is always written.</b> It is a real action, at most one per event, and the action line
- *       beside it is one per event too.</li>
- *   <li><b>A miss or a refusal is throttled by shape.</b> The shape is the entry point, the outcome and -
- *       only while the dimension actually holds at least one carrier - the raw coordinate. So the same
- *       failing click repeated, or a bare-handed click on a world with nothing in flight, prints one line
- *       per {@value #REPEAT_WINDOW_TICKS} ticks instead of one per click. Two <em>different</em>
- *       coordinates always print, which is what an acceptance run needs.</li>
- *   <li><b>The candidate list has its own, coarser window:</b> at most one block per
- *       {@value #CANDIDATE_WINDOW_TICKS} ticks, whatever the entry point.</li>
- * </ol>
- *
- * <h2>The bound that makes the candidate list safe to have</h2>
- * A miss is only useful if the log can be compared against it, so a miss on a dimension that <em>does</em>
- * hold live carriers also prints, beside the coordinate the click arrived at, the coordinates the index
- * holds: for each carrier (at most {@value #CANDIDATE_CARRIER_LIMIT}) the pose and the first
- * {@value #CANDIDATE_HOST_LIMIT} live hosts as {@code local=(…) world=(…)}. The two coordinate frames
- * side by side is the whole judgement: the author's own log has
- * {@code local=20481031,128,20524040} beside {@code world=2775,77,-1393}, and one line in that shape says
- * at a glance whether a click arrived in the structure's frame or in the world's.
- *
- * <p>Both limits are hard constants, the host walk is bounded by the limit rather than by the machine's
- * size, and the whole block runs inside a {@code try}/{@code catch} so a structure that is going away
- * cannot make a diagnostic throw on a click path.
- *
- * <h2>Reading the index is bounded too</h2>
- * {@link #hasLiveCarriers} is one {@code isEmpty()} check, and {@link #candidates} walks at most
- * {@code K} carriers and {@code M} hosts each. Neither touches a sub-level container: the index is this
- * mod's own record, and the pose comes from {@code CarrierStore#poseOf}, which already answers
- * {@code null} rather than throwing when a structure cannot be read.
+ * <p>On a dimension that does hold live carriers a miss also prints the coordinates the index holds - for each carrier
+ * (at most {@value #CANDIDATE_CARRIER_LIMIT}) the pose and the first {@value #CANDIDATE_HOST_LIMIT} live hosts as
+ * {@code local=(…) world=(…)}, since the two frames side by side is what says whether a click arrived in the
+ * structure's frame or in the world's. The host walk is bounded by that limit rather than by the machine's size, and
+ * the whole block runs inside a {@code try}/{@code catch} so a structure going away cannot make a diagnostic throw on
+ * a click path.
  */
 public final class CarrierEntryTrace {
 
@@ -102,11 +61,10 @@ public final class CarrierEntryTrace {
     /**
      * How many hosts of one carrier are printed.
      *
-     * <p>Six, which is deliberately about one small machine: the author's example machine has a handful of
-     * hosts within a couple of blocks of each other, so six consecutive local coordinates cover the block
-     * being clicked <em>and</em> its neighbours. The total is therefore at most
-     * {@value #CANDIDATE_CARRIER_LIMIT} x {@value #CANDIDATE_HOST_LIMIT} = 18 coordinate pairs per miss,
-     * which fits on three log lines.
+     * <p>Six, about one small machine: its hosts sit within a couple of blocks of each other, so six consecutive
+     * local coordinates cover the block being clicked <em>and</em> its neighbours. The total is therefore at most
+     * {@value #CANDIDATE_CARRIER_LIMIT} x {@value #CANDIDATE_HOST_LIMIT} = 18 coordinate pairs per miss, which fits
+     * on three log lines.
      */
     public static final int CANDIDATE_HOST_LIMIT = 6;
 
@@ -132,18 +90,13 @@ public final class CarrierEntryTrace {
         /** The coordinate resolved and something downstream said no; the line carries the reason. */
         REFUSED,
         /**
-         * <b>The entry point ran, and the gesture rule said this click is nobody's.</b>
+         * The entry point ran, and the gesture rule said this click is nobody's.
          *
-         * <h2>Why this is a fourth outcome and not "no line"</h2>
-         * P1.26's report could not be read because of a single gap: a click holding a redstone component
-         * on a physicalised block left <em>either</em> nothing (the entry point was never called) <em>or</em>
-         * nothing (it was called, {@code CarrierGesture} answered {@code NONE}, and the old entry point
-         * returned before its first line). Those are opposite conclusions - one is a hook that is not
-         * installed, the other is a rule that is wrong - and the log made them identical.
-         *
-         * <p>So a click the carrier layer could have been about is now reported whatever the rule says,
-         * and this outcome carries the rule's own answer plus both hands. It is written <b>before every
-         * early return</b> in both entry points; see {@code CarrierInteraction#noteGesture}.
+         * <p>A fourth outcome rather than "no line", because "the entry point was never called" and "it was called and
+         * the rule answered NONE" are opposite conclusions - a hook that is not installed against a rule that is
+         * wrong - and without this they read the same in the log. A click the carrier layer could have been about is
+         * therefore reported whatever the rule says, with the rule's own answer and both hands, <b>before every early
+         * return</b>; see {@code CarrierInteraction#noteGesture}.
          */
         NONE
     }
@@ -177,38 +130,26 @@ public final class CarrierEntryTrace {
     public static final String RECORD_AMBIGUOUS = "record present in more than one carrier";
 
     /**
-     * <b>{@code plot cell of a live sub-level, and the index has no record here}</b> - the coordinate is a
-     * block inside a living structure (the structure's own storage contains it), and nothing has ever been
-     * filed for it.
+     * {@code plot cell of a live sub-level, and the index has no record here} - the coordinate is a block inside a
+     * living structure, and nothing has ever been filed for it.
      *
-     * <h2>Why this is its own verdict and not {@code record absent}</h2>
-     * The two are opposite facts about a click, and the whole of P1.32's second defect is that they read
-     * the same. "Nothing of ours is here" is an ordinary world coordinate and the world path keeps it;
-     * "this is a block of a living structure with no record yet" is a coordinate the world side already
-     * stands down at, and it is the state <b>every freshly physicalised block is in</b> - which is exactly
-     * the click the author was making when he reported that a component could not be put in.
-     *
-     * <p>P1.30's third frame used to answer such a coordinate by inverting the structure's pose and looking
-     * the recovered local coordinate up, which for a coordinate that already <em>is</em> a local coordinate
-     * produces a doubled answer that can never be found. The verdict below is what the next log shows
-     * instead: the plot names the structure, the coordinate IS the local coordinate, and there is simply no
-     * record there yet.
+     * <p>A verdict of its own and not {@code record absent}, because the two are opposite facts: "nothing of ours is
+     * here" is an ordinary world coordinate and the world path keeps it, while "a block of a living structure with no
+     * record yet" is a coordinate the world side already stands down at - the state <b>every freshly physicalised
+     * block is in</b>, and the one a click that wants to put a component in arrives with. For such a coordinate the
+     * plot already names the structure and the coordinate <em>is</em> the local coordinate, so inverting the pose to
+     * look it up would produce a doubled answer that can never be found.
      */
     public static final String RECORD_MISSING_IN_PLOT = "plot cell of a live sub-level with no record yet";
 
     /**
-     * <b>Why one resolution missed, as the steps the resolver actually took.</b>
+     * Why one resolution missed, as the steps the resolver actually took.
      *
-     * <h2>Why a collector and not a richer return value</h2>
-     * The three shapes above are indistinguishable from the outside - all three are "no hit" - and the
-     * author's own log of 101 misses could not say which of them it was. Two rounds of guessing at the
-     * coordinate frame were spent on exactly that gap. So the resolver is handed one of these for the
-     * call it is already making, and writes down what it did: which frame it asked first, what the
-     * reverse lookup answered, what the record scan found. It changes no decision - it is written to, not
-     * read from, by the resolver.
-     *
-     * <p>Bounded twice: {@link #MAX_STEPS} steps and one verdict string. Allocated only when the
-     * diagnostics are on, so a normal click allocates nothing.
+     * <p>The miss shapes above are indistinguishable from the outside - all of them are "no hit" - so the resolver is
+     * handed one of these for the call it is already making and writes down what it did: which frame it asked first,
+     * what the reverse lookup answered, what the record scan found. It changes no decision; it is written to, not read
+     * from, by the resolver. Bounded twice ({@link #MAX_STEPS} steps and one verdict string) and allocated only when
+     * the diagnostics are on.
      */
     public static final class Miss {
 
@@ -252,20 +193,16 @@ public final class CarrierEntryTrace {
     // ------------------------------------------------- the test seam (tests only) --
 
     /**
-     * <b>A sink the unit tests install so an emitted line can be asserted without a running game.</b>
+     * A sink the unit tests install so an emitted line can be asserted without a running game.
      *
-     * <h2>Why a seam is needed at all, and why it is this small</h2>
-     * The whole of this round's first defect is "was a line written for a click holding a component?" -
-     * and answering it in game takes a player, a level and a log file. The rule that decides <em>which</em>
-     * clicks are reported lives in {@code CarrierInteraction#noteGesture}, and so does the ordering that
-     * this round fixes; the only thing that cannot be reached offline is the logger itself. So the last
-     * step of the two emitting methods is this list: a test adds a consumer, calls the production method,
-     * and asserts <b>how many lines</b> came out and what they say.
+     * <p>The rule that decides <em>which</em> clicks are reported lives in {@code CarrierInteraction#noteGesture}, and
+     * the only thing that cannot be reached offline is the logger itself. So the last step of the two emitting
+     * methods is this list: a test adds a consumer, calls the production method, and asserts <b>how many lines</b> came
+     * out and what they say.
      *
-     * <p>Bounded and inert in production: nothing installs a sink, so the list is empty and every
-     * {@code emit} call is one {@code isEmpty()} check. A test that throws inside its own consumer cannot
-     * take an entry point down: the emission is wrapped and a failure is dropped, exactly as the log line
-     * is.
+     * <p>Inert in production: nothing installs a sink, so the list is empty and every {@code emit} call is one
+     * {@code isEmpty()} check. A test that throws inside its own consumer cannot take an entry point down - the
+     * emission is wrapped and a failure is dropped, exactly as the log line is.
      */
     private static final List<java.util.function.Consumer<String>> SINKS = new ArrayList<>();
 
@@ -404,18 +341,8 @@ public final class CarrierEntryTrace {
     // ----------------------------------------------------------------- the lines --
 
     /**
-     * <b>The entry line.</b> One shape for every entry point, so a reader compares positions and not
-     * formats.
-     *
-     * <pre>
-     *   [redstonecircuit] carrier entry trace: entry=RIGHT_CLICK_BLOCK by=作者 raw=20481032, 127, 20524040
-     *       face=up hand=MAIN_HAND item=minecraft:redstone x1 tool=component -> MATCH
-     *       carrier=s:6c60aeef local=20481032, 127, 20524040 world=2775, 77, -1395
-     *       via=structure-block rawIsLocal=true
-     * </pre>
-     *
-     * <p>Pure: every field is a string the caller has already turned into one, so the format is asserted
-     * offline without a running game.
+     * The entry line: one shape for every entry point, so a reader compares positions and not formats. Pure - every
+     * field is a string the caller has already turned into one - so the format is asserted offline.
      */
     public static String entryLine(String entry, String who, String raw, String face, String hand,
                                    String item, String tool, Outcome outcome, String detail) {
@@ -431,9 +358,8 @@ public final class CarrierEntryTrace {
     }
 
     /**
-     * <b>The placement path's own line</b> - the P1.22 insert/retrieve decision, which is the one entry
-     * whose <em>inputs</em> (sneak state, what was in the hand, which local face, what the host held
-     * before) decide the outcome and are otherwise invisible.
+     * The placement path's own line: the one entry whose <em>inputs</em> - sneak state, what was in the hand, which
+     * local face, what the host held before - decide the outcome and are otherwise invisible.
      */
     public static String insertLine(String entry, String who, String raw, String face, String hand,
                                     String item, String tool, Outcome outcome, String detail) {
@@ -538,9 +464,8 @@ public final class CarrierEntryTrace {
         try {
             long tick = level == null ? 0L : level.getGameTime();
             boolean anyCarrier = hasLiveCarriers(level);
-            // A NONE outcome is never throttled: it is the one answer an operator reads to find out
-            // whether the gesture rule - and not the hook - is what dropped the click, and a throttled
-            // "not ours" would put this round's defect back. It is at most one line per click either way.
+            // A NONE outcome is never throttled: it is the one answer an operator reads to find out whether the
+            // gesture rule, and not the hook, is what dropped the click. It is at most one line per click anyway.
             boolean throttle = outcome != Outcome.MATCH && outcome != Outcome.NONE;
             if (throttle && !THROTTLE.allow(shape(entry, outcome, rawPos, anyCarrier), tick)) {
                 return;
@@ -899,16 +824,12 @@ public final class CarrierEntryTrace {
     }
 
     /**
-     * <b>The three-state verdict on a miss, read from a bounded scan of the index by local coordinate.</b>
+     * The three-state verdict on a miss, read from a bounded scan of the index by local coordinate.
      *
-     * <p>This is the line that would have answered the author's 101 misses in one grep. A miss whose
-     * coordinate is a record's own key but whose record is live is a <em>resolver</em> defect, and it must
-     * not read like "there was nothing there"; a miss whose record is landed is the resolver working
-     * exactly as designed; a miss with no record at all is a genuinely different thing (the click was not
-     * on a host, or nothing was ever claimed there).
-     *
-     * <p>Pure, and it names the record's own state rather than a boolean, so the three shapes cannot be
-     * confused in the log.
+     * <p>A miss whose coordinate is a record's own key but whose record is live is a <em>resolver</em> defect and must
+     * not read like "there was nothing there"; a miss whose record is landed is the resolver working as designed; a
+     * miss with no record at all is a different thing again (the click was not on a host, or nothing was ever claimed
+     * there). Pure, and it names the record's own state rather than a boolean, so the three cannot be confused.
      */
     public static String localVerdict(@Nullable CarrierStore.LocalScan scan,
                                       @Nullable BlockPos localPos) {
@@ -957,9 +878,8 @@ public final class CarrierEntryTrace {
     /**
      * The tail of a MATCH line: the carrier, the host's local coordinate and where the pose projects it.
      *
-     * <p>The pair is the point of the whole round, so it is formatted here rather than at each call site:
-     * one place to keep "local is the structure's frame, world is the projection" true. Package-visible
-     * so the format is pinned offline.
+     * <p>Formatted here rather than at each call site, so that "local is the structure's frame, world is the
+     * projection" is kept true in one place. Package-visible so the format is pinned offline.
      */
     static String matchDetail(Outcome outcome, @Nullable CarriedBlockRemoval.Hit hit,
                                       @Nullable BlockPos rawPos, @Nullable String detail) {

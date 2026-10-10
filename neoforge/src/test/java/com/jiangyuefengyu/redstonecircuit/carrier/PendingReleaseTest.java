@@ -15,20 +15,9 @@ import org.junit.jupiter.api.Test;
 /**
  * <b>{@code stopMoving} asks to stand down; only the world can say the block was put down.</b>
  *
- * <h2>The defect, from the author's log</h2>
- * A Create bearing at full speed <b>reversed direction</b>. Create fired {@code MovementBehaviour}
- * {@code stopMoving}, the hook released the host immediately, and the component vanished off a block
- * that was still {@code AIR} in the world - with the contraption entity <em>still present</em>:
- *
- * <pre>
- *   carrier c:ecef46f7 putdown contraption UNKNOWN_CARRIER … worldState=Block{minecraft:air} (AIR)
- *     entity=ecef46f7-65de-4dee-99a0-2aabf4…            ← still there
- * </pre>
- *
- * <p>Neither fact that would have justified a release was true. So the rule is now: wait, and release
- * only on evidence. These tests pin the rule itself - {@link PendingRelease#decide} is a pure function of
- * six observations precisely so that it can be - and then the ledger's idempotence, which matters because
- * Create calls {@code stopMoving} four to five times for one motion.
+ * <p>Create 对一次运动要发四到五次 {@code stopMoving}，而"方块已落回世界"和"结构已消失"这两件能证明可以释放的事实
+ * 当时都不成立，所以规则是等待、只在有证据时释放: {@link PendingRelease#decide} 是六个观测的纯函数，便于直接测；
+ * 账本部分钉的是幂等性，因为同一个手势会被重复调用。
  */
 class PendingReleaseTest {
 
@@ -47,8 +36,8 @@ class PendingReleaseTest {
     @Test
     @DisplayName("stopMoving with the block still AIR and the entity present is DEFERRED, not released")
     void theAuthorsCaseIsDeferred() {
-        // The author's frame, exactly: worldState=air, entity present (so not gone), a pose arriving
-        // because the bearing is still turning. Before this round this released the host.
+        // The reported frame: worldState=air, the entity still present (so not gone), and a pose arriving
+        // because the bearing is still turning.
         PendingRelease.Evidence e = evidence(false, false, true, false, false, 0L);
         assertEquals(PendingRelease.Action.CANCEL, PendingRelease.decide(e),
                 "a pose arriving IS the structure still moving, so the request to stand down is withdrawn");

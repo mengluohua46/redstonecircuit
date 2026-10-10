@@ -23,19 +23,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>A bare hand on a component inside a block a structure is carrying.</b>
+ * A bare hand on a component inside a block a structure is carrying.
  *
- * <h2>The gap, and the rule</h2>
- * In the world, a plain right-click with a bare hand works what is hidden inside a block: a lever flips, a
- * repeater's delay steps 1-2-3-4, a comparator swaps mode. On a physicalised block that gesture did
- * nothing, because the world's handler reads {@code InnerRedstoneStore} by a <b>world</b> position and a
- * carried component lives in the carrier index, keyed by the structure's own coordinate.
+ * <p>In the world, a plain right-click with a bare hand works what is hidden inside a block: a lever flips, a repeater's
+ * delay steps 1-2-3-4, a comparator swaps mode. On a physicalised block that gesture did nothing, because the world's
+ * handler reads {@code InnerRedstoneStore} by a <b>world</b> position while a carried component lives in the carrier
+ * index, keyed by the structure's own coordinate.
  *
- * <p>So the rule is <em>the same states, changed the same way</em>, and what is pinned here is that the
- * carrier-side half follows it: the delay cycle is the world's cycle, the lever's power is the world's
- * power, the output of a repeater is deliberately left alone, and nothing is written when the gesture is
- * refused. The one deliberate difference - a button - is asserted as a named refusal rather than a
- * silence, because its release would have to be scheduled against a position that does not move.
+ * <p>So the rule is <em>the same states, changed the same way</em>, and that is what is pinned here: the delay cycle is
+ * the world's cycle, the lever's power is the world's power, a repeater's output is left alone while its setting changes,
+ * and nothing is written when the gesture is refused. The one difference - a button - is asserted as a named refusal
+ * rather than a silence, because its release would have to be scheduled against a position that does not move.
  */
 class CarriedSwitchTest {
 
@@ -101,7 +99,7 @@ class CarriedSwitchTest {
     // --------------------------------------------------------------- the repeaters --
 
     @Test
-    @DisplayName("a repeater steps 1-2-3-4-1, and its output is deliberately left alone")
+    @DisplayName("a repeater steps 1-2-3-4-1, and its output is left alone")
     void theRepeaterCyclesItsDelay() {
         Slot repeater = new Slot(ComponentType.REPEATER);
         repeater.delay = 1;
@@ -247,7 +245,7 @@ class CarriedSwitchTest {
     }
 
     @Test
-    @DisplayName("workable() agrees with what apply() would do, for every component type")
+    @DisplayName("workable() agrees with what apply() would do —— 除了动作是「开界面」的四件（控制器、变压器、时钟源、延长器）")
     void workableAgreesWithApply() {
         for (ComponentType type : ComponentType.values()) {
             CarriedHostIndex fresh = new CarriedHostIndex();
@@ -259,6 +257,17 @@ class CarriedSwitchTest {
 
             boolean predicted = CarriedSwitch.workable(fresh, MINE, LOCAL);
             CarriedSwitch.Action action = CarriedSwitch.apply(fresh, MINE, LOCAL);
+            if (type == ComponentType.CONTROLLER || type == ComponentType.TRANSFORMER
+                    || type == ComponentType.CLOCK || type == ComponentType.EXTENDER) {
+                // The devices whose bare-hand gesture <b>is</b> their control screen are workable and are <b>not</b>
+                // steppable: the entry point opens the screen before apply is ever reached (CarrierInteraction), just
+                // as the world's own InnerSwitches#toggle has nothing to do for them. So this is the documented
+                // exception to the pair, of the same shape as the button's - workable says "a bare hand does something
+                // here", not "apply can step it".
+                assertTrue(predicted, "徒手右键对 " + type + " 是有动作的（打开它的控制界面）");
+                assertFalse(action.acted(), "而 apply 没有可步进的东西");
+                continue;
+            }
             assertEquals(predicted, action.acted(),
                     "the entry point claims the click on `workable` and acts on `apply`: the two must "
                             + "never disagree, and they disagree for " + type);

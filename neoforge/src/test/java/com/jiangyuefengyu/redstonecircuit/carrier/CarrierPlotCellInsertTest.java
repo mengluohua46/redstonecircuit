@@ -25,64 +25,26 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.32 commit B: a block inside a structure that has no carrier record yet can be built into.</b>
+ * A block inside a structure that has no carrier record yet can be built into.
  *
- * <h2>The author's own click, and why nothing happened</h2>
- * A Sable sub-level's blocks <b>are</b> level blocks at their own local coordinates, and a carrier record
- * is only ever created by taking a component out of a <em>world</em> position. So a block that was already
- * inside the structure when it was assembled has no record at all - and that is the block the player is
- * trying to put a component into. The author's log is exactly that click, one line, with both halves in it:
- *
- * <pre>
- *   carrier entry trace: … raw=20481032, 127, 20481036 … -&gt; MISS verdict=record present but NOT live
- *     steps=[projection table lookup at 20481032, 127, 20481036 -&gt; no entry (the table is keyed by WORLD
- *            position); local-coordinate match at 20481032, 127, 20481036: record absent (… scanned 1
- *            carrier(s)); plotOwnerAt(20481032, 127, 20481036) -&gt; s:c22611c6;
- *            localForVerified(pose, pos) -&gt; local=40962066, 320, 40962079;
- *            the index holds no record at s:c22611c6 local=40962066, 320, 40962079; …]
- * </pre>
- *
- * <p>Two facts, side by side: the structure's own storage <b>does</b> contain the clicked coordinate
- * ({@code plotOwnerAt} named {@code s:c22611c6}), and the resolver then turned that coordinate into
- * {@code local=40962066, 320, 40962079} - a <b>doubled</b> number that can never be found, because the
- * coordinate it started from was already a local coordinate. {@code 20481032 * 2 = 40962064}, and the
- * ghost lands two blocks past it.
- *
- * <h2>What is asserted</h2>
- * <ol>
- *   <li><b>the record is created at the coordinate that was clicked</b>, with no pose conversion anywhere -
- *       the "input {@code 20481032, 127, 20481036} ⇒ the record's key is exactly that" assertion the round
- *       asks for, which is also the assertion that no doubled coordinate can appear;</li>
- *   <li><b>the origin is the world position the structure's pose puts that cell at</b> - the same rule, and
- *       the same function, P1.30's adoption records;</li>
- *   <li><b>the slot is written into that record</b> and the host it belongs to is reported;</li>
- *   <li><b>idempotent</b>: a second resolve of the same coordinate returns the record as it is, and a
- *       component stored through it is not emptied by a repeat;</li>
- *   <li><b>a pose that cannot name a position refuses</b> - no record, nothing written, and therefore no
- *       item consumed, because the placement never reaches a plan that consumes one;</li>
- *   <li><b>a coordinate that is not a plot cell of a live structure refuses</b>: an ordinary world block,
- *       a plot owner that throws, and no plot owner at all.</li>
- * </ol>
- *
- * <h2>The one thing this file cannot assert, and where it is covered</h2>
- * The two broadcasts the production entry point makes - {@code CarrierStore#broadcastCarrier} and
- * {@code InnerRedstoneNetwork#notifyOutputChanged} - take a live {@code ServerLevel}, so they live in the
- * level form of {@code resolveForPlacement} and not in the level-free core these tests drive. What is
- * asserted here is the half that decides <b>whether there is a record to broadcast</b>, which is the half
- * that was broken; the level form is three lines that call the same core and then broadcast its result.
+ * <p>The structure's own storage holds the clicked coordinate as-is ({@code plotOwnerAt} names the owner),
+ * so converting it through the pose doubles it and the record can never be found again. The record must
+ * therefore be filed at the clicked coordinate, with the origin the pose puts that cell at - the same rule
+ * the adoption path records - and a pose or a plot lookup that cannot name a position must refuse, so
+ * nothing is consumed.
  */
 class CarrierPlotCellInsertTest {
 
-    /** The coordinate from the author's log: the click that could not put a component in. */
+    /** The clicked coordinate: a plot cell with no carrier record yet. */
     private static final BlockPos PLOT = new BlockPos(20481032, 127, 20481036);
 
-    /** The doubled coordinate the previous build computed for it, one block short of the log's own. */
+    /** The doubled coordinate such a conversion produces; no record may ever be filed here. */
     private static final BlockPos GHOST = new BlockPos(40962064, 254, 81962072);
 
-    /** Where this fixture's pose puts {@link #PLOT}: a plain translation, like the author's own claim. */
+    /** Where this fixture's pose puts {@link #PLOT}: a plain translation. */
     private static final BlockPos PLOT_WORLD = new BlockPos(-3, -60, -11);
 
-    /** The structure's carrier, from the log's {@code s:c22611c6}. */
+    /** The structure's carrier. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("c22611c6-0000-0000-0000-000000000000"));
 
@@ -110,7 +72,7 @@ class CarrierPlotCellInsertTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's claim is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos} by translation. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -125,13 +87,8 @@ class CarrierPlotCellInsertTest {
     private CarrierPose pose;
 
     /**
-     * {@code CarrierStore#resolveForPlacement} through its level-free core.
-     *
-     * <p>ASKED BY REFLECTION ON PURPOSE, exactly as P1.31's own test file asks its decision: on the previous
-     * tree this method does not exist at all, so a direct call would make this file a compile error there
-     * rather than a readable red assertion - and the round's report has to say which of the two it is. Asked
-     * by name, the failure is a plain "the decision does not exist", which is the shape of this round's
-     * defect.
+     * {@code CarrierStore#resolveForPlacement} through its level-free core, asked by reflection so an
+     * absent decision reads as a plain failure rather than as a compile error.
      */
     @Nullable
     private CarriedBlockRemoval.Hit resolve(@Nullable CarrierEntryTrace.Miss miss) {
@@ -153,8 +110,7 @@ class CarrierPlotCellInsertTest {
                     index, PLOT, new MapWorld(world), miss);
             return (CarriedBlockRemoval.Hit) result;
         } catch (ReflectiveOperationException absent) {
-            // The previous build: there is no such decision, which is the defect - the click can neither
-            // resolve nor file a record, so the component can never be put in.
+            // No such decision: the click can neither resolve nor file a record, so no component can go in.
             return null;
         }
     }
@@ -189,17 +145,15 @@ class CarrierPlotCellInsertTest {
 
             CarriedBlockRemoval.Hit hit = resolve(null);
 
-            assertNotNull(hit, "the cell belongs to a live structure and holds no record, so this is the "
-                    + "click the round is about");
+            assertNotNull(hit, "the cell belongs to a live structure and holds no record");
             assertEquals(PLOT, hit.localPos(), "the local coordinate IS the coordinate the click carried: "
                     + "plot coordinates are level coordinates");
             assertNotNull(index.at(AUTHOR, PLOT), "and the record really is filed under it");
             assertNull(index.at(AUTHOR, GHOST),
-                    "the doubled coordinate the previous build computed - 20481032 doubled to 40962064 - "
-                            + "must not exist anywhere: that ghost is why the component could never be "
-                            + "found");
+                    "a doubled coordinate must not exist anywhere: 20481032 doubled is 40962064, and a "
+                            + "record filed there can never be found");
             assertNull(index.at(AUTHOR, new BlockPos(40962066, 320, 40962079)),
-                    "nor the exact ghost the author's own log printed");
+                    "nor the doubled coordinate a resolver lands on two past it");
         }
 
         @Test
@@ -211,15 +165,14 @@ class CarrierPlotCellInsertTest {
             CarriedBlockRemoval.Hit hit = resolve(null);
 
             assertNotNull(hit);
-            // The SAME arithmetic the round's adoption records use: the block's centre through the pose,
-            // rounded to the block grid by `SubLevelSpace#nearestWorldBlock`.
+            // The block's centre through the pose, rounded to the block grid by SubLevelSpace#nearestWorldBlock.
             BlockPos expected = SubLevelSpace.nearestWorldBlock(
                     pose.blockCentre(new Vector3d(PLOT.getX(), PLOT.getY(), PLOT.getZ()),
                             new Vector3d()));
             assertEquals(expected, hit.worldPos(), "the world position the structure's pose names");
             assertEquals(expected, index.at(AUTHOR, PLOT).origin(), "and the record carries it as the "
-                    + "origin - the same rule and the same function P1.30's adoption records, so a "
-                    + "component filed here and one adopted there come home to the same block");
+                    + "origin - the same rule the adoption path records, so a component filed here and "
+                    + "one adopted there come home to the same block");
             assertFalse(index.at(AUTHOR, PLOT).landed(), "and it is riding, not put down");
         }
 
@@ -256,7 +209,7 @@ class CarrierPlotCellInsertTest {
             resolve(null);
             CarriedInsert.apply(index, AUTHOR, PLOT, Direction.NORTH, true, ComponentType.DUST, false);
             Slot before = index.at(AUTHOR, PLOT).slot();
-            assertNotNull(before, "the setup is the point");
+            assertNotNull(before, "the first click did store a component");
 
             CarriedBlockRemoval.Hit again = resolve(null);
 
@@ -273,7 +226,7 @@ class CarrierPlotCellInsertTest {
         @DisplayName("a world entry at that coordinate is migrated, not shadowed")
         void aStaleWorldEntryIsMigrated() {
             liveStructure(moving(PLOT, PLOT_WORLD));
-            // The state P1.30's adoption repairs: a component in the WORLD store keyed by a plot coordinate.
+            // A component in the WORLD store keyed by a plot coordinate - the state adoption repairs.
             world.put(PLOT.asLong(), new Slot(ComponentType.RETAINING_REPEATER));
 
             resolve(null);
@@ -307,9 +260,7 @@ class CarrierPlotCellInsertTest {
             assertTrue(miss.describe().contains("pose cannot name a world position"),
                     "the trace says which question refused it: " + miss.describe());
 
-            // THE ITEM. The placement path only spends an item when a plan says INSERT, and a plan needs a
-            // host - so "no hit" is "nothing consumed", which is the round's requirement stated structurally
-            // rather than as a guard.
+            // The placement path only spends an item when a plan says INSERT, and a plan needs a host.
             CarriedInsert.Action action = CarriedInsert.apply(index, AUTHOR, PLOT, Direction.NORTH, true,
                     ComponentType.DUST, false);
             assertEquals(CarriedInsert.Action.REFUSED_POSITION, action, "no host, so nothing is stored: "

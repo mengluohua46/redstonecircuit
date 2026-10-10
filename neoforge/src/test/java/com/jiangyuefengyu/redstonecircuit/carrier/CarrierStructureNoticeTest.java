@@ -30,37 +30,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.36: the machine's own blocks have to be told that a carried host's output changed.</b>
+ * The machine's own blocks have to be told that a carried host's output changed.
  *
- * <h2>The defect, in the author's words and in coordinates</h2>
- * "The redstone inside a physicalised block cannot drive the piston above it." The mechanism is a
- * missing notification, not a missing value: a host the mod is carrying was announced at the world
- * position it is <em>projected onto</em> and nowhere else, while a piston the machine is carrying lives
- * at its coordinate <em>inside</em> the structure - which for a Sable sub-level is a real level position
- * (plot coordinate == level coordinate, P1.30 section 30.1.2). Two different numbers, one of them never
- * woken.
- *
- * <h2>What this class drives, and what it deliberately does not</h2>
- * The two decisions that make up the fix are production code and are driven here:
- *
- * <ol>
- *   <li><b>Which hosts have news for the structure frame</b> - {@link CarrierProjection#forEachChange}
- *       with its structure half, on a real {@link CarrierProjection} filled the way the tick fills it:
- *       {@code begin}, {@code put} (snapshotting the value), the solve (the test moves the live slot),
- *       then the walk.</li>
- *   <li><b>How often one coordinate may be announced</b> - the real
- *       {@link SolverNotifications#structurePass(ResourceKey, long, java.util.function.Consumer,
- *       boolean)}, which is the same §24 rule the world side uses and is subject to the same switch.
- *   </li>
- * </ol>
- *
- * <p>What cannot be driven offline is the level itself, so the "recording fake level" the brief asks
- * for is the seam §24's own tests already use: the notification is a {@code Consumer<BlockPos>} and the
- * recorder is a list. {@code ServerLevel} is a class with a running server behind its constructor and
- * {@code updateNeighborsAt} is a final-ish method on it, so a fake level is impossible; what is asserted
- * instead is every decision <em>up to</em> the call - which coordinate, how many times, and in which
- * frame - plus, in {@link #theProductionWiringCallsTheStructurePass}, that production is wired to this
- * decision and not to a copy of it.
+ * <p>The mechanism is a missing notification, not a missing value: a host the mod is carrying was announced at the
+ * world position it is <em>projected onto</em> and nowhere else, while a piston the machine is carrying lives at
+ * its coordinate <em>inside</em> the structure - which for a Sable sub-level is a real level position. Asserted
+ * here: which hosts have news for the structure frame ({@link CarrierProjection#forEachChange} with its structure
+ * half), and how often one coordinate may be announced ({@link SolverNotifications#structurePass}). The level
+ * itself cannot be driven offline, so every decision up to the call is asserted, plus the production wiring.
  */
 class CarrierStructureNoticeTest {
 
@@ -155,7 +132,7 @@ class CarrierStructureNoticeTest {
                 "the structure's own coordinate is where the machine's piston lives, so it is what has "
                         + "to be woken");
         assertEquals(List.of(WORLD), pass.world,
-                "and the world position is still announced, once, exactly as before this round");
+                "and the world position is still announced, once");
         assertFalse(LOCAL.equals(WORLD), "the fixture has to be two different coordinates");
     }
 
@@ -316,10 +293,10 @@ class CarrierStructureNoticeTest {
         offPass.run(off);
 
         assertEquals(List.of(LOCAL), onPass.structure, "on: the machine's own block is told");
-        assertTrue(offPass.structure.isEmpty(), "off: exactly the behaviour before this round");
+        assertTrue(offPass.structure.isEmpty(), "off: nothing is announced to the structure frame");
         assertEquals(onPass.world, offPass.world,
-                "and the world-side notification is identical either way - one line of it was not "
-                        + "touched by this round");
+                "and the world-side notification is identical either way - the switch only covers the "
+                        + "structure frame");
         assertEquals(List.of(WORLD), offPass.world);
     }
 
@@ -460,8 +437,8 @@ class CarrierStructureNoticeTest {
                 "a signal query at a structure's own coordinate has to be answered");
         assertTrue(mixin.contains("CarrierStore.projectedHostAt(serverLevel, pos)"),
                 "and the world-frame read is still there");
-        // P1.38 moved WHICH answer wins out of the mixin and into one pure rule, so the structure frame's
-        // own-frame answer is asserted where it now lives; the mixin is asserted to ask that rule.
+        // Which answer wins lives in one pure rule, so the structure frame's own-frame answer is asserted
+        // where it lives; the mixin is asserted to ask that rule.
         assertTrue(mixin.contains("BlockSignalSources.select("),
                 "the mixin asks the rule rather than carrying the branch itself");
         String sources = flat(

@@ -14,20 +14,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests P4's other conversion: a local side of a machine, turned into the world position and the world
- * direction a vanilla signal query has to be asked about.
+ * The other half of a carried machine's frame: a local side, turned into the world position and the world direction a
+ * vanilla signal query has to be asked about. Both halves fail independently.
  *
- * <h2>What one read has to get right</h2>
- * Both halves at once, and they fail independently:
+ * <p><b>The position</b> is <em>not</em> "the host's world position plus the local direction"; it is the projection of
+ * the neighbour's own local coordinate. For a right angle the two agree, which is exactly why a test that only ever
+ * uses an unturned machine would not notice the difference.
  *
- * <ul>
- *   <li><b>the position</b> - the neighbour is <em>not</em> "the host's world position plus the local
- *       direction"; it is the projection of the neighbour's own local coordinate. For a right angle the
- *       two agree, which is exactly why a test that only ever uses an unturned machine would not notice
- *       the difference;</li>
- *   <li><b>the direction</b> - vanilla asks "what do you emit towards me", so the direction handed to
- *       the world is the local side turned into the world, through the pose's quaternion.</li>
- * </ul>
+ * <p><b>The direction</b>: vanilla asks "what do you emit towards me", so the local side is turned into the world
+ * through the pose's quaternion.
  */
 class CarrierWorldIoTest {
 

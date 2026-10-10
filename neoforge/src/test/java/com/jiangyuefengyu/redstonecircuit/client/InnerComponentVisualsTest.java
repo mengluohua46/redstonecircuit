@@ -23,16 +23,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the mapping from a stored component onto vanilla's vocabulary.
+ * Tests the mapping from a stored component onto vanilla's vocabulary: which vanilla state stands for a
+ * component is where a mistake shows up as a visibly wrong thing - a repeater pointing backwards, a torch
+ * on its side, a wire claiming connections it does not have.
  *
- * <p>Since 1.1.0 the inside of a block is drawn with vanilla's own models, so "which vanilla state
- * stands for this component" is where a mistake shows up as a visibly wrong thing: a repeater whose
- * arrow points the wrong way, a torch lying on its side on the floor, a lever attached to thin air, a
- * wire that claims connections it does not have.
- *
- * <p>The half pinned here is the decision - deliberately kept free of registries so it can be checked
- * with no game running. Turning the decision into a {@code BlockState} and a matrix is the other half,
- * and it is left to the eye, because it can only be wrong in ways a headless test cannot see.
+ * <p>Kept free of registries so it can be checked with no game running; the matrix half is left to the eye.
  */
 class InnerComponentVisualsTest {
 
@@ -85,9 +80,7 @@ class InnerComponentVisualsTest {
     @Test
     @DisplayName("a horizontal repeater hands its reading side to vanilla unchanged")
     void repeaterReadsFromTheSideVanillaCallsFacing() {
-        // Vanilla's FACING is the side a repeater reads from (getInputSignal asks that neighbour, and
-        // updateNeighborsInFront notifies the opposite one), which is exactly what Slot#facing means,
-        // so this is the one mapping between the two that must NOT be flipped.
+        // Vanilla's FACING is the side a repeater reads from, exactly what Slot#facing means: never flip it.
         for (Direction facing : Direction.Plane.HORIZONTAL) {
             Slot slot = slot(ComponentType.REPEATER, facing);
             slot.delay = 3;
@@ -103,8 +96,7 @@ class InnerComponentVisualsTest {
     @Test
     @DisplayName("a repeater on the floor or the ceiling lies on its back")
     void verticalRepeaterIsTilted() {
-        // Vanilla's diode FACING is horizontal only and its blockstate has no quarter turn about X, so
-        // these two cases are the ones we rotate ourselves: the authored model reads from the south.
+        // Vanilla's diode FACING is horizontal only, so these two cases are rotated here: the model reads south.
         Slot below = slot(ComponentType.REPEATER, Direction.DOWN);
         Placement down = place(below, EVERYTHING);
         assertEquals(Model.REPEATER, down.model());
@@ -178,8 +170,7 @@ class InnerComponentVisualsTest {
     @Test
     @DisplayName("a torch on the floor is vanilla's floor torch, untouched")
     void floorTorch() {
-        // A torch does not power the side it hangs on, and neither does vanilla's floor torch: it hangs
-        // on the block below.
+        // A torch does not power the side it hangs on, and vanilla's floor torch hangs on the block below.
         Placement placement = place(slot(ComponentType.TORCH, Direction.DOWN), EVERYTHING);
         assertEquals(Model.TORCH, placement.model());
         assertEquals(0F, placement.tilt());

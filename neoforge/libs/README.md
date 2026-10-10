@@ -1,12 +1,11 @@
-# libs/ — no binaries here any more
+# libs/ — no binaries are committed here
 
-**This folder now contains exactly one file: this README.** The two jars that used to live here
+**This folder contains exactly one file: this README.** The two jars it names
 (`sable-companion-common-1.21.1-1.6.0.jar`, ~35 KB, and `ponder-neoforge-1.0.82+mc1.21.1.jar`,
-~800 KB) have been removed from the repository and are ignored by `.gitignore`.
+~800 KB) are not committed; `.gitignore` covers them.
 
-They were third-party binaries: Sable's nested `companion` jar and Create's nested `ponder`
-(catnip) jar, redistributed inside their respective mod jars. Committing someone else's jar into a
-public repository is not something this project should do, so they are now **unpacked at build
+They are third-party binaries: Sable's nested `companion` jar and Create's nested `ponder`
+(catnip) jar, redistributed inside their respective mod jars. They are **unpacked at build
 time, on the machine that has the mods installed**, into:
 
 ```
@@ -25,8 +24,7 @@ physicsModsDir=D:/MC mod/红石电路/模组
 and finds each jar in two ways, in this order:
 
 1. **already unpacked** — a file matching the name is lying directly in that folder, e.g.
-   `sable-companion-common-1.21.1-1.6.0.jar` or `ponder-neoforge-1.0.82+mc1.21.1.jar`
-   (this is the form the author keeps them in);
+   `sable-companion-common-1.21.1-1.6.0.jar` or `ponder-neoforge-1.0.82+mc1.21.1.jar`;
 2. **nested in a mod jar** — otherwise every `*.jar` in that folder is opened and the first
    `META-INF/jarjar/<name>` entry matching the needed name is extracted.
 
@@ -45,8 +43,7 @@ and never looked for at runtime.
 Nothing fails. If neither form can be found, the build logs one line starting with
 `[redstonecircuit]` and **excludes the optional compat source set** (`neoforge/src/compat/java`,
 i.e. `com.jiangyuefengyu.redstonecircuit.compat.physics`) from compilation. The main mod compiles,
-the 115 unit tests and the 66 game tests all run, and a fresh clone with no mods installed builds
-with `gradlew build` exactly as before. `/rc physics` then answers
+the tests run, and a clone with no mods installed builds with `gradlew build`. `/rc physics` then answers
 "physics compatibility is not built into this jar" instead of doing anything.
 
 ## How to refresh / change the version

@@ -24,19 +24,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests P2's solve loop: what happens to a redstone network <em>inside</em> a moving structure.
+ * Tests the solve loop of a redstone network <em>inside</em> a moving structure: it runs over local
+ * coordinates with no level, no block states and no neighbour notifications.
  *
- * <h2>Why this is worth a test of its own</h2>
- * The world's solver is already covered by {@code PowerSolverTest} and the game tests, and the whole
- * reason {@link CarrierLightNetwork} exists is that the loop <em>around</em> that solver is a second
- * implementation - the one that runs over local coordinates with no level, no block states and no
- * neighbour notifications. Everything the brief asks of P2's first two items lives here: that the
- * algorithm really is reused rather than re-derived, that dust still reaches 15 and fades a step per
- * hop, that a repeater still takes its delay rather than switching instantly, and that the per-tick
- * work ceiling refuses rather than half-solving a component.
- *
- * <p>Plain data throughout: a map of positions to nodes, a counter for the clock, and no Minecraft
- * level anywhere.
+ * <p>Plain data throughout: a map of positions to nodes, a counter for the clock, and no level.
  */
 class CarrierLightNetworkTest {
 
@@ -183,25 +174,14 @@ class CarrierLightNetworkTest {
     }
 
     /**
-     * Ticks a network forward until it stops finding more to do.
-     *
-     * <p>Worth spelling out why this is not just "solve twice". A driven component is <em>scheduled</em>
-     * during a solve and evaluated when its delay elapses, and the wires it reads may still have been
-     * mid-propagation when it was scheduled - which is deliberate, because it is exactly what the
-     * world's network does, and what gives a repeater its delay instead of an instant switch. So a
-     * circuit that needs a comparator settled is not settled by one pass, and a test that assumed it
-     * was would be testing something the game does not do.
-     *
-     * @return the clock value it stopped at
+     * Ticks a network forward until it stops finding more to do; returns the clock value it stopped at.
      */
     private static long settle(CarrierLightNetwork network, PowerEnvironment space, long from,
                                BlockPos... seeds) {
         long now = from;
         for (int i = 0; i < 32; i++) {
             int result = network.solve(space, seeds(seeds), now);
-            // A pass that changed nothing *and* has nothing queued is the fixpoint. Both halves are
-            // needed: a pass that applies a scheduled flip changes something, and a pass that only
-            // leaves a flip waiting has not changed anything yet - neither is settled.
+            // A pass that changed nothing *and* has nothing queued is the fixpoint; both halves count.
             if (result == 0 && network.pendingCount() == 0) {
                 return now;
             }
@@ -216,9 +196,7 @@ class CarrierLightNetworkTest {
     @DisplayName("the loop propagates exactly as the world does: a wire hop costs one")
     void wireHopCostsOne() {
         FakeSpace space = new FakeSpace();
-        // A lever feeding three pieces of dust to its east. The lever is a source, so the first wire
-        // is lit to 15 and each further hop loses one - the vanilla rule, and the thing that would
-        // silently differ if this loop re-derived the algorithm instead of reusing PowerSolver.
+        // A lever feeding three wires to its east: the first is lit to 15 and each hop loses one.
         space.node(0, 0, 0, ComponentType.LEVER).powered(15);
         space.node(1, 0, 0, ComponentType.DUST);
         space.node(2, 0, 0, ComponentType.DUST);
@@ -252,9 +230,7 @@ class CarrierLightNetworkTest {
     @Test
     @DisplayName("the structure's outside is the solver's supply, and only that")
     void theOutsideIsTheSolverSupply() {
-        // This is the boundary P1 froze and P4 would bridge, expressed as one number. The in-structure
-        // environment answers 0 for it, so this test pins down both halves: that a non-zero supply
-        // *would* be consumed here (the loop really does read it), and that production leaves it at 0.
+        // A non-zero outside supply *would* be consumed here, but the in-structure environment answers 0.
         FakeSpace powered = new FakeSpace();
         powered.node(0, 0, 0, ComponentType.DUST);
         powered.outside(11);
@@ -290,9 +266,7 @@ class CarrierLightNetworkTest {
     @DisplayName("two repeaters facing away from each other are two components, not one")
     void backToBackDiodesAreSeparate() {
         FakeSpace space = new FakeSpace();
-        // West repeater: input on its west side, output to the east. East repeater: the other way
-        // round. Neither reads the other, so they are two networks - exactly as in the world, and the
-        // reason the seed list has to contain both.
+        // West reads west and drives east, the other way round: neither reads the other, so both are seeds.
         space.node(0, 0, 0, ComponentType.REPEATER).facing(Direction.WEST);
         space.node(1, 0, 0, ComponentType.REPEATER).facing(Direction.EAST);
 
@@ -338,8 +312,7 @@ class CarrierLightNetworkTest {
         network.solve(space, seeds(at(1, 0, 0)), 0L);
         assertEquals(1, network.pendingCount(), "setting 1 is a two-tick delay");
 
-        // The supply is gone before the delay elapses. The output is decided when the tick arrives,
-        // not when it was scheduled - which is what makes a short pulse vanish instead of stretching.
+        // The supply is gone before the delay elapses; the output is decided when the tick arrives.
         lever.powered(0);
         network.solve(space, seeds(at(1, 0, 0)), 2L);
         assertEquals(0, repeater.level(), "a pulse shorter than the delay does not latch a repeater on");
@@ -348,10 +321,7 @@ class CarrierLightNetworkTest {
     @Test
     @DisplayName("a comparator compares its back input against its sides, and subtracts in subtract mode")
     void comparatorModes() {
-        // Dust injects 12 behind the comparator, and a second wire beside it feeds a side at 10. Both
-        // wires are seeds of their own, which matters: a comparator reads its sides by design and its
-        // two side wires are *not* part of its component - the same reason the driver hands over every
-        // host a structure carries rather than one seed per circuit.
+        // A comparator reads its sides by design, and those side wires are not part of its component.
         FakeSpace compare = new FakeSpace();
         compare.node(0, 0, 0, ComponentType.DUST).injected(12);
         FakeNode comparing = compare.node(1, 0, 0, ComponentType.COMPARATOR)
@@ -402,8 +372,7 @@ class CarrierLightNetworkTest {
         space.node(2, 0, 0, ComponentType.DUST).powered(6);
         space.node(3, 0, 0, ComponentType.DUST).powered(5);
 
-        // A budget of two against a three-block wire run: the whole run is one component, so there is
-        // nothing that can be relaxed without resetting a wire the loop cannot finish.
+        // A budget of two against a three-block run: nothing can be relaxed without resetting a wire.
         CarrierLightNetwork network = new CarrierLightNetwork(2);
         assertEquals(-1, network.solve(space, seeds(at(1, 0, 0)), 0L),
                 "the caller is told the work did not happen");
@@ -419,15 +388,12 @@ class CarrierLightNetworkTest {
     @DisplayName("a component too big for the budget stops the pass, and the caller is told")
     void aBudgetOverflowIsReportedRatherThanGuessedAt() {
         FakeSpace space = new FakeSpace();
-        // A three-block run whose head carries an injected value, so the whole run would change if it
-        // were relaxed. Note that the injected supply is an input, not a stored value: the head starts
-        // at zero like any other freshly picked-up wire.
+        // The injected supply is an input, not a stored value: the head starts at zero like any wire.
         space.node(0, 0, 0, ComponentType.DUST).injected(15);
         space.node(1, 0, 0, ComponentType.DUST).powered(9);
         space.node(2, 0, 0, ComponentType.DUST).powered(8);
 
-        // A budget of two against a component of three: nothing can be relaxed without resetting a
-        // wire the pass cannot finish, so the pass refuses and reports it.
+        // A budget of two against a component of three: the pass refuses rather than reset a wire.
         CarrierLightNetwork network = new CarrierLightNetwork(2);
         int result = network.solve(space, seeds(at(0, 0, 0)), 0L);
 

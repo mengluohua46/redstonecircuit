@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "facing=north,lit=false": { "model": "redstonecircuit:block/transmission_gate" },
+    "facing=east,lit=false": { "model": "redstonecircuit:block/transmission_gate", "y": 90 },
+    "facing=south,lit=false": { "model": "redstonecircuit:block/transmission_gate", "y": 180 },
+    "facing=west,lit=false": { "model": "redstonecircuit:block/transmission_gate", "y": 270 },
+    "facing=up,lit=false": { "model": "redstonecircuit:block/transmission_gate", "x": 270 },
+    "facing=down,lit=false": { "model": "redstonecircuit:block/transmission_gate", "x": 90 },
+    "facing=north,lit=true": { "model": "redstonecircuit:block/transmission_gate_lit" },
+    "facing=east,lit=true": { "model": "redstonecircuit:block/transmission_gate_lit", "y": 90 },
+    "facing=south,lit=true": { "model": "redstonecircuit:block/transmission_gate_lit", "y": 180 },
+    "facing=west,lit=true": { "model": "redstonecircuit:block/transmission_gate_lit", "y": 270 },
+    "facing=up,lit=true": { "model": "redstonecircuit:block/transmission_gate_lit", "x": 270 },
+    "facing=down,lit=true": { "model": "redstonecircuit:block/transmission_gate_lit", "x": 90 }
+  }
+}

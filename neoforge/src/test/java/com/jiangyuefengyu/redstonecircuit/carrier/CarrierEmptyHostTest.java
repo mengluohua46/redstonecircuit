@@ -29,39 +29,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>"The structure still carries this block and the block holds nothing" is a state, not a crash.</b>
+ * The structure still carries a block and the block holds nothing: a state, not a crash. Every carrier
+ * entry point must not throw, must answer "there is no component here", and must write nothing.
  *
- * <h2>The author's P1.23 crash, as a test</h2>
- * A host a structure was carrying had had its component taken back out, so the record's
- * {@code slot()} answered {@code null} - the state P1.22 introduced with
- * {@link CarriedHostIndex#removeSlot}. The next wrench shift-click on that host reached
- * {@code HostSync#carrierPayload}, which called {@code slot().copy()}, and the resulting
- * {@code NullPointerException} came out of {@code LevelTickEvent.Post} and killed the server
- * (crash report {@code 9f315663-…}):
- *
- * <pre>
- *   at HostSync.carrierPayload(HostSync.java:273)
- *   at HostSync.broadcastPose(HostSync.java:201)
- *   at CarrierStore.broadcastPose(CarrierStore.java:1656)
- *   at CarrierStore.tick(CarrierStore.java:2617)
- *   at InnerRedstoneTickHandler.onLevelTick(InnerRedstoneTickHandler.java:49)
- * </pre>
- *
- * <p>Every test below drives one half of that state with no level, no player and no packet, because the
- * whole of it is a pure function over {@link CarriedHostIndex} - the same seam {@code CarriedToolTest}
- * and {@code CarriedSwitchTest} use. The three things asserted, for every carrier entry point:
- *
- * <ol>
- *   <li><b>it does not throw</b> - the crash is reproduced here first and is impossible afterwards;</li>
- *   <li><b>it answers "there is no component here"</b> rather than "I did something" - the same answer
- *       the world's own empty host gives;</li>
- *   <li><b>it writes nothing</b> - the record, the world store and the save file are all exactly as they
- *       were.</li>
- * </ol>
- *
- * <p>The world side is checked last, deliberately: {@code slot() == null} there means "this block holds no
- * component", which is the ordinary case for every block in the world and must keep behaving exactly as
- * it did.
+ * <p>Driven with no level, no player and no packet, over {@link CarriedHostIndex} alone.
  */
 class CarrierEmptyHostTest {
 
@@ -102,17 +73,13 @@ class CarrierEmptyHostTest {
 
     @BeforeEach
     void clearGuards() {
-        // The entry points' warning flags and failure counts are process-lifetime by design, so one test
-        // must not see another's. The ledger is the same kind of state.
+        // The warning flags and failure counts are process-lifetime by design, so clear them per test.
         CarrierGuards.clear();
     }
 
     /**
-     * One host, picked up with a component, and then emptied - the exact state the crash was in.
-     *
-     * <p>Emptied through {@link CarriedHostIndex#removeSlot}, which is the named form of "a player took the
-     * component back out", rather than by constructing a record by hand: the state under test has to be
-     * the one the production path produces, or the test proves something about the test.
+     * One host, picked up with a component and then emptied through {@link CarriedHostIndex#removeSlot},
+     * so the state under test is the one the production path produces.
      */
     private CarriedHost carryAndEmpty(BlockPos local, ComponentType type) {
         Slot slot = new Slot(type);
@@ -128,28 +95,18 @@ class CarrierEmptyHostTest {
 
     // ------------------------------------------------------- the crash itself --
 
-    /**
-     * <b>The crash, reproduced.</b>
-     *
-     * <p>{@code carrierPayload} is reached from the pose heartbeat, so before this round an empty host on
-     * one moving structure threw out of the level tick. The fix has to make the whole host list survive
-     * it, and the message the client gets has to be the one the client can act on: this host carries no
-     * component, so it is not in the payload at all.
-     */
+    /** An empty host must not throw out of the pose heartbeat, and it is left out of the payload. */
     @Test
     @DisplayName("an emptied carried host does not crash the payload build: it is simply left out")
     void anEmptiedHostDoesNotCrashThePayload() {
         BlockPos local = pos(3, 0, 4);
         CarriedHost host = carryAndEmpty(local, ComponentType.RETAINING_REPEATER);
 
-        // The record itself: an empty host has nothing to copy, nothing to write, and nothing to draw.
-        // These three are the crash: `slot().copy()` in the payload build, `slot.save()` in the file, and
-        // `slot.copy()` in the record's own copy.
+        // An empty host has nothing to copy, nothing to write and nothing to draw.
         assertNull(host.copy().slot(), "copying an empty host keeps it empty rather than dereferencing null");
         assertNull(host.save(), "and saving one writes nothing, because its only payload is the component");
 
-        // And the walk the crash was in - `for (CarriedHost host : index.liveHostsOf(carrier))` with one
-        // `slot().copy()` per host - has to tolerate the empty one rather than throw.
+        // The walk over the live hosts has to tolerate the empty one rather than throw.
         int copied = 0;
         for (CarriedHost live : index.liveHostsOf(CARRIER)) {
             Slot held = live.slot();
@@ -162,21 +119,9 @@ class CarrierEmptyHostTest {
     }
 
     /**
-     * The same state, through the list the payload is built from: the emptied host is still <b>live</b>,
-     * and it contributes no view.
-     *
-     * <p>That is what makes "empty" a state the server can hold without dereferencing anything, and the
-     * renderer draws nothing at that coordinate: both the shell and the component are emitted from the
-     * view, so a host with no view has nothing to emit.
-     *
-     * <p><b>P1.43: "no view" is not on its own a correction, and this javadoc used to say it was.</b>
-     * The sentence here read "the next carrier message corrects a client that had been shown the
-     * component before it was taken out" - and it did not, because absence from the host list is also how
-     * a <b>put-down</b> travels, so the client kept the view it was holding as a landed record and went
-     * on drawing the frame and the component (the author's ghost). The correction is the host-level
-     * removal notice that travels <em>beside</em> the host list ({@code CarriedInsert#removalNotice});
-     * this test's own assertions - no view, record still live - are unchanged and still what the payload
-     * build must do.
+     * The emptied host is still <b>live</b> and contributes no view. Both the shell and the component are
+     * emitted from the view, so a host with no view has nothing to emit - while absence from the host
+     * list is also how a put-down travels.
      */
     @Test
     @DisplayName("the client is told nothing for an emptied host, and the record is still live")
@@ -204,12 +149,7 @@ class CarrierEmptyHostTest {
 
     // ---------------------------------------------------- the tool entry points --
 
-    /**
-     * The wrench, both gestures, on an empty host: "no component here", exactly as the world's wrench says.
-     *
-     * <p>This is the click the author was making when the server died - a wrench shift-click on a host
-     * whose component had already been taken out.
-     */
+    /** The wrench, both gestures, on an empty host: "no component here", as the world's wrench says. */
     @Test
     @DisplayName("the wrench on an emptied host answers 'no component' and writes nothing")
     void theWrenchRefusesAnEmptiedHost() {
@@ -318,12 +258,8 @@ class CarrierEmptyHostTest {
     // ------------------------------------------------------- the shared barrier --
 
     /**
-     * <b>The barrier: a carrier entry point that throws answers "not handled" and says so once.</b>
-     *
-     * <p>This is the shape the P1.23 crash needed and did not have. The failure must not reach the caller
-     * (the event bus rethrows, and the level tick aborts), the answer must be the caller's fallback, and
-     * the report must be written exactly once however many times it happens - a per-click warning is the
-     * flood the solver's own aggregation exists to avoid.
+     * A carrier entry point that throws answers "not handled" and says so once, however many times it
+     * fails: the failure must not reach the caller, and a per-click warning would be a flood.
      */
     @Test
     @DisplayName("a failing carrier entry point answers 'not handled', warns once, and counts every failure")
@@ -332,7 +268,6 @@ class CarrierEmptyHostTest {
         assertFalse(guard.warned());
         assertEquals(0, guard.failures());
 
-        // The exact failure the author hit, from the exact call that produced it.
         boolean handled = guard.call(BlockPos.ZERO, () -> {
             Slot absent = null;
             absent.copy();
@@ -375,8 +310,7 @@ class CarrierEmptyHostTest {
                 "the contraption packet has not failed, so it must still be able to report its own");
         assertFalse(CarrierGuards.POSE.warned());
 
-        // The names are distinct and stable: the warning line has to say which hook threw, which the
-        // author's own log could not - it named a position and a generic 'carrier tool click failed'.
+        // The names are distinct and stable: the warning line has to say which hook threw.
         assertEquals(CarrierGuards.Entry.BLOCK_CLICK,
                 CarrierGuards.BLOCK_CLICK.entry());
         assertTrue(CarrierGuards.Entry.CONTRAPTION_PACKET.label()
@@ -387,11 +321,8 @@ class CarrierEmptyHostTest {
     // ---------------------------------------------------------- the world side --
 
     /**
-     * <b>The world side is unchanged: {@code slot() == null} there has always meant "no component".</b>
-     *
-     * <p>The world store has no entry for a block that holds nothing, so every world-side reader already
-     * answers null; this pins the two the carrier layer shares a rule with, so the two halves cannot drift
-     * apart while the carrier side learns about empty hosts.
+     * {@code slot() == null} has always meant "no component" on the world side: the world store has no
+     * entry for a block that holds nothing, so every world-side reader already answers null.
      */
     @Test
     @DisplayName("the world's empty host still answers 'no component' to the wrench and the switch")
@@ -403,20 +334,15 @@ class CarrierEmptyHostTest {
         assertFalse(CarriedSwitch.workable(index, CARRIER, worldPos));
         assertEquals(CarriedSwitch.Action.REFUSED_POSITION,
                 CarriedSwitch.apply(index, CARRIER, worldPos),
-                "and the world owns the click, exactly as before this round");
+                "and the world owns the click");
         assertEquals(CarriedInsert.Action.REFUSED_POSITION,
                 CarriedInsert.apply(index, CARRIER, worldPos, Direction.UP, true, null, false));
         assertNull(CarriedInsert.slotOf(index, CARRIER, worldPos));
     }
 
     /**
-     * The other half of the same rule: an emptied host and a coordinate the structure carries nothing at
-     * are <b>different states</b>, and the code has to tell them apart.
-     *
-     * <p>"The block is riding and holds nothing" is what the placement path inserts into; "this
-     * coordinate is not one of mine" is what the world owns. Collapsing them would make the world's own
-     * click on any block resolve to a carried host, which is the class of bug
-     * {@code CarrierLocalResolutionTest} exists for.
+     * An emptied host and a coordinate the structure carries nothing at are <b>different states</b>:
+     * collapsing them would make the world's own click on any block resolve to a carried host.
      */
     @Test
     @DisplayName("an emptied host and a coordinate the structure does not carry are different states")

@@ -26,27 +26,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests P2's driver: the part that decides <em>which</em> structures get solved, at what rate, and
- * what happens to the answer.
+ * Tests the driver that decides <em>which</em> structures get solved, at what rate, and what happens to the answer.
  *
- * <h2>What is actually at stake</h2>
- * {@link CarrierLightNetworkTest} proves the solve itself. This proves the three things the brief
- * asks of the layer around it:
- *
- * <ul>
- *   <li><b>It is driven per tick, and only for what is in flight.</b> The author's world has ~840 host
- *       blocks; a driver that walked them would be the performance bug the brief warns about. So the
- *       first test is that a level with nothing carried costs nothing, and the second is that what
- *       <em>is</em> carried is solved on the very next pass.</li>
- *   <li><b>The answer is written back.</b> A solve that left the carried record alone would be
- *       invisible: the renderer, {@code /rc dump} and the goggles all read that record.</li>
- *   <li><b>Two drivers do not double-solve.</b> Create's per-actor callback and the level tick can both
- *       fire in one tick, and the guard that stops the second one is worth a test because getting it
- *       wrong is silent - it costs CPU and looks like nothing at all.</li>
- * </ul>
- *
- * <p>A fake index, a map for the store, a counter for the clock and a recording write-back: no game
- * anywhere.
+ * <p>A level with nothing carried costs nothing, and what <em>is</em> carried is solved on the very next pass;
+ * the answer is written back into the carried record, which the renderer, {@code /rc dump} and the goggles all
+ * read; and two drivers firing in one tick solve once, not twice, or the waste is silent. A fake index, a map for
+ * the store, a counter for the clock and a recording write-back: no game anywhere.
  */
 class CarrierNetworksTest {
 
@@ -99,7 +84,7 @@ class CarrierNetworksTest {
                 null, recorder, null);
     }
 
-    /** The same context with P4's bridge open: a fixed pose, and a world that answers one number. */
+    /** The same context with the world bridge open: a fixed pose, and a world that answers one number. */
     private CarrierStore.TickContext bridged(long gameTime, CarrierPose pose, int worldSignal) {
         return new CarrierStore.TickContext(new CarrierStore.Clock(gameTime, DIMENSION), index, world,
                 null, recorder, new CarrierWorldBridge(carrier -> pose,
@@ -115,12 +100,9 @@ class CarrierNetworksTest {
     }
 
     /**
-     * One host block carrying {@code type}, with a debug supply planted on it.
-     *
-     * <p>The supply is what the solver will turn into a value, and it is deliberately not a lever on a
-     * neighbouring block: only <b>logic</b> components - wires and driven ones - are offered to the
-     * solve as seeds, so a lever would be a component the driver never looks at, and a test built on
-     * one would be asserting that nothing happens.
+     * One host block carrying {@code type}, with a debug supply planted on it. The supply is what the solver turns
+     * into a value; it is not a lever, because only <b>logic</b> components - wires and driven ones - are offered to
+     * the solve as seeds, so a test built on one would be asserting that nothing happens.
      */
     private Slot carryPowered(CarrierId carrier, BlockPos local, ComponentType type, int injected) {
         Slot slot = carry(carrier, local,
@@ -130,23 +112,12 @@ class CarrierNetworksTest {
     }
 
     /**
-     * A repeater with a wire on its output side, and a powered wire on its input side.
+     * A repeater with a wire on its output side, and a powered wire on its input side; returns the output wire.
      *
-     * <p>Two things about the shape are worth writing down, because getting either wrong makes a
-     * repeater that is simply not connected to anything - which in game looks exactly like "the solve
-     * does nothing":
-     *
-     * <ul>
-     *   <li>{@code Direction.NORTH} is {@code -Z}. A repeater takes its input from {@code facing} and
-     *       emits out of the opposite side, so a repeater facing SOUTH reads the block south of it and
-     *       drives the one to its north.</li>
-     *   <li>The input wire and the output wire are <b>not</b> in the same component, and cannot be:
-     *       a wire reads every side, so the wire south of the repeater sees it, while the repeater
-     *       reads only its facing side and so does not see the wire north of it. That is what stops the
-     *       repeater's own output from feeding back into its input.</li>
-     * </ul>
-     *
-     * @return the wire on the repeater's output side
+     * <p>A repeater takes its input from {@code facing} and emits out of the opposite side, so one facing SOUTH
+     * reads the block south of it and drives the one to its north. The input and output wires are not in the same
+     * component, and cannot be: a wire reads every side while the repeater reads only its facing side, which is
+     * what stops its own output from feeding back into its input.
      */
     private Slot repeaterWithWire(CarrierId carrier, BlockPos repeaterLocal, ComponentType wireType) {
         carryPowered(carrier, repeaterLocal.relative(Direction.SOUTH), ComponentType.DUST, 15);
@@ -171,7 +142,6 @@ class CarrierNetworksTest {
         recorder.writes.clear();
     }
 
-    // --------------------------------------------------------- what gets solved --
     // --------------------------------------------------------- what gets solved --
 
     @Test
@@ -217,7 +187,7 @@ class CarrierNetworksTest {
                 "the index - which is what the renderer and /rc dump read - holds the new value");
         assertEquals(11, wire.power, "and it is the same slot object, not a copy that can drift");
         assertEquals(List.of(CONTRAPTION), recorder.writes,
-                "the clients were told exactly once, with the message P1 already sends");
+                "the clients were told exactly once, with the message the carrier sync already sends");
     }
 
     @Test
@@ -234,8 +204,7 @@ class CarrierNetworksTest {
         assertEquals(2, report.solves(), "the second pass ran");
         assertEquals(0, report.lastDiff(), "and found nothing to change");
         assertTrue(report.settledWithNoChange(),
-                "which is the expected state of a machine whose inputs have not moved - the fact the "
-                        + "acceptance procedure has to read as 'it is working', not as 'it did nothing'");
+                "which is the expected state of a machine whose inputs have not moved");
         assertTrue(recorder.writes.isEmpty(), "so nothing was sent");
     }
 
@@ -291,12 +260,11 @@ class CarrierNetworksTest {
         assertFalse(CarrierLightNetwork.isLogic(ComponentType.LEVER));
     }
 
-    // ------------------------------------------------------------------- P4 --
-    // ------------------------------------------------------------ the bridge --
+    // -------------------------------------------------------------- the bridge --
 
     /**
-     * P4's whole point, as one assertion: with the bridge open the world is an input the solve can see,
-     * and a machine that had nothing to say for ever finally changes value.
+     * With the bridge open the world is an input the solve can see, so a machine that had nothing to say for ever
+     * finally changes value.
      */
     @Test
     @DisplayName("with the bridge open a signal from the world reaches the machine and changes it")
@@ -309,7 +277,7 @@ class CarrierNetworksTest {
                 CarrierNetworks.tick(bridged(1L, pose, 9), new CarrierStore.Clock(1L, DIMENSION));
 
         assertEquals(9, wire.power, "the wire holds what the world pushes into the place it now is");
-        assertEquals(1, summary.solvedChanges(), "and that is a real change, which is what P4 is for");
+        assertEquals(1, summary.solvedChanges(), "and that is a real change, which is what the bridge is for");
         assertEquals(List.of(CONTRAPTION), recorder.writes, "which the clients are told about once");
     }
 
@@ -321,7 +289,7 @@ class CarrierNetworksTest {
 
         CarrierNetworks.tick(context(1L), new CarrierStore.Clock(1L, DIMENSION));
 
-        assertEquals(0, wire.power, "the P1/P2 answer: the world outside cannot power the machine");
+        assertEquals(0, wire.power, "the frozen answer: the world outside cannot power the machine");
     }
 
     @Test

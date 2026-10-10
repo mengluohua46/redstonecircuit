@@ -18,53 +18,19 @@ import net.minecraft.core.Direction;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The solve loop of {@link InnerRedstoneNetwork}, with everything that made it about a
- * {@code ServerLevel} taken out.
+ * The solve loop of {@link InnerRedstoneNetwork}, with everything that made it about a {@code ServerLevel}
+ * taken out: the same algorithm over local coordinates and plain data, so it can be pinned by unit tests.
  *
- * <h2>Why this class exists at all</h2>
- * P2 has to recompute the redstone inside a moving structure, and the structure's blocks do not live
- * at world positions: their coordinates are local to the contraption or to the sub-level. The
- * algorithm, though, does not care. {@link PowerSolver} already answers every question through the
- * narrow {@link PowerEnvironment} interface, and the three-phase loop around it - grow the wire to
- * its fixpoint, schedule the driven components a few ticks ahead, report what changed - only ever
- * touches positions, slots and an environment.
+ * <p>Notifications are absent here - {@link InnerRedstoneNetwork} follows every change with a neighbour
+ * update, but there is no world to wake from here, and the layer that owns the world position announces it.
  *
- * <p>So this is that loop, written once, over plain data:
- *
- * <pre>
- *   InnerRedstoneNetwork   world positions + a ServerLevel + world notifications  (unchanged by P2)
- *   CarrierLightNetwork    local positions + any PowerEnvironment                (this class)
- * </pre>
- *
- * <p>Everything that has to happen <em>because</em> the answer changed - telling the client, waking
- * the world, marking the save dirty - stays with the caller, which is exactly why this half can be
- * pinned down by unit tests with no game running.
- *
- * <h2>Notifications are deliberately absent</h2>
- * {@link InnerRedstoneNetwork} follows every change with {@code updateNeighborsAt}, because a stored
- * value is not a block state and nothing else would wake the lamps and pistons around a host block.
- * There is no world to wake <em>from here</em>: a value computed inside a structure is announced by
- * the layer that owns the world position - P4's projection pass in {@code CarrierStore} - and this
- * class stays a pure solve over coordinates, which is what lets it be unit-tested with no game
- * running. Whether an environment can read the world at all is
- * {@link PowerEnvironment#externalSignal}'s business: a frozen one answers 0 on every side (P1/P2),
- * a bridged one reads the place the structure currently occupies (P4).
- *
- * <h2>Delays work exactly as they do in the world</h2>
- * A repeater inside a structure still takes its delay, and it still settles on a fixed schedule. The
- * pending queue is the same {@link PendingFlips}, driven by a tick counter the caller advances once
- * per solve pass rather than by {@code Level#getGameTime} - a moving structure's time base is
- * whichever callback is driving it, and the rule that matters ("do not reschedule while a tick is
- * already pending") is a property of the queue, not of the clock.
+ * <p>A repeater inside a structure still takes its delay, driven by a tick counter the caller advances.
  */
 public final class CarrierLightNetwork {
 
     /**
-     * Ceiling on the fixpoint passes one component may need in a single solve.
-     *
-     * <p>The same guard, and the same reasoning, as {@code InnerRedstoneNetwork}: a wire's value only
-     * rises and is capped at fifteen, so the loop always terminates; this bound exists so a
-     * pathological wiring order cannot stall a tick.
+     * Ceiling on the fixpoint passes one component may need in a single solve: a wire's value only rises and
+     * is capped at fifteen, so the loop terminates, but a pathological wiring order must not stall a tick.
      */
     private static final int MAX_FIXPOINT_PASSES = 512;
 
@@ -85,10 +51,7 @@ public final class CarrierLightNetwork {
 
     private final int maxComponentsPerSolve;
 
-    /**
-     * @param maxComponentsPerSolve how many components one solve may touch; the caller's per-tick
-     *     budget, so a structure far larger than expected cannot stall a tick
-     */
+    /** The caller's per-tick budget, so a structure far larger than expected cannot stall a tick. */
     public CarrierLightNetwork(int maxComponentsPerSolve) {
         this.maxComponentsPerSolve = Math.max(1, maxComponentsPerSolve);
     }
@@ -123,14 +86,9 @@ public final class CarrierLightNetwork {
     // ---------------------------------------------------------------- solving --
 
     /**
-     * Settles the network containing {@code seed}, and everything already due, at clock value
-     * {@code now}.
-     *
-     * @param seeds what to settle - the hosts the structure is carrying; a seed whose component was
-     *     removed in the meantime is skipped, and one already settled by an earlier seed costs a hash
-     *     lookup
-     * @return how many positions changed value, or {@code -1} when the effect budget ran out before
-     *     the whole list could be visited (the caller should say so rather than pretend it settled)
+     * Settles the network containing each seed, and everything already due, at clock value {@code now}; a
+     * seed whose component was removed in the meantime is skipped. Returns how many positions changed value,
+     * or {@code -1} when the effect budget ran out before the whole list could be visited.
      */
     public int solve(PowerEnvironment env, List<BlockPos> seeds, long now) {
         lastTick = now;
@@ -147,15 +105,13 @@ public final class CarrierLightNetwork {
                 continue;
             }
             if (env.nodeAt(seed.getX(), seed.getY(), seed.getZ()) == null) {
-                // A seed that holds nothing at all: one lookup, no component, no work. This is the
-                // common case for a machine that is mostly stone.
+                // A seed that holds nothing: one lookup, no component, no work - the common case for a
+                // machine that is mostly stone.
                 continue;
             }
-            // The component is sized before anything is touched, and the budget is checked against
-            // that size. Relaxing resets every wire in the component to zero on the way to its
-            // fixpoint, so a pass that ran out of budget half way would leave a component holding
-            // half-solved values - which is worse than leaving it alone until the next tick, and is
-            // exactly what "effect budget exhausted" is reported as.
+            // The component is sized before anything is touched, and the budget is checked against that
+            // size: relaxing resets every wire in the component to zero, so a pass that ran out of budget
+            // half way would leave half-solved values behind - worse than leaving it until the next tick.
             List<BlockPos> component = collectComponent(env, seed);
             if (budget < component.size()) {
                 return -1;
@@ -169,11 +125,8 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * Applies every driven component whose scheduled re-evaluation has come due.
-     *
-     * <p>The output is decided <em>now</em> rather than remembered from when the re-evaluation was
-     * scheduled, exactly as in the world network: that is what makes a pulse shorter than the delay
-     * disappear instead of being stretched by it.
+     * Applies every driven component whose scheduled re-evaluation has come due. The output is decided now
+     * rather than remembered from when it was scheduled, which is what lets a short pulse disappear.
      */
     private void applyDueFlips(PowerEnvironment env, long now) {
         List<BlockPos> due = pending.takeDue(now);
@@ -183,11 +136,11 @@ public final class CarrierLightNetwork {
                 // Taken out of the structure while its re-evaluation was waiting; nothing to do.
                 continue;
             }
-            if (!node.type().isDriven()) {
+            if (!node.type().hasInputSide()) {
                 continue;
             }
-            // P4: a bridged environment reads the world at a position relative to this component, so
-            // it is told which one that is before it is asked. A no-op for every other environment.
+            // A bridged environment reads the world at a position relative to this component, so it is told
+            // which one that is before it is asked. A no-op for every other environment.
             env.setQueryPosition(pos);
             int desired = PowerSolver.desiredOutput(env, pos, node);
             if (desired == node.power()) {
@@ -247,7 +200,9 @@ public final class CarrierLightNetwork {
 
         for (BlockPos pos : component) {
             PowerEnvironment.Node node = env.nodeAt(pos.getX(), pos.getY(), pos.getZ());
-            if (node == null || !node.type().isDriven()) {
+            // The same predicate the world's scheduler uses, so a controller riding a machine is re-derived
+            // exactly like one standing in the world.
+            if (node == null || !node.type().hasInputSide()) {
                 continue;
             }
             env.setQueryPosition(pos);
@@ -257,8 +212,8 @@ public final class CarrierLightNetwork {
             }
             int delay = node.type().delayTicks(delayOf(env, pos));
             if (delay <= 0) {
-                // A driven component with no delay would be a contradiction; treat it as immediate so
-                // a future type cannot silently stop working.
+                // A driven component with no delay would be a contradiction; treat it as immediate so a
+                // future type cannot silently stop working.
                 node.setPower(desired);
                 changed.add(pos.immutable());
                 continue;
@@ -268,13 +223,8 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * The power a wire draws from outside its own network.
-     *
-     * <p>{@link PowerEnvironment#externalSignal()} is what the structure's outside pushes into the
-     * host. Inside a frozen structure that is nothing at all, because P1 closed that boundary; with
-     * P4's bridge open it is the world signal at the place the host currently occupies, read through
-     * the same rules a host block standing on the ground uses. An injected value (the debug command, a
-     * game test) is an input either way and is still honoured.
+     * The power a wire draws from outside its own network: what the world pushes into the host block, read
+     * through the same rules a host block on the ground uses. An injected value is an input either way.
      */
     private static int supplyOf(PowerEnvironment env, PowerEnvironment.Node node) {
         int supply = Math.max(env.externalSignal(), injectedPowerOf(node));
@@ -282,13 +232,8 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * The injected supply of a node, or a value that cannot win.
-     *
-     * <p>{@link PowerEnvironment.Node} deliberately has no {@code injectedPower}: it is a debug seed
-     * rather than part of the solver's contract, and the world implementation reaches it through the
-     * {@link Slot} instead. The carrier hosts are slots too, so the same route is open here - but
-     * finding the slot from a node would mean a second lookup per hop. Instead the nodes the carrier
-     * layer hands in expose their slot directly, and this asks for it.
+     * The injected supply of a node, or a value that cannot win. The node's own slot is asked rather than
+     * looked up again, which keeps the loop at one lookup per position.
      */
     private static int injectedPowerOf(PowerEnvironment.Node node) {
         if (node instanceof CarrierNode carrierNode) {
@@ -299,10 +244,8 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * The repeater delay of a node, or 1 when it cannot be read.
-     *
-     * <p>Same route, and same reasoning, as {@link #injectedPowerOf}: the delay is a property of the
-     * stored slot, not of the solver's view of a component.
+     * The repeater delay of a node, or 1 when it cannot be read: the delay is a property of the stored slot,
+     * not of the solver's view of a component.
      */
     private static int delayOf(PowerEnvironment env, BlockPos pos) {
         PowerEnvironment.Node node = env.nodeAt(pos.getX(), pos.getY(), pos.getZ());
@@ -313,12 +256,8 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * A solver node that can also name the slot behind it.
-     *
-     * <p>The two things the solve loop needs from the slot rather than from the node - the injected
-     * debug supply and a repeater's delay - would otherwise need a second lookup in the carrier
-     * index for every component, on every solve. Letting the node hand the slot over keeps the loop
-     * at one lookup per position.
+     * A solver node that can also name the slot behind it: the injected supply and a repeater's delay would
+     * otherwise need a second lookup in the carrier index for every component, on every solve.
      */
     public interface CarrierNode extends PowerEnvironment.Node {
 
@@ -330,15 +269,9 @@ public final class CarrierLightNetwork {
     // ------------------------------------------------------------ the network --
 
     /**
-     * Collects every component reachable from {@code seed}, in the coordinates the environment
-     * speaks.
-     *
-     * <p>The same rule as {@code InnerRedstoneNetwork#collectComponent}: two neighbours belong to the
-     * same network when <em>either</em> of them reaches the other, so a lever feeding a repeater that
-     * feeds dust is one component while two repeaters sitting back-to-back are two.
-     *
-     * <p>Public because the diagnostics count components too, and a second implementation of this
-     * walk is how the two would drift apart.
+     * Collects every component reachable from {@code seed}, in the coordinates the environment speaks: two
+     * neighbours belong together when <em>either</em> of them reaches the other. Public because the
+     * diagnostics count components too, and a second implementation of this walk would drift apart.
      */
     public static List<BlockPos> collectComponent(PowerEnvironment env, BlockPos seed) {
         List<BlockPos> out = new ArrayList<>();
@@ -351,9 +284,8 @@ public final class CarrierLightNetwork {
         if (root == null) {
             return out;
         }
-        // A component with no neighbours is a network of one - a lone repeater with no dust anywhere
-        // is exactly that, and it still has to follow its input. Recorded here rather than inside the
-        // walk so "the seed exists" is answered once.
+        // A component with no neighbours is a network of one - a lone repeater with no dust anywhere - and
+        // it still has to follow its input.
         out.add(seed.immutable());
 
         while (!queue.isEmpty()) {
@@ -389,14 +321,13 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * Whether a component participates in a network at all.
-     *
-     * <p>A manual source (a lever, a button, a plate) is never driven and never solved: it is set by
-     * the player or by an entity, and the solver only ever reads it. It is still worth solving so
-     * that its neighbours see it, which is why this is not used to filter seeds - it exists so the
-     * diagnostics can say how many of a structure's hosts are actual logic.
+     * Whether a component participates in a network at all. A manual source is never driven and never solved -
+     * it is set by the player or an entity, and the solver only reads it - but it is still worth solving so
+     * that its neighbours see it.
      */
     public static boolean isLogic(ComponentType type) {
-        return type.isWire() || type.isDriven();
+        // 时钟源's answer comes from the world clock rather than from an input, and 信号延长器's hold runs out on that
+        // same clock: both still have to be solved, and looked at every pass, because time is what changes them.
+        return type.isWire() || type.hasInputSide() || type.isTimeDriven();
     }
 }

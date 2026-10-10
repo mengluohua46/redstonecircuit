@@ -23,53 +23,16 @@ import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * What one client believes about the host blocks that are riding a moving structure, and about where
- * those structures are.
+ * What one client believes about the host blocks riding a moving structure, and about where those structures are.
  *
- * <h2>Why the client needs its own copy</h2>
- * The carried data lives in a server-side store, exactly like the rest of the mod's data, so a client
- * cannot know that a stone in front of it is really a block of dust that has been picked up and is now
- * thirty blocks away - and it has to know, because that is precisely what the goggles are supposed to
- * show. The shell, the component inside it and the connection lines are all drawn from this index.
+ * <p>The carried hosts (which component is inside which local coordinate of which carrier) and the poses (where a
+ * carrier is) are kept apart because they change at different rates: a host list changes only when something is
+ * picked up or put down, a pose whenever the structure moves. Hosts are bucketed by <b>origin</b>, the world block
+ * they came from, because the pose decides where the drawing happens; the walk is a <b>union</b> of that bucket and
+ * the carrier's current pose, never one instead of the other, so a machine that has travelled beyond the origin
+ * walk's radius is still drawn and a carrier the client holds no pose for is not lost.
  *
- * <h2>Two things, deliberately separate</h2>
- * <ul>
- *   <li><b>The carried hosts</b> - which component is inside which local coordinate of which carrier.
- *       Sent when a structure picks something up or puts it down, because it does not change while the
- *       structure moves.</li>
- *   <li><b>The poses</b> - where each carrier is. Sent repeatedly while it moves, and not at all while
- *       it is parked ({@link CarrierPose#closeTo}).</li>
- * </ul>
- * Keeping them apart is what makes the moving case affordable: the host list is a handful of entries
- * per assembly, while a pose is a few dozen bytes per change.
- *
- * <h2>Hosts are bucketed by their origin, not by where they are now</h2>
- * A carried host has no world position of its own - it has a local coordinate inside something that is
- * somewhere else. The renderer's question is "is this thing near me", and the honest answer is "near
- * the carrier", so the pose decides where the drawing happens and the bucket only decides whether the
- * host is looked at at all. Bucketing by origin also keeps the arithmetic in one place, and means a
- * moving carrier never has to be re-bucketed.
- *
- * <h2>...and the walk is a <b>union</b>: the origin, plus the pose (S2)</h2>
- * The paragraph above is right about the <em>arithmetic</em> and was incomplete about the <em>walk</em>:
- * the render path used to look only at origin buckets, so a machine that had travelled more than the
- * walk's radius from where its components were placed stopped being drawn - the author's "the seventh
- * chunk away from the chunk the component was placed in and the frame and the component both disappear".
- * The fix is <b>one extra walk, not a replacement</b>: {@link #drawablesNear} still asks
- * {@link #forEachNear} exactly as it always did, and then {@link #forEachCarrierNearPose} adds whatever
- * the carriers' <em>current</em> poses bring into range. Both feed one fold, the hosts live in one place
- * ({@link #bySection}), and a host found by both is one drawable.
- *
- * <p><b>Why a replacement is structurally wrong, not merely risky.</b> A pose-anchored walk can only find
- * a host if the pose's position is expressed in the same frame as the camera's section. For a Create
- * contraption that holds (the anchor is a world position), and the compat sources say a Sable sub-level's
- * {@code logicalPose().position()} is the world pivot too - but that is a property of another mod's pose
- * object, not of this class, and an empty {@link #anchorsByPose} (a carrier the client was never told a
- * pose for) is an ordinary state. A walk that is the <em>only</em> source turns any of those into "nothing
- * is drawn at all". As a union it can only ever add: if the pose walk finds nothing, the origin walk still
- * answers every host it answered before.
- *
- * <p>Deliberately free of any {@code Minecraft} reference, so the rules can be unit-tested;
+ * <p>Free of any {@code Minecraft} reference, so the rules can be unit-tested;
  * {@link com.jiangyuefengyu.redstonecircuit.client.ClientHostCache} is the thin client-side wrapper.
  */
 public final class CarrierIndex {
@@ -80,25 +43,13 @@ public final class CarrierIndex {
     }
 
     /**
-     * One host the carried path may draw: either inside its carrier's pose, or - when that pose is no
-     * longer trustworthy - at the world block it came from.
+     * One host the carried path may draw: either inside its carrier's pose, or - when that pose is no longer
+     * trustworthy - at the world block it came from.
      *
-     * <p>A {@code null} pose is the fallback, and it is deliberately not "the pose is missing": the
-     * whole point of the fallback is that a host whose structure cannot be placed <em>has</em> a
-     * position, it is just not the one the feature wanted to give it.
-     *
-     * <p>{@code landed} says <em>which</em> position that is, and the two cases are genuinely
-     * different facts rather than two spellings of one:
-     *
-     * <ul>
-     *   <li>{@code landed} - the structure put this host down and the server has taken the carrier
-     *       back, so the host is drawn at {@link CarriedView#at()}, the position it was put down at.
-     *       That position is authoritative and may be a block-less one, which is why the ordinary world
-     *       path cannot draw it.</li>
-     *   <li>not {@code landed} - the carrier's pose went stale mid-flight, so the host is drawn at
-     *       {@link CarriedView#origin()}: "return to where you started", the same promise the server
-     *       makes when a release cannot reach its landing position.</li>
-     * </ul>
+     * <p>A {@code null} pose is the fallback, and the host does have a position, it is just not the one the feature
+     * wanted to give it. {@code landed} says <em>which</em> position that is: a landed host is drawn at
+     * {@link CarriedView#at()}, the position it was put down at, which is authoritative and may be a block-less one;
+     * a host whose carrier's pose went stale mid-flight is drawn at {@link CarriedView#origin()}.
      */
     public record Drawable(CarriedView view, @Nullable CarrierPose pose, boolean landed) {
 
@@ -119,26 +70,22 @@ public final class CarrierIndex {
     /**
      * {@link SectionPos#asLong} -> the carriers whose <b>current pose</b> sits in that section.
      *
-     * <p>The read side of S2's extra walk. A carrier is filed here under the section of its pose pivot, so
-     * a structure the player is next to can be found near the player even when the blocks its components
-     * came from are far away. {@link #drawablesNear} walks this <b>in addition to</b> {@link #forEachNear},
-     * never instead of it; see the class doc for why a replacement is structurally wrong.
-     *
-     * <p>No host is stored here, only the carrier's name: the hosts stay in {@link #bySection}, so the two
-     * indexes cannot disagree about what exists, and a host can never be drawn twice.
+     * <p>A carrier is filed here under the section of its pose pivot, so a structure the player is next to can be
+     * found near the player even when the blocks its components came from are far away. {@link #drawablesNear} walks
+     * this <b>in addition to</b> {@link #forEachNear}, never instead of it. No host is stored here, only the
+     * carrier's id: the hosts stay in {@link #bySection}, so the two indexes cannot disagree about what exists, and
+     * a host can never be drawn twice.
      */
     private final Long2ObjectMap<List<CarrierId>> anchorsByPose = new Long2ObjectOpenHashMap<>();
 
     /**
      * How far, in sections, the pose-anchored walk reaches.
      *
-     * <p>Seven, and the number is derived rather than chosen: the renderer's own bound is
-     * {@code HostRenderPass.DRAW_DISTANCE = 6 sections + 16 blocks = 112 blocks} of <b>block</b> distance
-     * from the camera to the carrier's pose, so a section walk finer than that could only prune something
-     * the block-distance check is about to look at anyway. Anything the exact check would allow must
-     * survive this coarse one; the reverse (the walk admitting a carrier the block check then refuses) is
-     * harmless and is what {@code skippedFar} counts. <b>If {@code DRAW_DISTANCE} ever changes, this number
-     * must change with it</b> - it is that same reach, in the carrier's own frame.
+     * <p>Seven, derived rather than chosen: the renderer's own bound is six sections plus 16 blocks of <b>block</b>
+     * distance from the camera to the carrier's pose, so a section walk finer than that could only prune something
+     * the block-distance check is about to look at anyway. Anything the exact check would allow must survive this
+     * coarse one; the reverse - the walk admitting a carrier the block check then refuses - is harmless and is what
+     * {@code skippedFar} counts. <b>If the render distance ever changes, this number must change with it.</b>
      */
     static final int POSE_ANCHOR_RADIUS = 7;
 
@@ -146,17 +93,13 @@ public final class CarrierIndex {
     private final Map<CarrierId, CarrierPose> poses = new HashMap<>();
 
     /**
-     * carrier -> the pose it had <b>before</b> the current one: the other end of the render interpolation
-     * (P1.55).
+     * carrier -> the pose it had <b>before</b> the current one: the other end of the render interpolation.
      *
-     * <p>Kept here rather than at the call site because "the previous pose" is exactly "the pose this
-     * index was holding when the new one arrived" - one line in {@link #applyPose}, and impossible for a
-     * caller to reconstruct afterwards. It is <b>cleared</b> wherever a pose arrives that is not one tick
-     * after the last (a snapshot, a landing, a teleport): interpolating across a jump would draw a
-     * component flying across the world for one frame, which is worse than a one-tick lead.
-     *
-     * <p>Absent for a carrier that is standing still (nothing to interpolate, and the current pose is the
-     * answer), so the map holds only moving carriers.
+     * <p>Kept here because "the previous pose" is exactly "the pose this index was holding when the new one
+     * arrived", which a caller cannot reconstruct afterwards. It is <b>cleared</b> wherever a pose arrives that is
+     * not one tick after the last (a snapshot, a landing, a teleport): interpolating across a jump would draw a
+     * component flying across the world for one frame. Absent for a carrier that is standing still, so the map
+     * holds only moving carriers.
      */
     private final Map<CarrierId, CarrierPose> previousPoses = new HashMap<>();
 
@@ -224,7 +167,7 @@ public final class CarrierIndex {
         if (!accepts(dim)) {
             return;
         }
-        // P1.55: the pose being replaced is the other end of the render interpolation; see previousPoses.
+        // The pose being replaced is the other end of the render interpolation; see previousPoses.
         CarrierPose outgoing = poses.put(carrier, pose);
         if (outgoing != null && outgoing != pose) {
             previousPoses.put(carrier, outgoing);
@@ -345,20 +288,18 @@ public final class CarrierIndex {
     }
 
     /**
-     * <b>One frame's index of "which structure's own coordinate holds a component".</b>
+     * One frame's index of "which structure's own coordinate holds a component".
      *
-     * <p>P1.42. Built from the hosts this client is holding, once per frame, because the question it
-     * answers is asked once per side of every drawn host: "is the block on this side another host of my
-     * own structure?" That is the structure's own frame of a wire's connections, and it is the frame a
-     * carried host's neighbours have to be named in. The section buckets cannot answer it - they are
-     * keyed by <em>origin</em>, the world block a host came from, not by the local coordinate the host
-     * now has - which is exactly why the carried render path used to find no neighbour at all.
+     * <p>Built once per frame from the hosts this client holds, because the question is asked once per side of every
+     * drawn host: "is the block on this side another host of my own structure?" That is the frame a carried host's
+     * neighbours have to be named in, and the section buckets cannot answer it - they are keyed by <em>origin</em>,
+     * not by the local coordinate the host now has.
      *
-     * <p>One coordinate can in principle be held by two carriers: a Create contraption's local
-     * coordinates are 0..15 around its anchor, so two contraptions can hold a host at the same
-     * coordinate. The last write wins, and the consequence is bounded on purpose - the caller compares
-     * the carrier it found with its own, so a lost entry can only hide an arm, never invent one. A Sable
-     * sub-level's coordinates are plot coordinates, which no second structure shares.
+     * <p>One coordinate can in principle be held by two carriers: a Create contraption's local coordinates are 0..15
+     * around its anchor, so two contraptions can hold a host at the same coordinate. The last write wins, and the
+     * consequence is bounded - the caller compares the carrier it found with its own, so a lost entry can only hide
+     * an arm, never invent one. A Sable sub-level's coordinates are plot coordinates, which no second structure
+     * shares.
      */
     public Map<Long, CarrierId> localHostIndex() {
         Map<Long, CarrierId> out = new HashMap<>();
@@ -460,18 +401,16 @@ public final class CarrierIndex {
     }
 
     /**
-     * <b>The client's last resort.</b> Drops every carrier whose pose has gone stale.
+     * The client's last resort: drops every carrier whose pose has gone stale.
      *
-     * <p>Why this exists at all: the server removes a carrier from its index from several places, and a
-     * single one of those forgetting to say so used to leave the client holding a carrier it could
-     * never draw - the host was skipped for want of a pose, so it was neither drawn inside the
-     * structure nor put back on the world path, and it stayed that way until the client reconnected.
-     * The removal notice is now a single exit point on the server (see {@code CarrierStore.forget}), and
-     * this is the second, independent guarantee: a pose that has not been refreshed for a while is not
-     * a pose, so the carrier is let go of here, on the client, with nobody's permission needed.
+     * <p>The server removes a carrier from its index from several places, and one of those forgetting to announce it
+     * would leave the client holding a carrier it can never draw - the host is neither drawn inside the structure nor
+     * put back on the world path, until the client reconnects. The removal notice is a single exit point on the
+     * server (see {@code CarrierStore.forget}), and this is the second, independent guarantee: a pose that has not
+     * been refreshed for a while is not a pose, so the carrier is let go of here, on the client.
      *
-     * <p>Callers take {@link #viewsOf} for each returned carrier <em>before</em> calling this, or read
-     * them afterwards from a copy, because the hosts go with the carrier.
+     * <p>Callers take {@link #viewsOf} for each returned carrier <em>before</em> calling this, or read them
+     * afterwards from a copy, because the hosts go with the carrier.
      *
      * @param maxAgeTicks how long a pose stays trustworthy, in client ticks
      * @return the carriers that were dropped, so the caller can put their hosts back on the world path
@@ -557,14 +496,12 @@ public final class CarrierIndex {
     }
 
     /**
-     * <b>The pose to draw at this frame: the last two received poses, interpolated by the partial tick
-     * (P1.55).</b>
+     * The pose to draw at this frame: the last two received poses, interpolated by the partial tick.
      *
-     * <p>{@code partialTick <= 0} and {@code >= 1} answer a whole pose (the previous and the current one),
-     * so a caller with no partial tick keeps the old behaviour exactly - which is every caller that is not
-     * drawing: a click, a solve, a test. See {@link CarrierPose#lerp} for the defect this closes (Sable
-     * draws the structure interpolated; this mod used to draw the components at the newest whole pose, so
-     * they led the machine by up to a tick, proportionally to speed).
+     * <p>{@code partialTick <= 0} and {@code >= 1} answer a whole pose (the previous and the current one), so a
+     * caller with no partial tick keeps the whole-pose behaviour - which is every caller that is not drawing: a
+     * click, a solve, a test. Sable draws the structure interpolated, so components drawn at the newest whole pose
+     * would lead the machine by up to a tick, proportionally to speed.
      */
     @Nullable
     public CarrierPose poseOf(CarrierId carrier, double partialTick) {
@@ -610,12 +547,10 @@ public final class CarrierIndex {
     /**
      * How many carriers are filed under a name any client could ever be told about.
      *
-     * <p>A provisional carrier is excluded, and the reason is not cosmetic: a claim made before the
-     * contraption entity existed is deliberately <b>not</b> sent with a pose (there is none to send), so
-     * a client count that includes them would read as "the client is holding more carriers than the
-     * server has" during the ordinary assembly of every machine - a warning that cries wolf on the
-     * happy path is worse than no warning. The comparison this feeds is only meaningful between names
-     * the wire can actually carry.
+     * <p>A provisional carrier is excluded, for a real reason: a claim made before the contraption entity existed is
+     * not sent with a pose (there is none to send), so a client count that includes them would read as "the client is
+     * holding more carriers than the server has" during the ordinary assembly of every machine. The comparison this
+     * feeds is only meaningful between names the wire can actually carry.
      */
     public int settledCarrierCount() {
         int total = 0;
@@ -669,19 +604,15 @@ public final class CarrierIndex {
     }
 
     /**
-     * <b>S2's extra walk: every carried host of a carrier whose current pose lies in a section near
-     * {@code center}.</b>
+     * Every carried host of a carrier whose current pose lies in a section near {@code center}: the extra walk that
+     * finds a machine which has travelled beyond the origin walk's radius.
      *
-     * <p>Strictly additional. It asks the question the origin buckets cannot - "is this structure near me
-     * <em>now</em>" - and exists so that a machine which has travelled beyond the origin walk's radius is
-     * still drawn. It is never a substitute for {@link #forEachNear}: see the class doc.
-     *
-     * <p>The outer loop is bounded by the number of carriers the client holds (the moving structures in
-     * the level, not the number of host blocks), and only a carrier whose pose section is inside the radius
-     * has its hosts read at all; that read is {@link #viewsOf}, the same bounded walk the per-frame
-     * diagnostics do. The key is computed exactly as {@link #forEachNear}'s is - {@code SectionPos.asLong}
-     * of a block position, compared against the camera's own {@code blockToSectionCoord} - so the two walks
-     * cannot disagree about what "near" means.
+     * <p>Strictly additional, never a substitute for {@link #forEachNear}. The outer loop is bounded by the number of
+     * carriers the client holds (the moving structures in the level, not the number of host blocks), and only a
+     * carrier whose pose section is inside the radius has its hosts read at all; that read is {@link #viewsOf}. The
+     * key is computed exactly as {@link #forEachNear}'s is - {@code SectionPos.asLong} of a block position compared
+     * against the camera's own {@code blockToSectionCoord} - so the two walks cannot disagree about what "near"
+     * means.
      */
     public void forEachCarrierNearPose(ResourceKey<Level> dim, BlockPos center, int sectionRadius,
                                        Consumer<CarriedView> action) {
@@ -744,10 +675,10 @@ public final class CarrierIndex {
      * The section a pose sits in - the same computation, in the same frame, as {@link #bySection}'s key.
      *
      * <p>{@code SectionPos.asLong(BlockPos)} for the bucket and {@code SectionPos.x/y/z(long)} against
-     * {@code blockToSectionCoord(camera)} for the comparison: byte for byte the pattern {@link #forEachNear}
-     * has used since P1, so this walk is keyed and compared in one coordinate system and one dimension.
-     * (What it cannot promise is that the number inside a pose is a world position at all - that is the
-     * pose's business, and it is why this walk is additive rather than authoritative.)
+     * {@code blockToSectionCoord(camera)} for the comparison, the same pattern {@link #forEachNear} uses, so both
+     * walks are keyed and compared in one coordinate system. What it cannot promise is that the number inside a pose
+     * is a world position at all - that is the pose's business, and it is why this walk is additive rather than
+     * authoritative.
      */
     private static long poseSectionKey(CarrierPose pose) {
         return SectionPos.asLong(BlockPos.containing(
@@ -815,38 +746,19 @@ public final class CarrierIndex {
     }
 
     /**
-     * The list form of {@link #forEachDrawable}; also what the tests read.
+     * The list form of {@link #forEachDrawable}; also what the tests read, with the frame's partial tick: the poses
+     * handed out are interpolated between the last two received ones.
      *
-     * <p>Landed hosts are folded in by carrier plus local coordinate like everything else, so one host
-     * that is somehow in two lists at once is still drawn once.
+     * <p>The carried set is the union of two walks: {@link #forEachNear}, keyed on the block each host <b>came
+     * from</b>, which is unconditional and is the guarantee that this method never hands over less than it did
+     * before, and {@link #forEachCarrierNearPose}, which adds whatever the carriers' <b>current</b> poses bring into
+     * range. The second can only add, and it is written as {@code putIfAbsent} so that it cannot overwrite what the
+     * first produced. Both feed one fold, and a host found by both is still one drawable. Landed hosts are folded in
+     * by carrier plus local coordinate like everything else, so a host in two lists at once is drawn once.
      *
-     * <h2>The carried set is a union of two walks, and that is a requirement (S2)</h2>
-     * The first walk is the one this method has always made: {@link #forEachNear}, keyed on the block each
-     * host <b>came from</b>. It is kept unconditionally - it is the guarantee that this method never hands
-     * over less than it did before. The second, {@link #forEachCarrierNearPose}, walks the section each
-     * carrier's <b>current pose</b> is in, which is what finds a machine that has travelled beyond the
-     * origin walk's radius. It can only add, and it is written as {@code putIfAbsent} so that it cannot
-     * even overwrite what the first walk produced. Both feed one fold, and the hosts themselves live in one
-     * place, so a host found by both is still one drawable.
-     *
-     * <p><b>Replacing the first walk with the second is what this shape forbids.</b> That was tried: the
-     * entry point consulted only the pose anchor, and on a real machine it drew nothing at all - an empty
-     * anchor (a carrier the client holds no pose for) or a pose whose position is not in the camera's frame
-     * is then a total loss instead of a missed optimisation. See the class doc.
-     */
-    /**
-     * The same, with the frame's partial tick: <b>the poses handed out are interpolated between the last
-     * two received ones (P1.55)</b>.
-     *
-     * <p>This is the one place a carried host's pose is put into a {@link Drawable}, so interpolating here
-     * means every consumer of a drawable - the carried render pass, its probes and its diagnostics - sees
-     * the same instant of the structure's motion, which is the whole point: Sable draws the structure
-     * interpolated, and until P1.55 this mod drew the components inside it at the newest whole pose, so
-     * they led the machine by up to one tick (the author's report, proportional to speed).
-     *
-     * <p>The anchor walks above deliberately keep using the <b>whole</b> pose: they decide which hosts are
-     * near the camera, and a host must not enter or leave the drawn set because of a sub-tick offset. Only
-     * the pose that goes into the drawable is interpolated.
+     * <p>Only the pose that goes into a drawable is interpolated: the anchor walks keep using the <b>whole</b> pose,
+     * because they decide which hosts are near the camera and a host must not enter or leave the drawn set because
+     * of a sub-tick offset.
      */
     public List<Drawable> drawablesNear(ResourceKey<Level> dim, BlockPos center, int sectionRadius,
                                         @Nullable LandedHosts landed,
@@ -944,21 +856,13 @@ public final class CarrierIndex {
     // ------------------------------------------------- read-only diagnostics --
 
     /**
-     * <b>The read-only half of the B1 question: which of one carrier's hosts the walk actually offered,
-     * and how many of them fell outside it.</b>
+     * Which of one carrier's hosts the origin walk actually offered, and how many of them fell outside it.
      *
-     * <p>Nothing here decides anything. Every field is a question asked of the same buckets and the same
-     * pose map the renderer's own walk reads - {@code shift} is the whole of the difference between this
-     * sweep and {@link #forEachNear}, and it is the shift that makes the finding visible:
-     *
-     * <pre>
-     *   walk that runs:  the sections within {@code radius} of {@code shift}, read from {@link #bySection}
-     *   this sweep:      the same radius, counted once per host, and the carriers whose every host fell
-     *                    outside it are named instead of silently absent
-     * </pre>
-     *
-     * <p>Cost is {@code O(hosts of this carrier)} with no allocation beyond the record, and its callers
-     * run it at most once per {@code CarrierSightLog} window rather than per frame.
+     * <p>Nothing here decides anything: every field is a question asked of the same buckets and the same pose map the
+     * renderer's own walk reads. {@code shift} is the whole of the difference between this sweep and
+     * {@link #forEachNear}, and it is the shift that makes the finding visible - the carriers whose every host fell
+     * outside the radius are named instead of silently absent. Cost is {@code O(hosts of this carrier)} with no
+     * allocation beyond the record, and its callers run it at most once per {@code CarrierSightLog} window.
      *
      * @param carrier the carrier to describe
      * @param shift the centre the walk's radius was measured from, or {@code null} for "no camera"
@@ -991,18 +895,18 @@ public final class CarrierIndex {
     }
 
     /**
-     * One carrier as the origin walk saw it: how many of its hosts were inside the radius, out of how
-     * many, and whether the carrier was offered at all.
+     * One carrier as the origin walk saw it: how many of its hosts were inside the radius, out of how many, and
+     * whether the carrier was offered at all.
      *
-     * <p><b>This describes the origin walk only.</b> Since P1.47 the renderer also walks the pose anchor
-     * ({@link #forEachCarrierNearPose}), so a carrier this sweep reports as {@code offered=false} can
-     * still be drawn by the additive walk - which is the whole point of that walk being additive. The two
-     * numbers are therefore "what the origin walk did", never "what was drawn".
+     * <p><b>This describes the origin walk only.</b> The renderer also walks the pose anchor
+     * ({@link #forEachCarrierNearPose}), so a carrier this sweep reports as {@code offered=false} can still be drawn
+     * by the additive walk - which is what that walk is for. The two numbers are therefore "what the origin walk
+     * did", never "what was drawn".
      *
      * @param walkedHosts hosts whose origin section is inside the radius
      * @param totalHosts hosts the carrier holds
-     * @param offered whether the origin walk offered the carrier to the renderer at all; false means
-     *     every host it holds sits in an origin bucket nobody walks
+     * @param offered whether the origin walk offered the carrier to the renderer at all; false means every host it
+     *     holds sits in an origin bucket nobody walks
      */
     public record SectionWalk(int walkedHosts, int totalHosts, boolean offered) {
     }

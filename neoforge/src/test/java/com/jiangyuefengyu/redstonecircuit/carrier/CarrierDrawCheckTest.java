@@ -16,22 +16,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the one measurement that separates "nothing was drawn" from "something was drawn somewhere
- * else".
+ * Tests the one measurement that separates "nothing was drawn" from "something was drawn somewhere else".
  *
- * <p>This is the diagnostic the Sable / Create Aeronautics round was built around, so it is worth
- * being explicit about what it has to get right. The author's report was "the components cannot be
- * seen", and every counter the mod had before this class reported a <em>successful</em> draw in that
- * situation - {@code drawnLastFrame=1} with every skip at zero - because a quad really had been
- * emitted, at a plot coordinate in the twenty-millions. So the cases that matter are:
- *
- * <ul>
- *   <li>a host drawn where its structure is must <b>not</b> be called a fault, however far the
- *       structure has flown from the origin it was built at;</li>
- *   <li>a host drawn millions of blocks from its structure <b>must</b> be;</li>
- *   <li>a pose that has not arrived yet must be neither - "we cannot compare" is a third answer, and
- *       conflating it with a fault would fire on every frame of every assembly.</li>
- * </ul>
+ * <p>这个类出现之前，每个计数器在"组件看不见"时都报一次<em>成功</em>的绘制: quad 确实发出去了，只是在两千万格外的
+ * plot 坐标上。所以要分清三种答案: 画在结构所在处（无论结构飞得多远）都不是故障；画在离结构几百万格处是故障；姿态
+ * 还没到则两者都不是 - "无法比较"是另一个答案，把它当成故障会让每次组装都报警。
  */
 class CarrierDrawCheckTest {
 
@@ -69,10 +58,9 @@ class CarrierDrawCheckTest {
     @Test
     @DisplayName("a zero delta from a four-second-old pose is called out, not reported as OK")
     void aStalePoseIsNamedEvenThoughTheDeltaIsZero() {
-        // THE AUTHOR'S REPORT, AS A TEST. The bearing was turning on the spot: the pivot never moved, so
-        // every frame's `delta` was 0.000 and every line said OK - while the client drew an angle the
-        // server had stopped believing in four seconds earlier. A `delta` of zero is a statement about
-        // the pose's internal consistency, not about its age, and the line has to say so.
+        // The bearing was turning on the spot: the pivot never moved, so every frame's `delta` was 0.000 and
+        // every line said OK - while the client drew an angle the server had stopped believing in four seconds
+        // earlier. A `delta` of zero describes the pose's internal consistency, not its age.
         Vector3d structure = new Vector3d(2775.5, 77.5, -1394.5);
         CarrierDrawCheck stale = aged(structure, structure, 80L);
 
@@ -103,8 +91,7 @@ class CarrierDrawCheckTest {
         assertTrue(CarrierDrawCheck.POSE_AGE_WARN_TICKS > 20,
                 "the warning must not fire on an ordinary heartbeat");
         assertTrue(CarrierDrawCheck.POSE_AGE_WARN_TICKS < 80,
-                "and it has to fire well before the four seconds of silence the author's log shows, or "
-                        + "it would not have caught that defect");
+                "and it has to fire well before four seconds of silence, or a stale pose would be missed");
 
         // "We do not know the age" is a third answer and must not be read as either.
         CarrierDrawCheck unknownAge = CarrierDrawCheck.of(CarrierId.subLevel(SUB_LEVEL),
@@ -117,9 +104,9 @@ class CarrierDrawCheckTest {
     @Test
     @DisplayName("a host drawn at a plot coordinate is a fault, and the line says which one")
     void drawnAtAPlotCoordinateIsAFault() {
-        // THE DEFECT, exactly: the local coordinate is a Sable plot coordinate and the pose that was
-        // sent is not the one it belongs to, so the arithmetic lands twenty million blocks away. This
-        // is the state in which `drawnLastFrame=1` and the player sees nothing at all.
+        // The local coordinate is a Sable plot coordinate and the pose that was sent is not the one it belongs
+        // to, so the arithmetic lands twenty million blocks away - the state in which `drawnLastFrame=1` while
+        // the player sees nothing at all.
         CarrierDrawCheck check = new CarrierDrawCheck(CarrierId.subLevel(SUB_LEVEL),
                 new BlockPos(20_481_033, 132, 20_485_129),
                 new Vector3d(20_481_033.5, 132.5, 20_485_129.5),

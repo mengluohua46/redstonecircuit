@@ -22,17 +22,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the one piece of P1 that is pure bookkeeping: taking a host's data out of the world, keeping
- * it while a structure carries it, and putting it back exactly once.
+ * Tests the bookkeeping of taking a host's data out of the world, keeping it while a structure carries
+ * it, and putting it back exactly once - the promise that it follows the machine, comes back, and
+ * nothing is lost.
  *
- * <p>This is where the stage's promise actually lives - "it follows the machine, it comes back, and
- * nothing is lost" - and every part of it is arithmetic that can be checked without assembling a
- * contraption. The things worth pinning down are the ones that would look like a mysterious in-game
- * bug: the original position being remembered at all, a second callback not writing twice, a landing
- * position that is occupied not being written over, and the data still being readable at the position
- * the client was last told about.
- *
- * <p>Deliberately free of any Minecraft level: the index reaches the store only through
+ * <p>What is worth pinning is what would otherwise look like a mysterious in-game bug: the original
+ * position being remembered at all, a second callback not writing twice, an occupied landing position
+ * not being written over, and the data still being readable at the position the client was last told
+ * about. Deliberately free of any Minecraft level: the index reaches the store only through
  * {@link CarriedHostIndex.SlotWorld}, which a test implements with a hash map.
  */
 class CarriedHostIndexTest {
@@ -474,7 +471,7 @@ class CarriedHostIndexTest {
         assertTrue(summary.contains(pos(1, 2, 3).toShortString()), summary);
     }
 
-    // ------------------------------------------------------- the P2 additions --
+    // --------------------------------------------------- the solve additions --
 
     @Test
     @DisplayName("a solved value can be written back without moving or releasing anything")
@@ -678,13 +675,9 @@ class CarriedHostIndexTest {
     @Test
     @DisplayName("a shared UUID stays a sub-level: the Create half cannot re-file it as a contraption")
     void theKindOfASharedUuidStaysSubLevel() {
-        // THE AUTHOR'S SABLE LOG, AS A TEST. A physics-assembled structure has ONE UUID shared by a
-        // Create contraption entity and a Sable sub-level, so both halves reach the index through the
-        // same key. The Sable sweep correctly filed it as a sub-level; the Create half then claimed the
-        // same block and re-filed that same key as a CONTRAPTION - and from then on the Create half's
-        // orphan sweep was asking the c: question about an s: structure, was told there was no such
-        // contraption, declared the still-flying sub-level gone and wrote its component back into the
-        // world. Twice a second, for as long as the machine existed.
+        // A physics-assembled structure has ONE UUID shared by a Create contraption entity and a Sable
+        // sub-level, so both halves reach the index through the same key: whatever the Create half files,
+        // that key must keep answering as the sub-level it really is.
         CarrierId create = CarrierId.contraption(SHARED);
         CarrierId sable = CarrierId.subLevel(SHARED);
 
@@ -699,8 +692,8 @@ class CarriedHostIndexTest {
         index.claim(create, pos(20_481_032, 127, 20_524_040), pos(10, 64, 10), world);
 
         assertEquals(List.of(sable), index.carriers(),
-                "the structure is a Sable sub-level and must still be named as one: the c: id is what "
-                        + "the orphan sweep used to hang itself on");
+                "the structure is a Sable sub-level and must still be named as one: the c: id is the name "
+                        + "the rest of the mod asks about it by");
         assertEquals(sable, index.carrierHolding(pos(10, 64, 10)));
         assertEquals(1, index.carriedCount(), "and exactly one host is riding it");
     }
@@ -708,10 +701,9 @@ class CarriedHostIndexTest {
     @Test
     @DisplayName("a wholesale release never takes a host another carrier is holding at the same position")
     void releaseAllRefusesAHostAnotherCarrierHolds() {
-        // The second line of defence, for the shape where the two halves really do have separate
-        // records: a host whose world position is answered by another carrier's live record must not be
-        // written back into the world by this one. `heldByAnotherCarrier` is the guard, and the entry it
-        // refuses is counted as a conflict so the log can show it.
+        // A host whose world position is answered by another carrier's live record must not be written
+        // back into the world by this one; the entry it refuses is counted as a conflict so the log can
+        // show it.
         CarrierId mine = CarrierId.contraption(UUID.fromString("00000000-0000-0000-0000-00000000f00d"));
         CarrierId theirs = CarrierId.subLevel(UUID.fromString("00000000-0000-0000-0000-000000000abc"));
 

@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "C": { "item": "minecraft:cobblestone" },
+    "R": { "item": "minecraft:redstone" },
+    "N": { "item": "minecraft:nether_star" }
+  },
+  "pattern": [
+    "RCR",
+    "CNC",
+    "RCR"
+  ],
+  "result": {
+    "count": 1,
+    "id": "redstonecircuit:redstone_structure_block"
+  }
+}

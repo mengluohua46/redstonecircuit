@@ -30,51 +30,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.33 commit B: the far end of the inside lock is judged by whether it holds a COMPONENT, not by
- * whether it has a record.</b>
+ * The far end of the inside lock is judged by whether it holds a COMPONENT, not by whether it has a record.
  *
- * <h2>The defect, in the author's own line</h2>
- * P1.32's commit C added the lock towards a device inside the structure - the author's "物理化的活塞"
- * gesture - and on the author's machine it refused every time:
- *
- * <pre>
- *   carrier s:7061d621: filed the carrier host a plot cell was missing local=20481032, 128, 20481032
- *       origin=-2, -59, -5 (record=created empty) …
- *   carrier entry trace: … raw=20481032, 128, 20481032 … -&gt; REFUSED refused: this carried host is EMPTY and
- *       the picked host is not this one, so there is nothing to pin towards it either (INSIDE: NOT_INSIDE)
- * </pre>
- *
- * <p>The two lines belong to one click. The first <b>created</b> the record the second then tripped over:
- * the ownership question ({@code CarrierClickPriority#owner}) used to answer <b>null</b> for a coordinate
- * the index holds a record at, on the assumption that an earlier frame had already answered for every live
- * record - an assumption that is false in production, because that earlier frame asks the structure's own
- * storage without a level. {@code planLink} therefore saw {@code ownedByCarrier == null}, read it as
- * "nobody owns this coordinate" and answered {@code NOT_INSIDE} for a block of the picked structure
- * itself.
- *
- * <h2>What this round changes, and what it deliberately does not</h2>
- * The ownership answer is decided by the RECORD and only tags itself with it
- * ({@code owner=host} / {@code owner=sublevel}): a plot cell of the picked structure is the picked
- * structure's <b>either way</b>, so <code>slot == null</code> - whether because the record is empty or
- * because there is no record at all - reaches the INSIDE device lock. The three genuine refusals are
- * untouched and each still writes nothing: air on that side ({@code NO_SUCH_BLOCK}), a block that shares
- * no face with the pick ({@code NOT_ADJACENT}), and a pose that cannot be read
- * ({@code UNREADABLE_POSE}). And a click whose far end is <b>nobody's</b> coordinate is still
- * {@code NOT_INSIDE} (that is P1.31's outside gesture or the cross-structure path) - asserted unchanged
- * by {@code CarrierInsideDeviceLockTest}.
- *
- * <h2>What is asserted here</h2>
- * <ol>
- *   <li><b>the far cell holds an EMPTY host record</b> - the author's own state - and the line is locked
- *       anyway: the record is written, the pick's other sides are cut, and the block beside it loses its
- *       power in a real in-structure solve (14 → 0);</li>
- *   <li><b>the far cell has no record at all</b>: the same lock, and the same evidence;</li>
- *   <li><b>nothing is written at the far end</b> in either case, and the world store is untouched;</li>
- *   <li><b>the three refusals write nothing either</b>;</li>
- *   <li><b>the clicked block being the picked one is not this gesture</b> - it is the world's own
- *       "drop every override" (or {@code SAME_HOST} when there was nothing to drop), which P1.33 asks
- *       through one predicate in both entrances.</li>
- * </ol>
+ * <p>The ownership answer is decided by the RECORD and only tags itself with it ({@code owner=host} /
+ * {@code owner=sublevel}): a plot cell of the picked structure is the picked structure's <b>either way</b>, so a
+ * null slot - an empty record or no record at all - reaches the INSIDE device lock. The three genuine refusals
+ * are untouched and each still writes nothing: air on that side ({@code NO_SUCH_BLOCK}), a block that shares no
+ * face with the pick ({@code NOT_ADJACENT}), and a pose that cannot be read ({@code UNREADABLE_POSE}). A click
+ * whose far end is <b>nobody's</b> coordinate is still {@code NOT_INSIDE}.
  */
 class CarrierInsidePlotCellLockTest {
 
@@ -128,7 +91,7 @@ class CarrierInsidePlotCellLockTest {
         return slot;
     }
 
-    /** The author's machine: a host with a supply and a wire beside it, and a device that holds nothing. */
+    /** The fixture: a host with a supply and a wire beside it, and a device that holds nothing. */
     private void machineWithADevice() {
         carry(MINE, A, A_WORLD, ComponentType.DUST);
         carry(MINE, WIRE, A_WORLD.relative(Direction.SOUTH), ComponentType.DUST);
@@ -136,8 +99,7 @@ class CarrierInsidePlotCellLockTest {
     }
 
     /**
-     * <b>The state the author's save is in</b> (and the state the previous build created for them): a
-     * live carrier record at the device's coordinate that holds nothing at all.
+     * A live carrier record at the device's coordinate that holds nothing at all.
      */
     private void deviceHasAnEmptyRecord() {
         index.registerAt(MINE, DEVICE, DEVICE_WORLD, DEVICE, new MapWorld(world));
@@ -172,8 +134,8 @@ class CarrierInsidePlotCellLockTest {
                     (CarrierStore.PoseSource) owner -> MINE.equals(owner) ? identity() : null,
                     (java.util.function.Predicate<CarrierId>) carrier -> true);
         } catch (ReflectiveOperationException absent) {
-            // The previous build: the ownership answer has no case for a plot cell it holds a record for,
-            // so the whole gesture is refused at the first question - which is the defect.
+            // No method with this signature: ownership has no case for a plot cell it holds a record for, so
+            // the gesture would be refused at the first question.
             return null;
         }
     }
@@ -285,7 +247,7 @@ class CarrierInsidePlotCellLockTest {
     // ------------------------------------------------------------------ cases --
 
     @Nested
-    @DisplayName("the far cell has an EMPTY host record - the author's own state - and the line locks anyway")
+    @DisplayName("the far cell has an EMPTY host record and the line locks anyway")
     class TheEmptyRecordFarEnd {
 
         @Test
@@ -296,8 +258,8 @@ class CarrierInsidePlotCellLockTest {
 
             CarrierClickPriority.Owned owned = ownership();
 
-            assertNotNull(owned, "an empty record must not answer `not ours`: this is the whole of P1.33's "
-                    + "second commit, and the line the author was refused on");
+            assertNotNull(owned, "an empty record must not answer `not ours`: it is still the structure's own "
+                    + "plot cell, and the whole inside-device lock depends on it");
             assertEquals(MINE, owned.carrier());
             assertEquals(DEVICE, owned.localPos(), "the coordinate IS the structure's local coordinate");
             assertEquals(CarrierClickPriority.Probe.HOST, owned.probe(),
@@ -383,7 +345,7 @@ class CarrierInsidePlotCellLockTest {
             assertNull(index.at(MINE, DEVICE), "the setup: this cell has no record at all");
 
             CarrierClickPriority.Owned owned = ownership();
-            assertNotNull(owned, "P1.30's widening must keep working");
+            assertNotNull(owned, "the ownership question must also be answered without a record");
             assertEquals(CarrierClickPriority.Probe.SUB_LEVEL, owned.probe(),
                     "no record is `owner=sublevel` - the value the migration and the placement path read");
 
@@ -469,7 +431,7 @@ class CarrierInsidePlotCellLockTest {
                     CarriedBlockRemoval.StructureViewState.PRESENT);
 
             assertEquals("NOT_INSIDE", status(decision),
-                    "P1.31's outside gesture and the cross-structure path are decided by the same wiring a "
+                    "the outside gesture and the cross-structure path are decided by the same wiring a "
                             + "moment later, and neither is this one: " + String.valueOf(decision));
             assertNull(actionOf(decision));
         }

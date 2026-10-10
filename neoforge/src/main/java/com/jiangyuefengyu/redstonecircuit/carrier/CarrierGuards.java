@@ -15,46 +15,17 @@ import org.jetbrains.annotations.Nullable;
  * <b>One shared safety net under every carrier entry point, so no carrier action can take the server
  * thread down.</b>
  *
- * <h2>Why this exists</h2>
- * The carrier layer is reached from six places that are all somebody else's call stack: a NeoForge
- * player-interaction event, Create's contraption-interaction packet, {@code BlockEvent.BreakEvent},
- * the tick handler's own sweep, the host-removal notice and the in-structure solve. An exception thrown
- * out of any of them is not "our action failed" - it is a server crash (an event bus rethrows, and the
- * tick handler's exception aborts the tick and stops the game). The author's P1.23 run is the proof:
- * a host a structure was still carrying had had its component taken out, one path called
- * {@code slot().copy()} on it, and the game died with a {@code NullPointerException} out of
- * {@code LevelTickEvent.Post}.
- *
- * <p>Each entry point used to carry its own {@code try/catch} - three of them did, two did not, and the
- * two that did each had their own private "warned once" boolean. That is how the crash got through:
- * the guard was a property of a <em>call site</em> rather than of the layer. Here it is a property of
- * the layer: one {@link Guard} per entry point, each one a single expression that answers "unhandled"
- * and writes exactly one warning the first time it fails, so "this hook never ran" and "this hook ran
- * and threw" cannot look the same in the log.
- *
- * <h2>What it returns, and why that is the safe answer</h2>
- * Every caller of these entry points treats the value as <b>"did the carrier layer own this
- * gesture"</b>: {@code false} means the click, break or packet is left to vanilla and to whatever other
- * mod would have had it. So the fallback is {@code false} - and a failure must produce it, never a
- * guess. The failure also never retries, never loops and never grows a table: one boolean and one
- * counter per guard, both process-lifetime.
- *
- * <h2>Bounded, and free when nothing fails</h2>
- * The whole of it is one {@code try}/{@code catch} and a boolean test on the way out. The ledger is at
- * most {@link #MAX_LEDGER_ENTRIES} rows of fixed text, written only when something has actually gone
- * wrong, and read only by {@code /rc physics}.
+ * <p>六个入口点都在别人的调用栈上（NeoForge 事件、Create 交互包、{@code BlockEvent.BreakEvent}、tick 扫描、
+ * host 移除通知、结构内求解），异常从这里抛出去就是服务器崩溃，所以守卫是这一层的属性而不是调用点的:
+ * 每个入口一个 {@link Guard}，各写一次警告。返回 {@code false} 意为"这次手势不归这一层"，失败必须给出它。
  */
 public final class CarrierGuards {
 
     /** How many distinct entry points the failure ledger remembers before the rest are pooled. */
     public static final int MAX_LEDGER_ENTRIES = 12;
 
-    /**
-     * Who a guard is protecting, and what the log should say when it fires.
-     *
-     * <p>Named rather than anonymous because the line has to answer "which hook threw" - the author's
-     * log had a generic {@code carrier tool click failed} that named a position and no hook at all.
-     */
+    /** Who a guard is protecting, and what the log should say when it fires - named, so "which hook threw"
+     * can be answered rather than naming a position and no hook at all. */
     public enum Entry {
         /** The ordinary block click Sable sub-levels deliver (plot coordinates). */
         BLOCK_CLICK("carrier block click"),
@@ -87,13 +58,8 @@ public final class CarrierGuards {
         }
     }
 
-    /**
-     * One entry point's safety net: it answers "unhandled" and warns once.
-     *
-     * <p>Not a static method with a name argument because the "already warned" flag has to belong to one
-     * entry point: a shared flag would let the first failure anywhere silence every later one, which is
-     * exactly the blindness that let a second, unguarded call site sit next to a guarded one.
-     */
+    /** One entry point's safety net: it answers "unhandled" and warns once. The "already warned" flag belongs
+     * to one entry point - a shared flag would let the first failure anywhere silence every later one. */
     public static final class Guard {
 
         private final Entry entry;
@@ -119,17 +85,8 @@ public final class CarrierGuards {
             return warned;
         }
 
-        /**
-         * Runs one carrier action and turns any failure into the caller's fallback.
-         *
-         * <p>The exception is caught for a {@code RuntimeException} or a {@code LinkageError} and
-         * nothing else: an {@code Error} that is not a linkage failure is the JVM saying something this
-         * layer has no business swallowing.
-         *
-         * @param where the position the action was about, for the warning line
-         * @param action what to run
-         * @param fallback what to answer when it throws - {@code false} ("not handled") everywhere
-         */
+        /** Runs one carrier action and turns any failure into the caller's fallback, which is {@code false}
+         * everywhere. Only a {@code RuntimeException} or a {@code LinkageError} is caught. */
         public boolean call(@Nullable BlockPos where, Supplier<Boolean> action, boolean fallback) {
             try {
                 Boolean handled = action.get();
@@ -140,13 +97,8 @@ public final class CarrierGuards {
             }
         }
 
-        /**
-         * The same, for an action that produces something rather than a yes/no.
-         *
-         * <p>{@code fallback} is called with the failure so the caller can decide what "degraded" means
-         * for its own return type - a solve pass answers "nothing changed", a lookup answers
-         * {@code null}.
-         */
+        /** The same, for an action that produces something rather than a yes/no: {@code fallback} is called with
+         * the failure, so "degraded" means whatever the caller's own return type needs. */
         public <T> T call(@Nullable BlockPos where, Supplier<T> action, Function<Throwable, T> fallback) {
             try {
                 return action.get();
@@ -156,13 +108,8 @@ public final class CarrierGuards {
             }
         }
 
-        /**
-         * Records one failure and writes the single warning.
-         *
-         * <p>Called by {@link #call} and available to a caller that has to catch around something
-         * {@code call} cannot wrap - a lambda that captures a mutable local, for instance. It never
-         * throws: a diagnostics line must not be the thing that fails the tick.
-         */
+        /** Records one failure and writes the single warning. It never throws: a diagnostics line must not be
+         * the thing that fails the tick. */
         public void fail(@Nullable BlockPos where, Throwable failed) {
             failures++;
             CarrierGuards.record(entry, failures, String.valueOf(failed));
@@ -186,13 +133,8 @@ public final class CarrierGuards {
         }
     }
 
-    /**
-     * One row of the failure ledger: which entry point failed, how often, and what it said.
-     *
-     * <p>Exists because the warning is written <b>once</b> per entry point for the whole process: a
-     * player who triggers the same failure a hundred times produces one line, and the report is where
-     * "and how often" can still be read an hour later.
-     */
+    /** One row of the failure ledger: which entry point failed, how often, and what it said. The warning is
+     * written once per entry point, so the ledger is where "and how often" can still be read later. */
     private record Row(Entry entry, int failures, String firstFailure) {
     }
 
@@ -222,12 +164,8 @@ public final class CarrierGuards {
                 INSERT, SWITCH, POSE, OTHER);
     }
 
-    /**
-     * The ledger's report lines, for {@code /rc physics}.
-     *
-     * <p>Empty when nothing has failed, which is the ordinary state - and the whole point of the report
-     * is that its being empty is a positive statement rather than silence.
-     */
+    /** The ledger's report lines, for {@code /rc physics}. Empty when nothing has failed, which is the
+     * ordinary state and a positive statement rather than silence. */
     public static java.util.List<String> report() {
         java.util.List<String> out = new java.util.ArrayList<>();
         if (LEDGER.isEmpty() && pooled == 0) {

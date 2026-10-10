@@ -74,18 +74,8 @@ public final class HostSync {
     }
 
     /**
-     * Tells clients that these positions changed: added, updated, or (with a {@code null} slot)
-     * emptied.
-     *
-     * <p>A list, because one solve usually rewrites a whole wire at once; sending one packet per
-     * position would be the difference between a dozen bytes and a dozen packets.
-     *
-     * <p>Delivered to everyone in the dimension by default. The alternative - only players near enough
-     * to see it - is tempting, since this fires on every step a wire takes, but a client that missed
-     * an update keeps drawing the old state until it happens to be re-sent, and nothing re-sends it.
-     * {@code slotSyncRange} exists for servers that would rather have the bandwidth: set it to a
-     * positive block radius and updates outside it are dropped for that player, at the cost of a stale
-     * drawing until the next login or dimension change re-snapshots.
+     * Tells clients that these positions changed: added, updated, or (with a {@code null} slot) emptied.
+     * Delivered to everyone in the dimension unless {@code slotSyncRange} narrows it.
      */
     public static void broadcast(ServerLevel level, List<HostEntry> entries) {
         if (entries.isEmpty()) {
@@ -112,37 +102,29 @@ public final class HostSync {
     }
 
     /**
-     * Tells clients that a position no longer holds anything.
-     *
-     * <p>A separate name from {@code broadcast(level, pos, null)} only for readability at the call
-     * sites that use it for a different reason. There are two of them, and both are about a host that
-     * has <em>moved</em> rather than one that has been emptied:
-     *
-     * <ul>
-     *   <li>the position a structure picked a host up from - "stop drawing the component here, it is
-     *       inside the machine now". See {@code CarrierStore#suppressWorldHost};</li>
-     *   <li>the position a structure put a host down after drifting away from it - "stop drawing it
-     *       here, it came home somewhere else". That one is sent <b>after</b> the announcement of the
-     *       position it came home to, because a client that heard only the removal would have no world
-     *       host to draw at all.</li>
-     * </ul>
-     *
-     * <p>Deliberately not ordered by this method: the caller is the only one that knows which of the
-     * two it is doing, and the order that matters (announce the new position first) belongs at the call
-     * site that knows where the new position is.
+     * Tells clients that a position no longer holds anything: a host that has <em>moved</em> rather than one
+     * that was emptied. Not ordered here - the caller must announce the new position first.
      */
     public static void broadcastRemoval(ServerLevel level, BlockPos pos) {
         broadcast(level, pos, null);
     }
 
+    /**
+     * Makes the world-side entry at a position a carried host is only <em>drawn</em> at say "nothing here",
+     * unless the world keeps a host of its own there: a carried host lives at the structure's coordinates.
+     */
+    public static void publishWorldEntry(ServerLevel level, BlockPos worldPos) {
+        if (InnerRedstoneStore.get(level).slotAt(worldPos) != null) {
+            return;
+        }
+        broadcastRemoval(level, worldPos);
+    }
+
     // ------------------------------------------------------------- carriers --
 
     /**
-     * Tells clients everything they need to know about one moving structure.
-     *
-     * <p>One message rather than two on purpose: the pose and the hosts are the same fact seen twice,
-     * and a client that received one without the other would draw a component at a position that does
-     * not exist. A {@code null} pose means the structure is gone.
+     * Tells clients everything they need to know about one moving structure; a {@code null} pose means it is
+     * gone. Pose and hosts travel together because one without the other draws a component that is not there.
      */
     public static void broadcastCarrier(ServerLevel level, CarrierId carrier,
                                         @Nullable CarriedHostIndex index,
@@ -151,16 +133,8 @@ public final class HostSync {
     }
 
     /**
-     * The same, with the hosts the server has <b>discarded</b> named explicitly.
-     *
-     * <p>The one thing absence from the host list cannot say. A host leaves the list either because it
-     * was put down (the client must keep drawing the component where it landed, even over air) or
-     * because its block was destroyed (nothing may be drawn anywhere, ever again). Without the second
-     * list the client had to guess, and it guessed "put down" - which is the ghost the author reported:
-     * the outline and the component stayed on screen for the whole flight.
-     *
-     * <p>Sent by the two removal paths and by nothing else, so the ordinary message carries an empty
-     * list and costs two bytes.
+     * The same, with the hosts the server has <b>discarded</b> named explicitly - the one thing absence from
+     * the host list cannot say, since a host leaves it either by being put down or by being destroyed.
      */
     public static void broadcastCarrier(ServerLevel level, CarrierId carrier,
                                         @Nullable CarriedHostIndex index,
@@ -168,8 +142,8 @@ public final class HostSync {
         CarriedHostIndex resolved = index == null ? CarrierStore.indexOf(level) : index;
         PacketDistributor.sendToPlayersInDimension(level,
                 carrierPayload(level, carrier, resolved, pose, removed));
-        // STAGE 2 of the three-stage diagnostic, counted here rather than at the call sites so every
-        // route that puts a carrier on the wire is counted exactly once.
+        // Counted here rather than at the call sites, so every route that puts a carrier on the wire is
+        // counted exactly once.
         int liveHosts = resolved == null ? 0 : resolved.liveHostsOf(carrier).size();
         CarrierTrace.noteCarrierSent(level.dimension(), liveHosts);
         if (RCConfig.debugLog()) {
@@ -187,13 +161,8 @@ public final class HostSync {
     }
 
     /**
-     * The same, with the three-stage counter made optional.
-     *
-     * <p>A heartbeat pose - one re-sent because the structure is <em>still there</em> rather than
-     * because it moved - must not be counted as a pose that "was sent while the structure moved": the
-     * {@code sync: posesSent=N} line is how a reader tells "the machine is moving and the client is
-     * being kept up to date" from "the machine is parked". The message itself is identical, which is
-     * exactly why the flag is here rather than a second payload.
+     * The same, with the three-stage counter made optional: a heartbeat pose - re-sent because the structure
+     * is <em>still there</em> - must not be counted as a pose sent while it moved.
      */
     public static void broadcastPose(ServerLevel level, CarrierId carrier,
                                      @Nullable CarrierPose pose, boolean countAsChange) {
@@ -227,14 +196,11 @@ public final class HostSync {
         }
         RCNetwork.CarrierSnapshotPayload payload = carrierSnapshotOf(level);
         if (payload.carriers().isEmpty()) {
-            // Nothing is in flight, so there is nothing to correct: a fresh client's carrier view is
-            // empty already, and an empty packet would only be noise.
+            // Nothing is in flight, so there is nothing to correct: a fresh client's carrier view is empty.
             return;
         }
         PacketDistributor.sendToPlayer(player, payload);
-        // The carriers this snapshot just named may have to be taken back later, so the ledger that
-        // decides whether a removal is owed is advanced only here - after the packet actually went out,
-        // never while building it.
+        // The ledger that decides whether a removal is owed is advanced only after the packet went out.
         List<CarrierId> named = new ArrayList<>(payload.carriers().size());
         for (RCNetwork.CarrierPayload carrier : payload.carriers()) {
             named.add(carrier.carrier());
@@ -244,11 +210,8 @@ public final class HostSync {
     }
 
     /**
-     * Builds the message for one carrier: its pose, and every host that is still riding it.
-     *
-     * <p>Hosts that have been put down are deliberately left out. They are back in the world, the
-     * ordinary host sync covers them, and re-listing them here would fight it - the client would be
-     * told the same component rides a structure and sits in a block.
+     * Builds the message for one carrier: its pose, and every host that is still riding it. Hosts that have
+     * been put down are left out - they are back in the world, which the ordinary host sync covers.
      */
     private static RCNetwork.CarrierPayload carrierPayload(ServerLevel level, CarrierId carrier,
                                                            @Nullable CarriedHostIndex index,
@@ -257,10 +220,8 @@ public final class HostSync {
     }
 
     /**
-     * The same message, with the discarded host coordinates attached.
-     *
-     * <p>The list is copied and immutable so a payload handed to the network cannot change under it,
-     * exactly like the host views above.
+     * The same message, with the discarded host coordinates attached. The list is copied and immutable so a
+     * payload handed to the network cannot change under it.
      */
     private static RCNetwork.CarrierPayload carrierPayload(ServerLevel level, CarrierId carrier,
                                                            @Nullable CarriedHostIndex index,
@@ -269,14 +230,8 @@ public final class HostSync {
         List<CarrierIndex.CarriedView> views = new ArrayList<>();
         if (index != null) {
             for (CarriedHost host : index.liveHostsOf(carrier)) {
-                // AN EMPTY HOST IS A STATE, NOT A CRASH. A host a structure is carrying can hold nothing
-                // - the player took the component back out (see CarriedHostIndex#removeSlot) - and
-                // `slot()` is then null. It used to be dereferenced here, and this method is reached from
-                // the pose heartbeat, so one emptied host on one moving structure killed the server tick
-                // (the author's P1.23 crash: `Slot.copy()` on a null return out of
-                // CarrierStore#broadcastPose). The client is told the same thing it is told for any other
-                // position that holds nothing: the view is left out, and the carrier message says the host
-                // no longer carries a component.
+                // An empty host is a state, not a crash: its slot is null, so the view is left out and the
+                // client is told the host carries no component.
                 Slot slot = host.slot();
                 if (slot == null) {
                     continue;
@@ -330,8 +285,7 @@ public final class HostSync {
     private static List<HostEntry> copyOf(List<HostEntry> entries) {
         List<HostEntry> copy = new ArrayList<>(entries.size());
         for (HostEntry entry : entries) {
-            // Copied, not referenced: the solver keeps mutating its slots after the packet is handed
-            // over, and a payload that changed under the network thread would send nonsense.
+            // Copied, not referenced: the solver keeps mutating its slots after the packet is handed over.
             copy.add(new HostEntry(entry.pos().immutable(),
                     entry.slot() == null ? null : entry.slot().copy()));
         }

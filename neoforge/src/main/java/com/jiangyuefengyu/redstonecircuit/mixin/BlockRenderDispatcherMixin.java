@@ -21,26 +21,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Leaves the block out of the chunk mesh while a shader pack is drawing the overlay.
- *
- * <h2>Why the block has to go</h2>
- * A component is drawn inside its block, and the block's own cube is meshed first and writes depth, so
- * geometry that honestly tested depth would never be seen. Without shaders that is solved by drawing
- * with a render type of our own that ignores the depth test - but shader packs choose their program,
- * and the vertex attributes their shaders expect, from the identity of the render type, so a type of
- * ours gets no lighting and no surface to be lit: the deferred packs simply drop it.
- *
- * <p>With shaders on, the overlay draws the block itself instead (both sides of it, so nothing behind
- * shows through) and the components with vanilla render types. That only works if the block is not in
- * the mesh twice, which is what this mixin is for: the position is looked up in the set of hosts the
- * overlay is drawing, and the call is cancelled when it is one of them.
- *
- * <p>This is the vanilla mesher's entry point - {@code SectionCompiler} calls it for every block, and
- * the shorter overload delegates here - so a replacement chunk renderer that does not route through it
- * keeps its own meshes and simply does not get the shader-friendly path.
- *
- * <p>{@code require = 0}: if a future NeoForge reshapes that method, the overlay should lose its
- * shader-friendly path, not crash the game on startup. The overlay keeps drawing components with its
- * own render type as well, so a mixin that does nothing degrades instead of disappearing.
+ * <p>A block's own cube is meshed first and writes depth, so geometry drawn inside it would never be seen; shader
+ * packs pick their program from the render type's identity and drop unknown types, so with shaders on the overlay
+ * draws the block itself (both sides) - which only works if the block is not in the mesh twice.
+ * <p>{@code require = 0}: a future NeoForge reshaping must degrade the overlay, not crash startup.
  */
 @Mixin(BlockRenderDispatcher.class)
 public abstract class BlockRenderDispatcherMixin {

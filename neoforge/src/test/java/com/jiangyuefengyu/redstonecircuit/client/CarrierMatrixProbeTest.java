@@ -17,28 +17,24 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Pins the diagnostic that asks the matrix the renderer was handed, rather than the arithmetic that
- * decided to draw.</b>
+ * Pins the diagnostic that asks the matrix the renderer was handed, rather than the arithmetic that
+ * decided to draw.
  *
- * <h2>Why a probe of the matrix, and not another counter</h2>
- * The author's log carried {@code drawCheck ... computedWorld= structureWorld= delta=0.000 OK-position}
- * on every frame of a flight in which nothing was visible. That line was correct: it transformed the
- * host's local coordinate through the pose in {@code double} and compared it with the structure's own
- * position. What it could not see was the thing that was actually wrong - the {@code float} matrix the
- * vertex was multiplied by. These tests drive {@link CarrierMatrixProbe} with the real renderer's matrix
- * and with the old, wrong one, and assert that the probe names the right defect at the right magnitude.
+ * <p>The pose math in {@code double} was right and still saw nothing: what was wrong was the
+ * {@code float} matrix the vertex is multiplied by. These tests drive {@link CarrierMatrixProbe} with
+ * the real renderer's matrix and with the wrong one, and assert it names the defect and its magnitude.
  */
 class CarrierMatrixProbeTest {
 
     private static final Vector3d CAMERA = new Vector3d(2700.25, 90.5, -1300.75);
 
-    /** The author's Create contraption: pivot and local are sub-block. */
+    /** Create contraption: pivot and local are sub-block. */
     private static CarrierPose contraption(double degrees) {
         return new CarrierPose(new Vector3d(2775.5, 77.5, -1394.5),
                 new Quaterniond().rotateX(Math.toRadians(degrees)), new Vector3d(0.5, 0.5, 0.5), 1.0);
     }
 
-    /** The author's Sable sub-level: pivot and local are both plot coordinates. */
+    /** Sable sub-level: pivot and local are both plot coordinates. */
     private static CarrierPose sable(double degrees) {
         return new CarrierPose(new Vector3d(2775.5, 78.083, -1394.5),
                 new Quaterniond().rotateX(Math.toRadians(degrees)),
@@ -54,10 +50,8 @@ class CarrierMatrixProbeTest {
     }
 
     /**
-     * The pose stack the renderer builds for a carried host, as a matrix.
-     *
-     * <p>Deliberately the real {@link HostRenderPass#applyCarrierFrame} on a real {@link PoseStack}: a
-     * probe tested against a hand-built matrix would be testing the test.
+     * The matrix the renderer builds for a carried host: the real {@link HostRenderPass#applyCarrierFrame}
+     * on a real {@link PoseStack}, never a hand-built matrix.
      */
     private static Matrix4f rendererMatrix(CarrierFrame frame) {
         PoseStack pose = new PoseStack();
@@ -68,12 +62,7 @@ class CarrierMatrixProbeTest {
 
     private static final float[] NO_EXTRA = { 0F, 0F, 0F };
 
-    /**
-     * A probe of one call site of a correct frame.
-     *
-     * @param extra what the call site translates by before writing vertices: nothing for the shell, the
-     *     block's corner offset for the contents
-     */
+    /** A probe of the shell call site of a correct frame. */
     private static CarrierMatrixProbe shellProbe(CarrierFrame frame) {
         float[] corner = frame.cornerOffset(new float[3]);
         return probe("c:test", frame, rendererMatrix(frame),
@@ -82,9 +71,7 @@ class CarrierMatrixProbeTest {
     }
 
     private static CarrierMatrixProbe contentsProbe(CarrierFrame frame) {
-        // The contents call site translates the pose stack by the block's corner offset and then writes
-        // the model's own 0..1 vertices - so its matrix has that translation in it and its probe points
-        // are the block's centre and corner *inside* the block.
+        // The contents site pre-translates by the block's corner offset, so its own 0..1 vertices land inside.
         float[] corner = frame.cornerOffset(new float[3]);
         Matrix4f matrix = rendererMatrix(frame)
                 .translate(corner[0], corner[1], corner[2]);
@@ -122,8 +109,7 @@ class CarrierMatrixProbeTest {
                 assertFalse(shell.collapsed(), "the block collapsed at " + degrees + " degrees");
                 assertEquals(Math.sqrt(3.0) / 2.0, shell.span(), 1.0E-3,
                         "a correct frame maps the block's half diagonal");
-                // The two call sites agree with each other: this is the "+local" check, and it is the
-                // one that would have caught the missing offset in a plot space.
+                // The two call sites must agree: the shell and the contents name the same world centre.
                 assertEquals(0.0, shell.centreWorld().distance(contents.centreWorld()),
                         CarrierMatrixProbe.MATRIX_TOLERANCE,
                         "shell and contents disagree at " + degrees + " degrees");
@@ -156,7 +142,7 @@ class CarrierMatrixProbeTest {
     }
 
     @Test
-    @DisplayName("at R = I the old order was right, which is why only one frame of each turn showed")
+    @DisplayName("at R = I the old order is right, so the defect is invisible at zero degrees")
     void oldOrderIsRightAtZeroDegrees() {
         CarrierMatrixProbe wrong = probeWithOldMatrix(contraption(0), 0, 0, 0);
         assertEquals(0.0, wrong.matrixDelta(), 1.0E-5,
@@ -169,9 +155,7 @@ class CarrierMatrixProbeTest {
     @DisplayName("a block that has collapsed to a point is named even when its centre is right")
     void collapseIsNamedEvenWithACorrectCentre() {
         CarrierFrame frame = sableFrame(0);
-        // The old path's matrix, which *is* the collapse: its translation is `position - pivot`, a plot
-        // coordinate, and at two times ten to the seventh a float's spacing is 2 - so the block's own
-        // half block, and even the 0.5 of its centre offset, round away before the geometry is added.
+        // The collapsed matrix: at plot coordinates a float's spacing is 2, so the half block rounds away.
         Matrix4f collapsed = new Matrix4f()
                 .translation((float) (2775.5 - 20481032.5), (float) (78.083 - 128.083),
                         (float) (-1394.5 - 20524040.5));
@@ -187,13 +171,11 @@ class CarrierMatrixProbeTest {
                 "a degenerate matrix has to be reported as a collapse: " + probe.describe());
         assertTrue(probe.span() < probe.expectedSpan(),
                 "the block does not span a block any more: " + probe.span());
-        // On the plot-scale axes the block's extent is gone entirely - 20481032.0f + 0.5f is
-        // 20481032.0f. The y axis is not plot-scale, so it keeps its half block, and the span is exactly
-        // that: the collapse is per axis, and this is the axis detail in one line.
+        // The collapse is per axis: x and z lose the half block at plot scale, y (not plot-scale) keeps it.
         assertEquals(0.0, probe.centreWorld().x - probe.cornerWorld().x, 0.0);
         assertEquals(0.0, probe.centreWorld().z - probe.cornerWorld().z, 0.0);
         assertTrue(probe.describe().contains("COLLAPSED TO A POINT"), probe.describe());
-        // And the correct frame does not collapse: the contrast the verdict is read against.
+        // The correct frame does not collapse: the contrast the verdict is read against.
         assertFalse(shellProbe(frame).collapsed());
         assertEquals(Math.sqrt(3.0) / 2.0, shellProbe(frame).expectedSpan(), 1.0E-9);
     }
@@ -214,12 +196,8 @@ class CarrierMatrixProbeTest {
     }
 
     /**
-     * The probe for the <b>old</b> carried path: {@code T(-cam)路T(-pivot)路R路T(position)}, which is what
-     * {@code translate(-pivot); mulPose(R); translate(position)} builds on a right-multiplying stack.
-     *
-     * <p>The vertex the old path wrote was the raw local coordinate {@code p}, because the pivot
-     * subtraction was baked into the matrix - which is why the probe point here is {@code local + v} and
-     * not the offset the new code uses.
+     * The probe for the superseded carried path, where the whole composition sits in the matrix and the
+     * vertex written is the raw local coordinate, so the probe point is the local one plus the offset.
      */
     private static CarrierMatrixProbe probeWithOldMatrix(CarrierPose pose, int localX, int localY,
                                                          int localZ) {

@@ -25,55 +25,28 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.30 commit B: a world-store entry that stands at a structure's own plot coordinate is
- * <em>adopted</em> - moved into the carrier record, and removed from the world store.</b>
+ * A world-store entry that stands at a structure's own plot coordinate is <em>adopted</em> - moved into the carrier
+ * record, and removed from the world store.
  *
- * <h2>Why a migration and not only a fix</h2>
- * Commit A stops new components from being written into the world store at a plot cell. It does nothing
- * about the ones that are already there, and the author's log is exactly that state:
+ * <p>Left alone, one block has two truths: Jade reads the world store and displays the component, the overlay reads
+ * the carrier index and draws nothing, and breaking the block drops it through the <b>world's</b> break path. A save
+ * in that state stays in it for ever unless something moves the entry.
  *
- * <pre>
- *   placed RETAINING_REPEATER at 20481032, 127, 20481032
- *   host 20481032, 127, 20481032
- *     RETAINING_REPEATER out=0 in=south
- *   carrier claim = 0                                        (the whole session)
- *   dropped RETAINING_REPEATER from broken host 20481032, 127, 20481032
- * </pre>
+ * <p><b>What is asserted.</b> The adoption itself, with the record's fields checked one by one and the world entry
+ * asserted <b>gone</b>; idempotence, so a second scan files no second record and the first snapshot survives; that an
+ * ordinary world entry is untouched, byte for byte; and the {@code origin} rule, where a readable pose names the block
+ * the structure's own transform puts there, while no pose, a non-finite pose and a pose that rounds to a neighbouring
+ * block are separate answers.
  *
- * <p>Two truths about one block: Jade reads the world store and displays the component, the overlay reads
- * the carrier index and draws nothing, the world bridge cannot see it, and breaking the block drops it
- * through the <b>world's</b> break path. A world saved in that state stays in it for ever unless
- * something moves the entry, which is what this commit does.
- *
- * <h2>What is asserted, and why each one is one of the round's four asked-for cases</h2>
- * <ol>
- *   <li><b>the adoption itself</b>: a world entry at a plot cell becomes a carrier host - the record's
- *       fields are asserted one by one, and the world entry is asserted <b>gone</b>, because leaving it
- *       behind would be the two truths this exists to remove;</li>
- *   <li><b>idempotence</b>: a second scan of the same coordinate produces no second record, and the
- *       snapshot the first adoption took is the one that survives - re-claiming would overwrite a
- *       component the carrier side may have changed with a stale world entry;</li>
- *   <li><b>an ordinary world entry is untouched</b>: a component at a coordinate that is nobody's plot
- *       cell is answered {@code nothing-there}... which is to say this code never even looks at it, and
- *       the store is asserted unchanged;</li>
- *   <li><b>the {@code origin} semantics and its edges</b>: the origin recorded for an adopted host is
- *       where the structure's own pose puts the block <em>now</em>, never the plot coordinate; and no pose,
- *       a non-finite pose, and a pose that rounds to the neighbouring block are three separate answers.</li>
- * </ol>
- *
- * <h2>Before the fix (the red half)</h2>
- * The test file reaches the decision by reflection, so it <b>compiles and runs against the previous
- * build</b>: there, {@code WorldComponentAdoption} does not exist, the reflective lookup fails, and every
- * assertion about an adoption is answered "nothing happened" - which is the defect stated as a red
- * assertion rather than as a compile error. Expected red: the seven assertions this file makes
- * about an adoption.
+ * <p>The decision is reached by reflection, so this file also compiles against a build without
+ * {@code WorldComponentAdoption} and fails with a plain message there rather than not compiling.
  */
 class WorldComponentAdoptionTest {
 
-    /** The coordinate from the author's log: a plot cell, and the world store's key. */
+    /** A plot cell of a sub-level, which is also the world store's key for the block inside it. */
     private static final BlockPos PLOT = new BlockPos(20481032, 127, 20481032);
 
-    /** Where the structure's pose puts that cell: the author's own claim frame. */
+    /** Where the structure's own pose puts that cell. */
     private static final BlockPos VISIBLE = new BlockPos(-12, -60, -12);
 
     /** An ordinary world block, nowhere near any structure's plot region. */
@@ -105,7 +78,7 @@ class WorldComponentAdoptionTest {
         }
     }
 
-    /** The world entry the author's log produced: a retaining repeater, in the world store, at a plot cell. */
+    /** A retaining repeater, in the world store, at a plot cell. */
     private Slot worldHolds(BlockPos pos, ComponentType type) {
         Slot slot = new Slot(type);
         slot.power = type.initialPower();
@@ -117,10 +90,8 @@ class WorldComponentAdoptionTest {
     /**
      * The decision, asked through the production class by reflection.
      *
-     * <p>Reflection rather than a direct call for the red half's sake: the decision and its type did not
-     * exist before this round, so a direct call compiles only against the fixed tree. Asked reflectively,
-     * this test file compiles and runs against the previous build, where {@code plan} is absent - and then
-     * every adoption assertion fails with a plain message.
+     * <p>Reflection rather than a direct call so that this file also compiles against a build where {@code plan} is
+     * absent; every adoption assertion then fails with a plain message instead of the file not compiling.
      */
     private Object planOf(CarrierId carrier, BlockPos local, BlockPos origin) {
         try {
@@ -136,7 +107,7 @@ class WorldComponentAdoptionTest {
         }
     }
 
-    /** The decision's name, or {@code "absent"} on the previous build. */
+    /** The decision's name, or {@code "absent"} when the production class is not there. */
     private String decide(CarrierId carrier, BlockPos local, BlockPos origin) {
         Object plan = planOf(carrier, local, origin);
         if (plan == null) {
@@ -179,7 +150,7 @@ class WorldComponentAdoptionTest {
         // `fill`, not `claim` - the same call `CarrierStore#adoptWorldComponent` makes: the contents are
         // read from the plot coordinate (the world store's own key) while the record is filed with the
         // origin the pose named. Those are two different numbers, and reading the contents at the origin is
-        // the mistake a test caught here: the world store holds nothing at the position the machine is
+        // the mistake this guards against: the world store holds nothing at the position the machine is
         // flying over.
         index.fill(carrier, plan.localPos(), plan.origin(), plan.localPos(), slots);
         return plan;
@@ -192,7 +163,7 @@ class WorldComponentAdoptionTest {
     class TheMigration {
 
         @Test
-        @DisplayName("the record is filed with the fields the author's log names")
+        @DisplayName("the record is filed with the fields the world entry names")
         void theRecordIsFiled() {
             worldHolds(PLOT, ComponentType.RETAINING_REPEATER);
 
@@ -260,10 +231,10 @@ class WorldComponentAdoptionTest {
             worldHolds(PLOT, ComponentType.RETAINING_REPEATER);
             adopt(AUTHOR, PLOT, VISIBLE);
 
-            // THE SNAPSHOT IS THE AUTHORITY. Deliberately change the world store to a DIFFERENT component
-            // before the second scan: a re-claim would replace the record's component with this one, and
-            // that is exactly the corruption idempotence exists to prevent. (In production the entry is
-            // gone after the first adoption, so this is the adversarial form of the same question.)
+            // THE SNAPSHOT IS THE AUTHORITY. The world store is deliberately changed to a DIFFERENT component
+            // before the second scan: a re-claim would replace the record's component with this one, and that
+            // is the corruption idempotence exists to prevent. (In production the entry is gone after the
+            // first adoption, so this is the adversarial form of the same question.)
             Slot later = new Slot(ComponentType.DUST);
             world.put(PLOT.asLong(), later);
 
@@ -321,7 +292,7 @@ class WorldComponentAdoptionTest {
 
             // The candidate selection is "positions inside a sub-level's own plot bounds"; this coordinate
             // is not one, so the sweep never even hands it over. The assertion is therefore about the
-            // store being unchanged by the whole feature, which is what the author asked to be pinned.
+            // store being unchanged by the whole feature, which is the property worth pinning.
             assertNull(world.get(PLOT.asLong()), "the plot coordinate has nothing in it in this test");
             assertNotNull(world.get(ORDINARY.asLong()));
             Slot after = world.get(ORDINARY.asLong());
@@ -346,7 +317,7 @@ class WorldComponentAdoptionTest {
             worldHolds(PLOT, ComponentType.RETAINING_REPEATER);
 
             // The `index == null` form is the unit-test shape of "this dimension has no records at all",
-            // which is literally the author's state (`carrier claim = 0`). The decision is the same one.
+            // which is the state a save with no claims is in. The decision is the same one.
             WorldComponentAdoption.Plan noIndex = WorldComponentAdoption.plan(null, AUTHOR, PLOT, VISIBLE,
                     new MapWorld(world).get(PLOT));
 
@@ -437,14 +408,14 @@ class WorldComponentAdoptionTest {
         @Test
         @DisplayName("it is independent of the prevention half")
         void theTwoHalvesAreIndependent() {
-            assertTrue(adoptionSwitch(), "commit B is switchable");
+            assertTrue(adoptionSwitch(), "the migration is switchable");
             try {
                 java.lang.reflect.Method priority = RCConfig.class.getDeclaredMethod("carriedInsertPriority");
                 assertTrue((Boolean) priority.invoke(null),
-                        "and commit A is switchable on its own: turning the migration off must not turn "
-                                + "the prevention off, and the other way round");
+                        "and the prevention half is switchable on its own: turning the migration off must "
+                                + "not turn the prevention off, and the other way round");
             } catch (ReflectiveOperationException absent) {
-                throw new AssertionError("carriedInsertPriority is the P1.26 switch and must still exist");
+                throw new AssertionError("carriedInsertPriority must still exist");
             }
         }
 

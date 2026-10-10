@@ -17,34 +17,13 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 /**
- * Which blocks hold redstone - and what is inside them - as far as one client knows, indexed by
- * 16x16x16 section.
+ * Which blocks hold redstone - and what is inside them - as far as one client knows, bucketed by
+ * {@link SectionPos}.
  *
- * <h2>One dimension at a time</h2>
- * A client has exactly one level loaded and every packet names the dimension it belongs to, so the
- * index holds a single set plus the dimension it describes. Packets for another dimension are ignored
- * rather than merged, which also covers the gap between the player switching dimension and the
- * matching snapshot arriving: until then the index still names the old dimension and the renderer
- * asks for the current one, so nothing stale is drawn.
- *
- * <h2>Why a slot, not just a position</h2>
- * The renderer has to draw the component <em>inside</em> the block - a wire, a repeater facing
- * somewhere, a torch that is lit or not - so a bare position is not enough. The server sends the same
- * {@link Slot} it stores, and because a host block's power changes constantly while a circuit runs,
- * updates for one position are sent as they happen rather than by re-sending the set.
- *
- * <h2>Indexed by section</h2>
- * The renderer asks "what is near me" once per frame, so positions are bucketed by {@link SectionPos}
- * instead of living in one flat set: a level with thousands of hosts costs a walk over occupied
- * sections, not a scan of every block.
- *
- * <h2>Threading</h2>
- * Everything here runs on the client main thread (payload handlers are enqueued there), and the
- * renderer reads it on that same thread, so no section snapshot is needed: {@link #forEachNear} hands
- * entries straight to the caller.
- *
- * <p>Deliberately free of any {@code Minecraft} reference so the bucketing rules can be unit-tested;
- * {@link ClientHostCache} is the thin client-side wrapper.
+ * <p>One dimension at a time: every packet names its own dimension, so packets for another are ignored rather than
+ * merged, and nothing stale is drawn. A {@link Slot} per position rather than a bare position, because the renderer
+ * draws the component inside the block. Everything runs on the client main thread, so {@link #forEachNear} hands
+ * entries straight to the caller instead of snapshotting them.
  */
 public final class HostIndex {
 
@@ -93,10 +72,8 @@ public final class HostIndex {
     }
 
     /**
-     * Whether updates for {@code dim} belong to the level this index describes.
-     *
-     * <p>An update that arrives before the snapshot would mean the server forgot to send one; the
-     * dimension is adopted rather than dropping the update silently.
+     * Whether updates for {@code dim} belong to the level this index describes. An update that arrives before the
+     * snapshot would mean the server forgot to send one, so the dimension is adopted rather than the update dropped.
      */
     private boolean accepts(ResourceKey<Level> dim) {
         if (dimension == null) {
@@ -114,10 +91,8 @@ public final class HostIndex {
     // ---------------------------------------------------------------- reads --
 
     /**
-     * The hosts inside one section, for the renderer.
-     *
-     * <p>Returns a copy on purpose: the caller may keep it past the end of the frame, because the
-     * section mesh is built on a worker thread and the index can change while that runs.
+     * The hosts inside one section, for the renderer. Returns a copy: the caller may keep it past the end of the
+     * frame, because the section mesh is built on a worker thread and the index can change while that runs.
      */
     public List<HostEntry> hostsInSection(ResourceKey<Level> dim, BlockPos sectionOrigin) {
         if (dimension == null || !dimension.equals(dim)) {
@@ -128,10 +103,8 @@ public final class HostIndex {
     }
 
     /**
-     * Visits every host within {@code sectionRadius} sections of {@code center}.
-     *
-     * <p>Used by the per-frame renderer, so it hands the entries over instead of building a list: a
-     * level can hold any number of hosts and this runs once per frame.
+     * Visits every host within {@code sectionRadius} sections of {@code center}. Hands the entries over instead of
+     * building a list, because a level can hold any number of hosts and this runs once per frame.
      */
     public void forEachNear(ResourceKey<Level> dim, BlockPos center, int sectionRadius,
                             BiConsumer<BlockPos, Slot> action) {

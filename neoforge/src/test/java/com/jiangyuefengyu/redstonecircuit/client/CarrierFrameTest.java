@@ -21,22 +21,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Pins the two defects of the carried render path, as arithmetic rather than as a screenshot.</b>
+ * Tests the carried render path's arithmetic: the shell and the block model inside it must land where
+ * the pose says, compared against {@link CarrierPose#transformPosition}, the contract.
  *
- * <h2>What is being asserted, and why it has to be a test</h2>
- * The author's machine showed its components for <em>one frame per turn</em> and hid them otherwise. That
- * is the signature of a composition order that is correct exactly at {@code R = I}, and no counter could
- * see it: every diagnostic compared {@code double} arithmetic with {@code double} arithmetic, and that
- * arithmetic was never the problem. What the renderer did was build
- * {@code T(-pivot) 鐠?R 鐠?T(position)} where the contract is {@code T(position) 鐠?R 鐠?T(-pivot)}, and it
- * did the {@code T(-pivot)} part in {@code float} at a magnitude where a {@code float} cannot hold a
- * block.
- *
- * <p>So the tests below drive the real {@link HostRenderPass#applyCarrierFrame} through a real
- * {@link PoseStack} and compare the world position it produces - for the shell's own vertices and for a
- * block model's - with {@link CarrierPose#transformPosition}, which is the contract. Both defects are
- * invisible for most poses, so the poses are chosen to expose them: a rotation of 30 degrees, and a Sable
- * plot coordinate of two times ten to the seventh.
+ * {@code T(-pivot) · R · T(position)}, where the contract is {@code T(position) · R · T(-pivot)}.
  */
 class CarrierFrameTest {
 
@@ -54,13 +42,7 @@ class CarrierFrameTest {
                 new Vector3d(0.5, 0.5, 0.5), 1.0);
     }
 
-    /**
-     * The pose of the author's Sable sub-level, from the log.
-     *
-     * <p>{@code pivot=(20481032.500, 128.083, 20524040.500)} and {@code local=(20481032, 127,
-     * 20524040)} - both plot coordinates, and the reason {@code 20481032.0f + 0.5f == 20481032.0f}
-     * matters.
-     */
+    /** A Sable sub-level pose: pivot and local are plot coordinates, far beyond a float's precision. */
     private static CarrierPose sable(double degrees) {
         return new CarrierPose(new Vector3d(2775.5, 78.083, -1394.5), aboutX(degrees),
                 new Vector3d(20481032.5, 128.083, 20524040.5), 1.0);
@@ -70,13 +52,7 @@ class CarrierFrameTest {
         return new Quaterniond().rotateX(Math.toRadians(degrees));
     }
 
-    /**
-     * The world position a vertex at {@code offset} is drawn at, through the real render path.
-     *
-     * <p>This is the whole pipeline the renderer uses: the camera translation the render pass starts
-     * with, {@link HostRenderPass#applyCarrierFrame}, and the matrix multiply-and-narrow a vertex
-     * consumer performs. Nothing here is re-derived from the pose.
-     */
+    /** The world position a vertex at {@code offset} is drawn at, through the real render path. */
     private static Vector3d drawnWorld(CarrierFrame frame, float[] offset) {
         PoseStack pose = new PoseStack();
         pose.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z);
@@ -129,7 +105,7 @@ class CarrierFrameTest {
             CarrierFrame frame = frameOf(pose, 20481032, 127, 20524040);
             float[] base = frame.cornerOffset(new float[3]);
             // Every number handed to the pose stack is a fraction of a block, whatever the plot
-            // coordinate was. This is the float32 collapse, asserted rather than hoped for.
+            // coordinate was.
             for (float value : base) {
                 assertTrue(Math.abs(value) < 2.0F,
                         "a plot coordinate reached the pose stack: offset " + value);
@@ -137,10 +113,8 @@ class CarrierFrameTest {
             for (float a : new float[] { 0F, 0.5F, 1F }) {
                 float[] corner = new float[3];
                 HostShell.corner(0, a, a, corner);
-                // `20481032.0 + corner[0]` and not `20481032 + corner[0]`: an int plus a float is
-                // arithmetic in *float*, where 20481032.0f + (-0.005f) is 20481032.0f and the corner
-                // vanishes. The expectation has to be computed in double, or the test would encode the
-                // very defect it exists to detect.
+                // An int plus a float would be arithmetic in *float*, where a corner at this magnitude
+                // vanishes: the expectation has to be computed in double.
                 Vector3d expected = pose.transformPosition(new Vector3d(
                         20481032.0 + corner[0], 127.0 + corner[1], 20524040.0 + corner[2]),
                         new Vector3d());
@@ -158,8 +132,8 @@ class CarrierFrameTest {
     @Test
     @DisplayName("the component inside the block is in the shell's frame, in plot space too")
     void contentsShareTheShellsFrame() {
-        // The block's centre, as a point inside the block: `v = (0.5, 0.5, 0.5)` for a block model's
-        // 0..1 vertices, and the same point for a shell whose cube is the block expanded by EXPAND.
+        // The block's centre as a point inside the block: the same point for the model, whose vertices
+        // are 0..1, and for the shell, whose cube is the block expanded by EXPAND.
         final double vx = 0.5;
         final double vy = 0.5;
         final double vz = 0.5;
@@ -173,9 +147,8 @@ class CarrierFrameTest {
             Vector3d shellDrawn = drawnWorld(frame, new float[] {
                     (float) (base[0] + vx), (float) (base[1] + vy), (float) (base[2] + vz) });
 
-            // The contents' call site: the same pose stack, then a block model's vertex translated by
-            // the block's corner - which is the same base the shell emits at, and the same extension
-            // point `CarriedProbeTest` drives through the real matrix probe.
+            // The contents' call site: the same pose stack, translated by the block's corner - the base the
+            // shell emits at.
             PoseStack contents = new PoseStack();
             contents.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z);
             HostRenderPass.applyCarrierFrame(contents, frame);
@@ -186,8 +159,7 @@ class CarrierFrameTest {
             Vector3d contentsDrawn = new Vector3d((double) modelVertex.x + CAMERA.x,
                     (double) modelVertex.y + CAMERA.y, (double) modelVertex.z + CAMERA.z);
 
-            // The block's centre, by both routes, is one point - and it is the point the double
-            // arithmetic names, which is the "the component is drawn without +local" check.
+            // Both routes must name the same point, the one the double arithmetic gives.
             Vector3d expected = pose.transformPosition(
                     new Vector3d(20481032.5, 127.5, 20524040.5), new Vector3d());
             assertEquals(0.0, expected.distance(contentsDrawn), TOLERANCE,
@@ -222,7 +194,7 @@ class CarrierFrameTest {
     }
 
     @Test
-    @DisplayName("a Create contraption's local=(0,0,0) path is the arithmetic the old code used")
+    @DisplayName("a Create contraption's local=(0,0,0) path agrees with the contract")
     void contraptionLocalZeroIsUnchanged() {
         CarrierPose pose = contraption(0);
         CarrierFrame frame = frameOf(pose, 0, 0, 0);
@@ -232,14 +204,10 @@ class CarrierFrameTest {
         assertEquals(-0.5F, base[1], 0.0F);
         assertEquals(-0.5F, base[2], 0.0F);
 
-        // And the world position it produces is the one the contract names.
+        // The world position it produces is the one the contract names.
         //
-        // The tolerance is 1e-6 rather than 0: the *association* of the float sum changed - the old
-        // path built `(-cam - pivot) + position` into the matrix and then added the corner, the new one
-        // builds `-cam + position` and adds `corner - pivot` - and IEEE addition is not associative, so
-        // a literal bit-for-bit claim would be false. What is asserted is that the two agree to within
-        // a ten-thousandth of the width of a float at these magnitudes, and that the offsets themselves
-        // are exactly the same +/- 0.5 the old code used.
+        // The tolerance is not 0 because IEEE addition is not associative at these magnitudes, so a
+        // literal bit-for-bit claim would be false.
         float[] corner = new float[3];
         HostShell.corner(0, 0.25F, 0.75F, corner);
         Vector3d contract = pose.transformPosition(new Vector3d(corner[0], corner[1], corner[2]),
@@ -248,11 +216,11 @@ class CarrierFrameTest {
                 base[2] + corner[2] });
         assertEquals(0.0, contract.distance(drawn), 1.0E-5,
                 "the Create path moved: " + full(contract) + " expected, " + full(drawn) + " drawn");
-        // The old order produced the same point at R = I, which is what "behaviour unchanged" means.
+        // At R = I the two orders agree exactly.
         Vector3d oldOrder = oldOrderResult(pose, new Vector3d(corner[0], corner[1], corner[2]),
                 new Vector3d());
         assertEquals(0.0, oldOrder.distance(drawn), 1.0E-5,
-                "the Create local=(0,0,0) path must behave as it did");
+                "the Create local=(0,0,0) path must agree with the old order at zero rotation");
     }
 
     // ------------------------------------------------------ the two call paths --
@@ -260,26 +228,11 @@ class CarrierFrameTest {
     @Test
     @DisplayName("the world path and the carried path put the component in the same place")
     void theTwoPathsAgree() {
-        // The world path's pose is `T(-cameraPos)` alone, so its vertices are world coordinates:
-        // `blockPos + the block-local 0..1 the model and the boxes are built in`.
+        // World-path vertices are world coordinates; carried-path ones are block-local inside the frame.
+        // For a Create contraption the two have to agree exactly, and this test is what says so.
         //
-        // The carried path's pose is `T(position) · R · S` with a `local - pivot` base added per vertex,
-        // so its vertices are the block-local 0..1 alone plus that base - the block position is already
-        // in the frame. For a Create contraption (`local = (0,0,0)`, `pivot = (0.5,0.5,0.5)`,
-        // `position = block + 0.5`) the two have to agree exactly, and this test is what says so.
-        //
-        // WHY THIS TEST DID NOT CATCH THE `float[] base` REGRESSION, and what changed.
-        //
-        // It used to read `new Vector3d(block.getX() + mapped[0], ...)` for the world side and
-        // `position.add(cornerOffset[0] + mapped[0], ...)` for the carried side: both sides were the
-        // test's own restatement of the prose above. When the renderer's world path was changed to take
-        // a `float[] base`, nothing here called it, so there was nothing to break - the test could only
-        // ever agree with itself. A test that recomputes what the code is supposed to do is not a test
-        // of the code.
-        //
-        // Both sides now go through the production expressions, `HostRenderPass#worldVertexBase` and
-        // `HostRenderPass#carriedModelBase`, which are the exact calls the two drawing paths make, and
-        // the recorded vertices themselves are asserted in `WorldPathCoordinatesTest`.
+        // Both sides go through the production expressions the two drawing paths actually call, never
+        // through a restatement of them written here.
         BlockPos block = new BlockPos(2775, 77, -1395);
         Vector3d position = new Vector3d(block.getX() + 0.5, block.getY() + 0.5, block.getZ() + 0.5);
         CarrierPose pose = new CarrierPose(position, new Quaterniond(), new Vector3d(0.5, 0.5, 0.5),
@@ -295,14 +248,12 @@ class CarrierFrameTest {
                 float[] mapped = new float[3];
                 basis.point(local[0], local[1], local[2], mapped);
 
-                // The world path: `worldVertexBase(block) + mapped`.
+                // The world path's vertex: a world coordinate already.
                 Vector3d world = new Vector3d(worldBase[0] + mapped[0], worldBase[1] + mapped[1],
                         worldBase[2] + mapped[2]);
 
-                // The carried path: `carriedModelBase(frame) + mapped`, pushed inside the frame's own
-                // `T(position) · R · S`. The point handed to the pose stack is the block-local one, and
-                // `position` - the frame's own translation, which for this contraption is the block's
-                // centre - is what turns it into a world coordinate.
+                // The carried path's point is block-local; the frame's own translation turns it into a
+                // world coordinate.
                 Vector3d carried = new Vector3d(position).add(carriedBase[0] + mapped[0],
                         carriedBase[1] + mapped[1], carriedBase[2] + mapped[2]);
 
@@ -330,9 +281,7 @@ class CarrierFrameTest {
                     { 20481032.0, 128.0, 20524040.0 }, { 20481033.25, 127.75, 20524041.5 } }) {
                 Vector3d expected = pose.transformPosition(new Vector3d(p), new Vector3d());
                 Vector3d actual = frame.worldOf(p[0], p[1], p[2], new Vector3d());
-                // 4e-9 is exactly the double spacing at 2.048e7: `p - pivot` is being cancelled as
-                // precisely as double arithmetic allows, so the residual is the cancellation itself
-                // rather than an error in the transform.
+                // The residual at this magnitude is double cancellation, not an error in the transform.
                 assertEquals(0.0, expected.distance(actual), 1.0E-6,
                         "worldOf is not the pose's transform at " + degrees + " degrees for "
                                 + java.util.Arrays.toString(p) + ": " + full(expected) + " vs "
@@ -357,8 +306,7 @@ class CarrierFrameTest {
                         "element (" + column + "," + row + ") of the frame matrix");
             }
         }
-        // The pivot is two million blocks away; if it had been narrowed to a float and put in the
-        // matrix, the translation column would show it.
+        // The pivot is two million blocks away: narrowed to a float, it would show in the translation column.
         float translationX = actual.getTranslation(new Vector3f()).x;
         float translationZ = actual.getTranslation(new Vector3f()).z;
         assertTrue(Math.abs(translationX) < 4000.0F,
@@ -372,29 +320,23 @@ class CarrierFrameTest {
     @Test
     @DisplayName("the old T(-pivot).R.T(position) order was hundreds of blocks wrong at 30 degrees")
     void theOldOrderWasHundredsOfBlocksWrong() {
-        // Documented here because this is the measurement the author's "it flashes into view for one
-        // frame of each turn" needed, and because a regression to the old order has to be caught by a
-        // number rather than by a player noticing.
         CarrierPose pose = contraption(30);
         Vector3d p = new Vector3d(0.5, 0.5, 0.5);
         Vector3d contract = pose.transformPosition(p, new Vector3d());
         Vector3d oldOrder = oldOrderResult(pose, p, new Vector3d());
         double error = contract.distance(oldOrder);
-        // Printed as well as asserted, because the number is the measurement this whole round of work
-        // is about: it is what "the geometry was drawn and could not be seen" looks like in blocks.
-        // Read it from the test report's standard output.
+        // Printed as well as asserted, so the size of the error is visible in the report.
         System.out.println("[CarrierFrameTest] Create-like pose at 30deg, block centre:"
                 + " oldOrderError=" + error
                 + " newMatrixDelta=" + contract.distance(drawnWorld(frameOf(contraption(30), 0, 0, 0),
                         frameOf(contraption(30), 0, 0, 0).emittedOffset(0.5, 0.5, 0.5, new float[3]))));
         assertTrue(error > 100.0,
                 "the old composition order should be hundreds of blocks out at 30 degrees, was " + error);
-        // And at zero degrees the two agree exactly, which is why only one frame of each turn showed
-        // anything.
+        // And at zero degrees the two agree exactly.
         Vector3d straightContract = contraption(0).transformPosition(p, new Vector3d());
         Vector3d straightOld = oldOrderResult(contraption(0), p, new Vector3d());
         assertEquals(0.0, straightContract.distance(straightOld), 1.0E-6,
-                "at R = I the old order was correct, which is the whole shape of the defect");
+                "at R = I the two orders agree");
     }
 
     @Test
@@ -415,8 +357,8 @@ class CarrierFrameTest {
     }
 
     /**
-     * What the old carried path produced: {@code T(-cam)鐠虹柖(-pivot)鐠虹柂鐠虹柖(position)} applied to {@code p},
-     * i.e. {@code R鐠虹棷 + R鐠虹棷osition 闁?pivot}.
+     * What the old carried path produced: both the point and the position are rotated about the origin, which is the
+     * negative control for the contract above.
      */
     private static Vector3d oldOrderResult(CarrierPose pose, Vector3d p, Vector3d out) {
         Vector3d rotatedPoint = new Vector3d(p);

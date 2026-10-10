@@ -34,60 +34,24 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.32 commit A: the second identification is asked <em>with the level</em>, and the world side stands
- * down at a plot cell whose record is missing.</b>
+ * The second identification is asked <em>with the level</em>, and the world side stands down at a plot cell
+ * whose record is missing.
  *
- * <h2>The defect, and why P1.30's own test could not see it</h2>
- * {@code CarrierResolver#plotOwnerAt} answers "which sub-level's own block storage contains this level
- * position" by walking <b>that level's</b> sub-level container, so it answers {@code null} for a
- * {@code null} level - there is no container to walk. P1.30 reached frame two through
- * {@code CarrierClickPriority#carrierOf}, which passed {@code null} as the level. On the author's machine
- * that made the second identification answer <b>"not ours" at every plot cell</b>:
- *
- * <pre>
- *   plotOwnerAt(20481032, 127, 20481036) -&gt; s:c22611c6   the carrier's own resolver, which DOES pass
- *                                                        the level, in the very same click
- *   world insert declined = 0                             for a whole session
- *   OUTSIDE: NOT_ADJACENT (a carried host IS picked …)    planOutside saw the same coordinate as the
- *                                                        world's, because it asks the same decision
- * </pre>
- *
- * <p>{@code CarrierPlotOwnershipTest} (P1.30) could not catch it: its plot lookup is a dynamic proxy that
- * <b>ignores the level argument</b>, and a fake that answers regardless of the level cannot fail for a
- * missing one.
- *
- * <h2>How the forwarding is pinned, given that a unit test has no server</h2>
- * Two things, and the split is deliberate because neither alone is enough:
- *
- * <ol>
- *   <li><b>the mechanism</b> - a lookup that refuses to answer without a level (which is what the compat
- *       half does, by having no container to walk) makes the whole second frame answer "not ours". That is
- *       asserted here directly: the same cell is refused with a null level and owned with a level. This is
- *       the half that shows <em>why</em> the round's defect had the shape it had;</li>
- *   <li><b>the wiring</b> - which level production actually hands over. A unit test cannot observe that by
- *       calling the decision, because the only level reference it can produce is {@code null} and every
- *       caller of the decision has an opaque {@code ServerLevel} to give it. So it is asserted over the
- *       source: {@code carrierOf} must forward its argument, and every other {@code plotOwnerAt} call in the
- *       decision must pass a level rather than a literal {@code null}. That is the assertion the previous
- *       build fails, and the one that stops the defect coming back.</li>
- * </ol>
- *
- * <h2>Before the fix (the red half, measured)</h2>
- * On the previous tree the three-argument {@code carrierOf} does not exist and the decision has no
- * level-taking form, so {@code theCarrierIsResolvedWithTheLevelItWasGiven} and
- * {@code thePlotLookupIsNeverAskedWithALiteralNull} both fail - the first because production really did
- * ask the lookup without a level, the second because the call site says {@code plotOwnerAt(null, pos)} in
- * as many words.
+ * <p>{@code CarrierResolver#plotOwnerAt} answers "which sub-level's own block storage contains this level
+ * position" by walking <b>that level's</b> sub-level container, so it answers {@code null} for a {@code null}
+ * level - there is no container to walk - and the second identification then answers "not ours" at every plot
+ * cell. Asserted here: the same cell is refused with a null level and owned with a level, and, over the source,
+ * that the decision forwards the level it was given and never passes a literal {@code null} to the lookup.
  */
 class CarrierPlotOwnershipLevelTest {
 
-    /** The coordinate from the author's log: the click that did not connect. */
+    /** The plot coordinate the click that did not connect arrived at. */
     private static final BlockPos PLOT = new BlockPos(20481032, 127, 20481036);
 
     /** A cell of the same structure that the log's {@code adopted} lines really filed a record for. */
     private static final BlockPos HELD = new BlockPos(20481032, 127, 20481035);
 
-    /** Where the structure's pose puts those cells: the author's own claim frame. */
+    /** Where the structure's pose puts those cells: the claim frame. */
     private static final BlockPos VISIBLE = new BlockPos(-3, -60, -7);
 
     /** An ordinary world block, nowhere near any structure's plot region. */
@@ -96,7 +60,7 @@ class CarrierPlotOwnershipLevelTest {
     /** A plot-shaped coordinate that <b>no</b> sub-level owns. */
     private static final BlockPos OTHER_PLOT = new BlockPos(20481032, 128, 20524040);
 
-    /** The author's carrier, from {@code carrier s:c22611c6}. */
+    /** The structure the click was on. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("c22611c6-0000-0000-0000-000000000000"));
 
@@ -176,7 +140,7 @@ class CarrierPlotOwnershipLevelTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's claim is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos}: the claim is a translation. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -259,8 +223,7 @@ class CarrierPlotOwnershipLevelTest {
             adoptedAtHeld();
 
             // THE COMPAT HALF'S OWN SHAPE, in three lines: it has no container to walk without a level, so it
-            // answers "not mine". That answer, for every coordinate, is the author's whole session - the world
-            // side never stood down, and the carrier's own resolver printed the owner in the very same click.
+            // answers "not mine", and then the world side never stands down for any coordinate.
             CarrierStore.PlotOwnerSource needsALevel = (level, pos) -> {
                 levelsAsked.add(level);
                 lookupReached = true;
@@ -269,7 +232,7 @@ class CarrierPlotOwnershipLevelTest {
 
             assertNull(probeWith(PLOT, needsALevel, null),
                     "without a level the second identification cannot name the structure, and the world "
-                            + "keeps the click - which is the defect");
+                            + "keeps the click");
             assertTrue(lookupReached, "and it was the plot lookup's answer, not some earlier frame, that "
                     + "decided it");
 
@@ -344,13 +307,9 @@ class CarrierPlotOwnershipLevelTest {
     }
 
     /**
-     * <b>The wiring, asserted where it can be observed.</b>
-     *
-     * <p>A unit test cannot see which {@code ServerLevel} production hands over - the only reference it can
-     * produce is {@code null}, and the decision's callers all have an opaque one to give it. So the assertion
-     * is made over the source of the decision itself, which is exactly where this round's defect lived:
-     * {@code carrierOf} took the level as an argument and passed a literal {@code null} on, and every caller
-     * of the decision was therefore asking the plot lookup a question it could not answer.
+     * The wiring, asserted where it can be observed: a unit test cannot see which {@code ServerLevel} production
+     * hands over, so the assertion is made over the source of the decision - {@code carrierOf} took the level as an
+     * argument and passed a literal {@code null} on, which made every caller ask a question it could not answer.
      */
     @Nested
     @DisplayName("the production wiring: the level is forwarded, never replaced with null")
@@ -367,8 +326,7 @@ class CarrierPlotOwnershipLevelTest {
             assertFalse(source.contains("plotOwnerAt(null"),
                     "and no call site may substitute a null level: the compat half walks one level's "
                             + "sub-level container and can only answer null for a null argument. This is "
-                            + "the assertion the previous build fails, and it is what stops the defect "
-                            + "coming back");
+                            + "the assertion that keeps a null level out of that call site");
         }
 
         @Test
@@ -382,8 +340,7 @@ class CarrierPlotOwnershipLevelTest {
             assertFalse(source.contains("public static Owned owner(")
                             && source.contains("probeOwner(CarrierStore.projection(), "
                                     + "CarrierStore.indexOf(level), pos,"),
-                    "and must not call the level-free form, which exists only for the unit tests written "
-                            + "before this round");
+                    "and must not call the level-free form, which exists only for the unit tests");
         }
 
         private static String source() {
@@ -399,25 +356,15 @@ class CarrierPlotOwnershipLevelTest {
     // ---------------------------------------------------------------- fixtures --
 
     /**
-     * <b>Stand-in levels, and why the forwarding itself is asserted over the source instead of here.</b>
+     * Stand-in levels, and why the forwarding itself is asserted over the source instead of here.
      *
-     * <p>A unit test has no {@code ServerLevel} to offer - and {@code ServerLevel} is a class whose static
-     * initialiser needs the vanilla registries and, through NeoForge's bootstrap, a running mod loader, so
-     * one cannot be made up. Nor can an unrelated reference be substituted: {@code Method#invoke} on JDK 21
-     * validates argument types before the call and answers {@code IllegalArgumentException: argument type
-     * mismatch}. That leaves exactly two things a unit test can observe, and both are below:
-     *
-     * <ul>
-     *   <li>with <b>no</b> level, the decision answers "not ours" at a plot cell whose record is missing -
-     *       the mechanism, and the half that reproduces the author's session;</li>
-     *   <li>with a lookup that answers regardless of the level, the whole second identification works, so the
-     *       defect is in the level and nowhere else.</li>
-     * </ul>
-     *
-     * <p>The missing half - <em>which</em> level production hands over - is pinned by
-     * {@link TheWiringForwardsTheLevel}, over the decision's own source. That is not a weaker substitute:
-     * the defect <b>was</b> a call site passing a literal {@code null}, and a source assertion is the only
-     * kind that can catch it.
+     * <p>A unit test has no {@code ServerLevel} to offer - its static initialiser needs the vanilla registries and,
+     * through NeoForge's bootstrap, a running mod loader - and no unrelated reference can be substituted either,
+     * because {@code Method#invoke} on JDK 21 validates argument types before the call. So a unit test can observe
+     * two things: with no level the decision answers "not ours" at a plot cell whose record is missing, and with a
+     * lookup that answers regardless of the level the whole second identification works. Which level production
+     * hands over is pinned over the source by {@link TheWiringForwardsTheLevel}, which is the only kind of
+     * assertion that can catch a literal {@code null} at a call site.
      */
     private static final ServerLevel PLOT_LEVEL = null;
 
@@ -427,7 +374,7 @@ class CarrierPlotOwnershipLevelTest {
         return probeWith(pos, owners, PLOT_LEVEL);
     }
 
-    /** A lookup that answers whether or not it is handed a level - P1.30's own fixture shape. */
+    /** A lookup that answers whether or not it is handed a level - the fixture shape that cannot see the defect. */
     private CarrierStore.PlotOwnerSource answeringLookup() {
         return (level, pos) -> {
             levelsAsked.add(level);
@@ -449,13 +396,13 @@ class CarrierPlotOwnershipLevelTest {
                     (CarrierStore.PoseSource) carrier -> poseOf(carrier), counted());
             return (CarrierClickPriority.Owned) result;
         } catch (ReflectiveOperationException absent) {
-            // The previous build: there is no such decision, which is the defect. Answering null is "no
-            // structure owns this position" - the world keeps the click.
+            // No such decision exists: answering null means "no structure owns this position", so the world
+            // keeps the click.
             return null;
         }
     }
 
-    /** The pose the author's log printed for that structure, over the two plot cells of this fixture. */
+    /** The pose printed for that structure, over the two plot cells of this fixture. */
     @Nullable
     private CarrierPose poseOf(CarrierId carrier) {
         return AUTHOR.equals(carrier) ? moving(HELD, VISIBLE) : null;

@@ -19,18 +19,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies the rules for everything that can live inside a host block.
- *
- * <p>Three separate things are pinned down here, because all three are invisible until they are wrong
- * in game:
- * <ul>
- *   <li><b>Propagation</b>: a wire hop costs one, a source does not - so a lever lights dust to 15 but
- *       the next piece of dust only to 14.</li>
- *   <li><b>Direction</b>: dust talks to every side, a torch not to the side it hangs on, a repeater
- *       and comparator only to the one they point at. Getting this wrong turns diodes into plain
- *       sources.</li>
- *   <li><b>Decisions</b>: what a torch, repeater or comparator should output for a given input.</li>
- * </ul>
+ * Verifies the rules for everything that can live inside a host block: propagation (a wire hop costs
+ * one and a source does not, so a lever lights dust to 15 but the next dust only to 14), direction
+ * (dust talks to every side, a torch not to the side it hangs on, a repeater and comparator only to
+ * the one they point at - getting this wrong turns diodes into plain sources), and decisions (what a
+ * torch, repeater or comparator outputs for a given input).
  */
 class PowerSolverTest {
 
@@ -154,7 +147,7 @@ class PowerSolverTest {
             return externalPerSide.getOrDefault(direction, external);
         }
 
-        /** What the neighbour block on a side offers a comparator; the cake's bites, and the like. */
+        /** What the neighbour block on a side offers a comparator; the cake's four bites, and the like. */
         FakeEnv analog(Direction side, int value) {
             analogPerSide.put(side, value);
             return this;
@@ -205,11 +198,11 @@ class PowerSolverTest {
     }
 
     /**
-     * The whole point of the new material: a run of superconducting dust keeps the strength it was
-     * given, while ordinary dust fades a step per block.
+     * A run of superconducting dust keeps the strength it was given, while ordinary dust fades a step
+     * per block.
      *
      * <p>Solved the way the network does it - repeatedly taking each wire's target until nothing rises
-     * any further - because the point is what reaches the far end of the run, not what one hop does.
+     * any further - because what matters is what reaches the far end of the run.
      */
     @Test
     @DisplayName("superconducting dust carries its strength without loss")
@@ -229,10 +222,8 @@ class PowerSolverTest {
 
     /**
      * The difference is distance, not hops: ordinary dust is out of signal after fifteen blocks, while
-     * superconducting dust is still at fifteen after sixty-four.
-     *
-     * <p>This is also what the network's fixpoint has to survive - a run longer than the fifteen blocks
-     * an ordinary signal can cross needs more passes than a bound sized for dust would allow.
+     * superconducting dust is still at fifteen after sixty-four. This is also what the network's fixpoint
+     * has to survive - a longer run needs more passes than a bound sized for dust would allow.
      */
     @Test
     @DisplayName("a long superconducting run is still at full strength at the far end")
@@ -259,10 +250,8 @@ class PowerSolverTest {
     }
 
     /**
-     * Grows every wire in the run towards its target until nothing changes, as the solver does.
-     *
-     * <p>The bound is the run's length: a wire's value only rises, so a run can never need more passes
-     * than it has blocks.
+     * Grows every wire in the run towards its target until nothing changes, as the solver does. The bound
+     * is the run's length: a wire's value only rises, so a run never needs more passes than it has blocks.
      */
     private static void settle(FakeEnv env, int fromX, int toX) {
         int length = toX - fromX + 1;
@@ -292,7 +281,7 @@ class PowerSolverTest {
         env.node(HERE, ComponentType.SUPERCONDUCTOR, 0);
         assertEquals(15, target(env, 0), "the superconducting side of the hop charges nothing");
 
-        // ...while the ordinary dust on the far side of it still charges its own hop, as it always does.
+        // ...while the ordinary dust that receives from it still charges its own hop.
         FakeEnv back = new FakeEnv();
         back.node(1, 0, 0, ComponentType.SUPERCONDUCTOR, 15);
         back.node(HERE, ComponentType.DUST, 0);
@@ -477,8 +466,7 @@ class PowerSolverTest {
         FakeNode comparator = env.node(HERE, ComponentType.COMPARATOR, 0).at(0, 0, 0);
         comparator.facing(Direction.NORTH);
         // Back input of 8 (a wire of 8 behind it), side input of 6 (a wire of 6 to the east). A diode
-        // reads wires at full strength in vanilla, and so does this one: the hop cost is the receiving
-        // wire's, and a comparator is not a wire.
+        // reads wires at full strength: the hop cost is the receiving wire's, and a comparator is not one.
         env.node(0, 0, -1, ComponentType.DUST, 8);
         env.node(1, 0, 0, ComponentType.DUST, 6);
 
@@ -587,9 +575,9 @@ class PowerSolverTest {
     }
 
     /**
-     * The same rule stated where it is easy to get backwards: the two queries must agree about which
-     * side a diode drives, because vanilla's {@code getDirectSignal} receives the opposite direction
-     * from {@code getSignal} and a mistake there is invisible to any weak-power test.
+     * The same rule stated where it is easy to get backwards: vanilla's {@code getDirectSignal} receives
+     * the opposite direction from {@code getSignal}, so the two queries must agree about which side a
+     * diode drives - and a mistake there is invisible to any weak-power test.
      */
     @Test
     @DisplayName("weak and strong emission agree on which side a diode drives")
@@ -613,12 +601,10 @@ class PowerSolverTest {
     }
 
     /**
-     * The reported crash: a comparator mounted on a block's top or bottom face.
-     *
-     * <p>Its input axis is then vertical, and {@code Direction#getClockWise} throws for up and down -
-     * which took the whole server down the moment the component was ticked. A vertical comparator reads
-     * all four horizontal sides instead, so this checks both that it does not throw and that those sides
-     * really are read.
+     * A comparator mounted on a block's top or bottom face: its input axis is then vertical, and the
+     * clockwise rotation vanilla uses to find a comparator's sides throws for up and down. A vertical
+     * comparator reads all four horizontal sides instead, so this checks both that it does not throw and
+     * that those sides really are read.
      */
     @Test
     @DisplayName("a comparator mounted on a vertical face does not throw, and reads every side")

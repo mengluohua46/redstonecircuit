@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "redstonecircuit:block/block_placer_side",
+    "down": "minecraft:block/furnace_top",
+    "up": "redstonecircuit:block/block_placer_side",
+    "north": "redstonecircuit:block/block_placer_output",
+    "south": "redstonecircuit:block/block_placer_side",
+    "west": "redstonecircuit:block/block_placer_side",
+    "east": "redstonecircuit:block/block_placer_side"
+  }
+}

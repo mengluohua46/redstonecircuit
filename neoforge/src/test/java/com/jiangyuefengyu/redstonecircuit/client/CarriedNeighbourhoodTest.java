@@ -21,52 +21,21 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.42: a wire inside a physicalised block has to see the wire inside the block beside it - the
- * connection arms the author was missing.</b>
+ * A wire inside a physicalised block has to see the wire inside the block beside it: inside a structure, every block
+ * drew as a dot, because the neighbour question answered nothing on all six sides.
  *
- * <h2>The report, and the frame it turned out to be about</h2>
- * <em>"Not physicalised it is normal; physicalised, every block is just a dot."</em> A dot is what our
- * own model draws for a wire with no connection on any side
- * ({@code InnerComponentVisuals#placementFor}: every horizontal {@code RedstoneSide} is
- * {@code NONE}), so the neighbour question was answering "nothing" on all six sides - inside the
- * structure only.
+ * <p>{@code HostRenderPass#neighboursOf} asked the <b>world host index</b> at {@code host.origin()}. For a world host
+ * {@code host.pos()} is a world position and the neighbouring host's data is in the world index at that position, but a
+ * carried host's data has been <b>moved out</b> of the world index into the carrier index, which is keyed by the
+ * structure's own coordinate - so the same question asked of two different stores in two different frames answered
+ * nothing for every carried wire. The solver never had the defect ({@code CarrierSpace#nodeAt} asks the carrier index at
+ * the local coordinate), so the drawing and the solving disagreed about one question, and the drawing lost.
  *
- * <h2>Two frames, one key, and the one that was asked</h2>
- * {@code HostRenderPass#neighboursOf} asked the <b>world host index</b> at {@code host.origin()} - the
- * world block the component was picked up from:
- *
- * <pre>
- *   world path   neighboursOf(level, host.pos())      host.pos() is a WORLD position, and the
- *                                                     neighbouring host's data IS in the world index
- *                                                     at that world position -&gt; arms, as on the ground
- *   carried path neighboursOf(level, host.origin())   a carried host's data has been MOVED OUT of the
- *                                                     world index into the carrier index, which is keyed
- *                                                     by the STRUCTURE'S OWN coordinate -&gt; nothing,
- *                                                     on every side, for every carried wire
- * </pre>
- *
- * <p>So the two paths asked the same kind of question of two different stores in two different frames,
- * and only the world path's two happened to coincide. The solver never had the defect:
- * {@code CarrierSpace#nodeAt} asks the carrier index at the <em>local</em> coordinate - which is why it
- * charges the hop between two carried wires - so the drawing and the solving disagreed about one
- * question, and the drawing lost.
- *
- * <h2>What is asserted here</h2>
- * The rule, as a pure function ({@link HostRenderPass#carriedNeighbourHolds}); its <em>effect</em> on the
- * drawn arms for the author's own shapes - a corner and a crossing, which have to come out as a corner
- * and a crossing, not as a straight line; and the wiring that says which frames the carried path now
- * asks, and that the structure-frame index is built once per frame rather than per side per host.
- *
- * <p>Colour: on P1.41 the rule tests and the frame wiring are <b>red</b> - the method and the index do
- * not exist there, so this file cannot express the behaviour at all (compile-red), which is the same
- * honest shape {@code CarrierStructureNoticeTest} and {@code CarrierCrossStructureSignalTest} had. The
- * L/cross assertions are green on both trees only if they are handed a {@code Neighbours} that knows
- * about the neighbour, which is exactly the thing that did not exist for a carried host.
- *
- * <h2>Honest boundary</h2>
- * A {@code ClientLevel} cannot be built here, so {@code neighboursOf} - the three lines that decide which
- * store and which coordinate each frame is asked at - is pinned by source assertions rather than by a
- * call. The rule it delegates to is pinned behaviourally.
+ * <p>What is asserted: the rule as a pure function ({@link HostRenderPass#carriedNeighbourHolds}); its <em>effect</em> on
+ * the drawn arms for a corner and a crossing, which have to come out as a corner and a crossing rather than a straight
+ * line; and the wiring that says which frames the carried path asks, and that the structure-frame index is built once
+ * per frame rather than per side per host. A {@code ClientLevel} cannot be built here, so {@code neighboursOf} is pinned
+ * by source assertions while the rule it delegates to is pinned behaviourally.
  */
 class CarriedNeighbourhoodTest {
 
@@ -78,12 +47,12 @@ class CarriedNeighbourhoodTest {
     // ------------------------------------------------------- 1. the rule, pure --
 
     @Test
-    @DisplayName("a host of the same structure one block away IS a neighbour - the arm that was missing")
+    @DisplayName("a host of the same structure one block away IS a neighbour")
     void theStructuresOwnHostIsANeighbour() {
         assertTrue(HostRenderPass.carriedNeighbourHolds(MINE, MINE, false),
-                "this is the whole defect: two wires inside ONE physicalised structure, one block apart, "
-                        + "are neighbours exactly as they are on the ground - and before this round the "
-                        + "carried render path could not see it, so every wire was drawn as a dot");
+                "two wires inside ONE physicalised structure, one block apart, "
+                        + "are neighbours exactly as they are on the ground - without this the "
+                        + "carried render path cannot see it, and every wire is drawn as a dot");
     }
 
     @Test
@@ -102,7 +71,7 @@ class CarriedNeighbourhoodTest {
     void theWorldHalfIsKept() {
         assertTrue(HostRenderPass.carriedNeighbourHolds(null, MINE, true),
                 "a host block still standing where the machine came from is a neighbour through the world "
-                        + "index, exactly as it was before this round");
+                        + "index, exactly as it is on the ground");
         assertTrue(HostRenderPass.carriedNeighbourHolds(MINE, MINE, true),
                 "and the two frames are alternatives, not a choice: either one is enough");
         assertFalse(HostRenderPass.carriedNeighbourHolds(null, MINE, false),
@@ -122,8 +91,8 @@ class CarriedNeighbourhoodTest {
                 Direction.EAST, Direction.SOUTH));
 
         assertEquals(Set.of(Direction.EAST, Direction.SOUTH), corner.wireSides(),
-                "the author's L: two arms and a bend, which is what the vanilla wire model draws out of "
-                        + "these sides - and what it drew as nothing at all before this round");
+                "the L case: two arms and a bend, which is what the vanilla wire model draws out of "
+                        + "these sides");
     }
 
     @Test
@@ -136,7 +105,7 @@ class CarriedNeighbourhoodTest {
 
         assertEquals(Set.of(Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST),
                 cross.wireSides(),
-                "the other half of the author's scene: a four-way crossing has to be drawn as one, and "
+                "the other half of the scene: a four-way crossing has to be drawn as one, and "
                         + "the sides come from the same neighbour question the solver uses");
     }
 

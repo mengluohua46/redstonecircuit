@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "redstonecircuit:redstone_structure_block",
+    "redstonecircuit:structure",
+    "redstonecircuit:logic_integrator",
+    "redstonecircuit:block_placer",
+    "redstonecircuit:transmission_gate"
+  ]
+}

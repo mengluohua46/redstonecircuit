@@ -36,88 +36,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.41: inside a physicalised structure a run of carried dust must fade a step per block, the world
- * half must still be able to supply a cell, and another structure's projection across the seam must still
- * be read.</b>
+ * Inside a physicalised structure a run of carried dust fades one step per block, the world half can still supply
+ * a cell, and another structure's projection across the seam is still read - charged, because a projected
+ * neighbour is read where both frames meet and the receiver pays its hop cost.
  *
- * <h2>The author's report, and what it turned out to be</h2>
- * <em>"A whole plate of structure blocks transmits redstone: with dust the signal does not fade."</em> The
- * dust is a component of ours - {@code ComponentType.DUST} placed into a host block that the structure
- * carries - and the same wiring on the ground fades correctly, so the defect is in the carrier-side solve
- * and only there.
- *
- * <p>The hop charge itself has one implementation and was never in question: {@code PowerSolver#afterHop}
- * is called from {@code PowerSolver#innerFrom} and subtracts the <em>receiver's</em> {@code hopCost()} -
- * one for dust, nothing for a superconductor. What was wrong is that the same component arrived a
- * <b>second</b> time, through the world half, with no charge at all:
- *
- * <pre>
- *   supplyOf -> env.externalSignal()                       (CarrierSpace)
- *            -> CarrierWorldIo -> the pose
- *            -> InnerRedstoneNetwork#worldSignals
- *            -> worldSignalAt -> projectedSignalAt          (RAW emission, no hop)
- *
- *   innerFrom  -> afterHop(self, other, power)             (power - hopCost)
- *   wireTarget -> max(supply, max over sides of innerFrom) (&lt;- where the uncharged copy won)
- * </pre>
- *
- * <p>The projection table holds <b>every</b> carrier's hosts - including the reading carrier's own - because
- * that is what makes the P1.38 seam work when the host belongs to <em>another</em> structure. The fix is
- * therefore a filter on the <b>reader's own</b> hosts only:
- * {@link InnerRedstoneNetwork#projectionReadableBy}.
- *
- * <h2>What this file pins, and in which colour</h2>
- * Every fixture here has <b>exactly one</b> supply source, and that is the point: with a bridge that
- * answered 15 on every side, "the world is feeding this cell" and "the run must fade" are two mutually
- * exclusive claims, and a fixture that asserts both is asserting a contradiction.
- *
- * <table>
- *   <tr><th>test</th><th>on HEAD</th><th>after P1.41</th><th>why</th></tr>
- *   <tr><td>{@code theReadersOwnProjectionIsNotAnExternalSupply}</td><td>compile-red</td><td>green</td>
- *       <td>the predicate does not exist on HEAD, so this file cannot even compile there; it is the rule
- *       itself, in the direction that fixes the fade</td></tr>
- *   <tr><td>{@code anotherCarriersProjectionIsStillRead}</td><td>compile-red</td><td>green</td>
- *       <td>same rule, the other direction - the one that keeps the fix narrow</td></tr>
- *   <tr><td>{@code theFilterIsNarrowOnPurpose}</td><td>compile-red</td><td>green</td>
- *       <td>same rule: air stays air, and an unnamed reader filters nothing</td></tr>
- *   <tr><td>{@code aRunOfCarriedDustFadesOnePerBlock}</td><td>red (15 where 14 is required)</td>
- *       <td>green</td><td>the author's symptom, with a single supply (the head's injected 15)</td></tr>
- *   <tr><td>{@code acrossTwoHostBlocksTheHopIsStillCharged}</td><td>red (15, 15, 15)</td><td>green</td>
- *       <td>the same leak across two host blocks; the stale neighbour is what makes it visible in one
- *       pass, so it does not depend on component iteration order</td></tr>
- *   <tr><td>{@code aSettledRunStaysFaded}</td><td>red (the run jumps back to 15 on the second pass)</td>
- *       <td>green</td><td>the persistent form of the same leak, per tick rather than per component -
- *       this is the one an earlier one-pass fixture missed</td></tr>
- *   <tr><td>{@code aSuperconductingRunInsideAStructureDoesNotFade}</td><td>green</td><td>green</td>
- *       <td>a no-regression pin: the one wire whose purpose is not to be charged</td></tr>
- *   <tr><td>{@code aMixedChainChargesOnEntryAndExitOnlyWhereTheTypeSaysSo}</td><td>red</td><td>green</td>
- *       <td>the hop is the receiver's, and the leak was breaking exactly the dust-receiver hops</td></tr>
- *   <tr><td>{@code anExternalSupplyStillTopsACellUp}</td><td>green</td><td>green</td>
- *       <td>the legitimate other half: a real world block offering 15 <em>does</em> top a cell up. The
- *       fixture that demanded a fade while answering 15 everywhere was contradicting this</td></tr>
- *   <tr><td>{@code anotherCarriersProjectionIsTheSeam}</td><td>red (14 required, 15 read)</td>
- *       <td>green</td><td>the P1.38 seam must survive <em>narrowing</em>; its second assertion is what a
- *       global skip would flip</td></tr>
- *   <tr><td>{@code theCarrierReadNamesItsReader}</td><td>compile-red</td><td>green</td>
- *       <td>source wiring: the reader reaches the merge, and the three-argument entry point is unchanged</td></tr>
- * </table>
- *
- * <h2>P1.45: the seam answers, and it is no longer free</h2>
- * The author's next report was the mirror image of P1.41's: <em>"two physicalised blocks that are not
- * connected transmit to each other with no attenuation at all"</em>. That is the seam itself, and the
- * defect was that the projection-sourced answer was a <b>raw emission</b> - P1.41 had refused the
- * reader's own host, which is why the run faded, but a host of <em>another</em> structure was still handed
- * over uncharged, while every other read in the mod charges the <b>receiver</b> its
- * {@code hopCost()}. The fix is one rule ({@link InnerRedstoneNetwork#seamHop}) applied where both frames
- * read a projected host, and it <b>charges rather than refuses</b>: the three tests added below stand one
- * supply on the far side of the seam and require fourteen (dust reading dust), fifteen (a superconductor
- * receiving), and that the host was <em>read</em> rather than refused.
- *
- * <h2>Honest boundary</h2>
- * A {@code ServerLevel} cannot be built in a unit test, and the merge itself
- * ({@code worldSignalAt(level, pos, dir, owner)}) takes one. So the end-to-end read is pinned by two
- * legs: the behaviour of the pure predicate in both directions, and the source-wiring assertions that
- * production passes the reader through to it. The field judgement stays the author's.
+ * <p>The reader's own projected host is not an external supply: it already arrives through the inner neighbour
+ * relationship, which charges the hop, and that raw emission must not answer as well. Every fixture here has
+ * exactly one supply source, since "the world is feeding this cell" and "the run must fade" are mutually exclusive
+ * claims, and a {@code ServerLevel} cannot be built in a unit test, so the end-to-end read is pinned by the pure
+ * rule plus the source-wiring assertions at the bottom.
  */
 class InnerProjectionSupplyTest {
 
@@ -134,10 +61,10 @@ class InnerProjectionSupplyTest {
     /**
      * The own coordinate of the first host of a fixture.
      *
-     * <p>The pose is a pure translation from a host's local coordinate to itself - the geometry a Sable
-     * sub-level's plot has, where a local neighbour maps onto the world neighbour - so "the neighbour one
-     * block east inside the structure" and "the neighbour one block east in the world" are the same cell.
-     * That is exactly what makes the leaking projection readable in the first place.
+     * <p>The pose is a pure translation from a host's local coordinate to itself - the geometry a Sable sub-level's
+     * plot has, where a local neighbour maps onto the world neighbour - so "the neighbour one block east inside the
+     * structure" and "the neighbour one block east in the world" are the same cell, which is what makes a leaking
+     * projection readable in the first place.
      */
     private static final BlockPos ANCHOR = pos(5, 64, 5);
 
@@ -178,8 +105,8 @@ class InnerProjectionSupplyTest {
     private final Recorder recorder = new Recorder();
 
     /**
-     * The <b>local</b> coordinates of the hosts this fixture's world half was offered and refused, i.e.
-     * the reads P1.41's rule answered with air.
+     * The <b>local</b> coordinates of the hosts this fixture's world half was offered and refused, i.e. the reads
+     * the reader's-own-host rule answered with air.
      */
     private final List<Long> refused = new ArrayList<>();
 
@@ -232,45 +159,23 @@ class InnerProjectionSupplyTest {
     }
 
     /**
-     * <b>The world half of the bridge, as production builds it - both halves.</b>
-     *
-     * <ul>
-     *   <li>the vanilla half is {@code base} - the signal a real world block would offer at that position
-     *       (a carried host stands on air in the level, so an honest fixture passes 0 unless it is
-     *       deliberately modelling a block standing there);</li>
-     *   <li>the projected half is "the host a carrier is carrying at that position, and what it emits",
-     *       which is what {@code projectedSignalAt} answers - including the P1.41 filter, applied here by
-     *       the very predicate production applies it with,
-     *       {@link InnerRedstoneNetwork#projectionReadableBy}.</li>
-     * </ul>
-     *
-     * <p>The filter belongs to the source, not to this fixture: production reaches it through
-     * {@code CarrierWorldIo#signalIntoOwnFrame} then
-     * {@code worldSignalAt(level, pos, dir, reader)}, and the wiring test at the bottom asserts that. What
-     * the fixture must not do is pretend to be a bridge that cannot see the reader at all - such a bridge
-     * would not exercise the fix, and asserting the fade on top of it would be an assertion about the
-     * fixture rather than about the code.
+     * The world half of the bridge, as production builds it: the vanilla half is {@code base} - the signal a real
+     * world block would offer at that position, a carried host standing on air, so an honest fixture passes 0 unless
+     * it deliberately models a block there - and the projected half is the host a carrier carries at that position
+     * and what it emits, filtered and charged by the very rules production applies.
      */
     /**
-     * <b>P1.45: the receiver the running solve is reading with.</b>
-     *
-     * <p>The world half of this fixture is a lambda, and a lambda is never asked who is calling - so, like
-     * production's bridge ({@code CarrierWorldIo#readerTypeOf}, which looks the reader up in the carrier
-     * index at its own local coordinate), the fixture has to be told. It is the component under test that
-     * decides the charge, so the tests below set it to the type they are solving with. Everything the
-     * lookup itself does is pinned by the wiring assertions instead, for the same reason the merged read
-     * is: a unit test has no {@code ServerLevel}.
+     * The receiver the running solve is reading with. The world half of this fixture is a lambda, and a lambda is
+     * never asked who is calling, so the fixture has to be told: the charge the seam applies is the receiver's hop
+     * cost, and the tests below set this to the type they are solving with. Production looks the reader up in the
+     * carrier index at its own local coordinate.
      */
     private ComponentType seamReader = ComponentType.DUST;
 
     /**
-     * <b>P1.45: every host the world half handed to a read, by local coordinate.</b>
-     *
-     * <p>The counterpart of {@link #refused}: {@code refused} says "offered and refused", this says
-     * "offered at all". Without it, a read that never reached the seam and a read that reached it and got
-     * zero look identical from the outside - which is exactly how the first version of
-     * {@code aSeamReadIsChargedAndNotRefused} failed with "expected 14 but was 0" and no way to tell
-     * whether the rule under test or the fixture's geometry was at fault.
+     * Every host the world half handed to a read, by local coordinate - the counterpart of {@link #refused}, which
+     * says "offered and refused". Without it, a read that never reached the seam and a read that reached it and got
+     * zero look identical from the outside.
      */
     private final List<Long> seamOffers = new ArrayList<>();
 
@@ -282,31 +187,28 @@ class InnerProjectionSupplyTest {
                 (worldPos, worldDirection) -> {
                     CarrierProjection.ProjectedHost found = hostAt(X, worldPos);
                     if (found == null) {
-                        // P1.45: the table holds every carrier's hosts, so when the reading carrier holds
-                        // nothing at this cell, another structure's host IS the seam P1.38 opened.
+                        // The table holds every carrier's hosts, so when the reading carrier holds nothing at
+                        // this cell, another structure's host is the seam.
                         found = hostAt(Y, worldPos);
                     }
                     if (found != null) {
-                        // OFFERED is not the same fact as REFUSED: this one records that the world half
-                        // really did hand a host over (see `seamOffers`), so a future zero can be read.
+                        // OFFERED is not the same fact as REFUSED: this records that the world half really did
+                        // hand a host over, so a later zero can be read.
                         seamOffers.add(found.localPos().asLong());
                     }
                     if (!InnerRedstoneNetwork.projectionReadableBy(found, X)) {
-                        // Air where the reader's own host stands, exactly as the owner-aware read answers
-                        // zero for it. The refused host's LOCAL coordinate is recorded, so a test can
-                        // prove that a projection really was offered and really was refused - without
-                        // that, "the run faded" could also mean "the fixture never handed the projection
-                        // over at all". The coordinate, not the host: the live slot's power mutates, so a
-                        // record of it would not compare equal to itself a pass later.
+                        // Air where the reader's own host stands, exactly as the owner-aware read answers zero for
+                        // it. The refused host's LOCAL coordinate is recorded, so a test can prove that a
+                        // projection really was offered and really was refused; the coordinate, not the host,
+                        // because the live slot's power mutates and a record of it would not compare equal later.
                         if (found != null) {
                             refused.add(found.localPos().asLong());
                         }
                         return PowerSolver.clamp(base);
                     }
                     int projected = CarrierProjection.emittedToward(found, worldDirection, false, false);
-                    // P1.45: and the hop the reader pays, through the SAME rule production applies
-                    // ({@code InnerRedstoneNetwork#seamHop}) - the seam answers, it is not refused, and it
-                    // is no longer free.
+                    // And the hop the reader pays, through the SAME rule production applies: the seam answers,
+                    // it is not refused, and it is not free.
                     projected = InnerRedstoneNetwork.seamHop(found, reader, projected);
                     return PowerSolver.clamp(Math.max(base, projected));
                 });
@@ -362,14 +264,14 @@ class InnerProjectionSupplyTest {
     }
 
     @Test
-    @DisplayName("another carrier's projected host is still read - the P1.38 seam, kept")
+    @DisplayName("another carrier's projected host is still read - the seam with another structure, kept")
     void anotherCarriersProjectionIsStillRead() {
         CarrierProjection.ProjectedHost theirs = projected(Y, pos(6, 64, 5), 15);
 
         assertTrue(InnerRedstoneNetwork.projectionReadableBy(theirs, X),
                 "two independently physicalised blocks see each other through this and nothing else: the "
-                        + "level sees air where a carried block stands, so refusing it would make A->B "
-                        + "dark again - the exact regression this round must not cause");
+                        + "level sees air where a carried block stands, so refusing it would leave two "
+                        + "separate structures unable to reach each other");
         assertTrue(CarrierProjection.readableBy(theirs, X), "same answer from the owner of the rule");
         assertTrue(InnerRedstoneNetwork.projectionReadableBy(theirs, null),
                 "and the world-side solve names no reader, so it is never filtered");
@@ -383,17 +285,17 @@ class InnerProjectionSupplyTest {
         assertFalse(InnerRedstoneNetwork.projectionReadableBy(null, null),
                 "and still nothing for the unfiltered reader");
         assertTrue(InnerRedstoneNetwork.projectionReadableBy(projected(X, pos(6, 64, 5), 15), null),
-                "with no reader named the reader's own host is read like any other - the behaviour every "
-                        + "reader had before P1.41, and what the world-side solve asks for");
+                "with no reader named the reader's own host is read like any other, which is what the "
+                        + "world-side solve asks for");
     }
 
-    // ------------------------------------------------- 2. the defect, in the solve --
+    // --------------------------------------------------- 2. the leak, in the solve --
 
     @Test
     @DisplayName("a run of carried dust fades one per block")
     void aRunOfCarriedDustFadesOnePerBlock() {
-        // The feed is the chain head's own injected supply, and there is no world block anywhere: one
-        // source, so "it fades" is the only thing the fixture can mean.
+        // The feed is the chain head's own injected supply, and there is no world block anywhere: one source,
+        // so "it fades" is the only thing the fixture can mean.
         BlockPos head = pos(1, 64, 5);
         carryPowered(X, head, ComponentType.DUST, 15);
         for (int step = 1; step <= 14; step++) {
@@ -412,15 +314,10 @@ class InnerProjectionSupplyTest {
     @Test
     @DisplayName("two neighbouring host blocks with dust inside them are one hop apart")
     void acrossTwoHostBlocksTheHopIsStillCharged() {
-        // The author's own scene: each block holds its own component, and the blocks are inside ONE
-        // structure. The two wires downstream of the head are given the value an ongoing run would already
-        // hold, which is the ordinary steady state of a live machine - and it is what makes the leak
-        // visible in a SINGLE pass rather than only after a tick or two: the projection of an inner
-        // neighbour only carries power once that neighbour has some.
-        //
-        // On HEAD the fixed read is 15, 15, 15 (each wire's stale neighbour comes back uncharged through
-        // the reader's own projection and wins the max); only the first assertion holds. After the fix it
-        // is 15, 14, 13.
+        // Each block holds its own component and the blocks are inside ONE structure. The two wires downstream of
+        // the head are given the value an ongoing run would already hold, which is the ordinary steady state of a
+        // live machine - and it is what makes the leak visible in a SINGLE pass rather than only after a tick or
+        // two, since the projection of an inner neighbour only carries power once that neighbour has some.
         carryPowered(X, pos(5, 64, 5), ComponentType.DUST, 15);
         carry(X, pos(6, 64, 5), ComponentType.DUST).power = 15;
         carry(X, pos(7, 64, 5), ComponentType.DUST).power = 15;
@@ -442,10 +339,9 @@ class InnerProjectionSupplyTest {
     @Test
     @DisplayName("a settled run stays faded on the next pass - it does not jump back to fifteen")
     void aSettledRunStaysFaded() {
-        // The same run as the author's, given a previous tick to settle in: after the first pass every
-        // wire that is not the head already holds its faded value, so the projection of an inner
-        // neighbour is a STALE full-strength reading of exactly the kind that used to win the max. On
-        // HEAD the second pass restores the whole run to 15; after the fix the faded run is stable.
+        // The same run, given a previous tick to settle in: after the first pass every wire that is not the head
+        // already holds its faded value, so the projection of an inner neighbour is a STALE full-strength reading -
+        // exactly the kind that must not win the maximum.
         BlockPos head = pos(1, 64, 5);
         carryPowered(X, head, ComponentType.DUST, 15);
         for (int step = 1; step <= 4; step++) {
@@ -462,15 +358,12 @@ class InnerProjectionSupplyTest {
 
         for (int step = 0; step <= 4; step++) {
             assertEquals(15 - step, powerOf(X, head.offset(step, 0, 0)),
-                    "and hop " + step + " is STILL one step below the one before it: on HEAD this pass "
-                            + "read each inner neighbour's stale value back through its own projection and "
-                            + "restored the whole run to 15 - a stale uncharged copy of an inner neighbour "
-                            + "must not be able to push a settled wire back up");
+                    "and hop " + step + " is STILL one step below the one before it: a stale uncharged copy "
+                            + "of an inner neighbour must not be able to push a settled wire back up");
         }
         assertEquals(0, second.solvedChanges(),
                 "nothing changed on the second pass: the run is already at its fixpoint, which is the "
-                        + "honest answer for a settled circuit and the opposite of the pre-fix behaviour "
-                        + "(four wires jumping back to fifteen)");
+                        + "honest answer for a settled circuit");
     }
 
     @Test
@@ -488,7 +381,7 @@ class InnerProjectionSupplyTest {
         assertEquals(15, powerOf(X, head), "the head takes its supply at full strength");
         for (int step = 1; step <= 8; step++) {
             assertEquals(15, powerOf(X, head.offset(step, 0, 0)),
-                    "hop " + step + " of a superconductor costs nothing - the fix must not start charging "
+                    "hop " + step + " of a superconductor costs nothing - the rule must not start charging "
                             + "the one wire whose whole purpose is not to be charged");
         }
     }
@@ -496,10 +389,8 @@ class InnerProjectionSupplyTest {
     @Test
     @DisplayName("dust -> superconductor -> dust: nothing through the superconductor, one out of it")
     void aMixedChainChargesOnEntryAndExitOnlyWhereTheTypeSaysSo() {
-        // The charge is the RECEIVER's (PowerSolver#afterHop), so the pair of interesting hops is
-        // dust -> superconductor (nothing: the superconductor receives) and superconductor -> dust (one:
-        // the dust receives). One supply, at the head. P1.53 did NOT change this inner rule - it changed
-        // the read at a block boundary; see HostWireHopChargeTest.
+        // The charge is the RECEIVER's, so the pair of interesting hops is dust -> superconductor (nothing: the
+        // superconductor receives) and superconductor -> dust (one: the dust receives). One supply, at the head.
         carryPowered(X, pos(1, 64, 5), ComponentType.DUST, 15);
         carry(X, pos(2, 64, 5), ComponentType.SUPERCONDUCTOR);
         carry(X, pos(3, 64, 5), ComponentType.DUST);
@@ -515,16 +406,15 @@ class InnerProjectionSupplyTest {
         assertEquals(13, powerOf(X, pos(5, 64, 5)), "and one more for the last dust");
     }
 
-    // ------------------------------- 3. the two things the fix must not break, and one it must allow --
+    // ------------------------------- 3. the two things the rule must not break, and one it must allow --
 
     @Test
     @DisplayName("an external supply still tops a cell up to fifteen - that is the semantics, not a bug")
     void anExternalSupplyStillTopsACellUp() {
-        // A real world block offering 15 is a LEGAL external supply, and an external supply does not
-        // charge a hop by definition. So a cell the world feeds holds 15 even while the run beside it
-        // fades - the world half was not switched off, only the uncharged copy of an INNER neighbour was.
-        // This is the assertion that a fixture answering 15 on every side while demanding a fade would
-        // have contradicted: here the two facts are stated where they do not overlap.
+        // A real world block offering 15 is a LEGAL external supply, and an external supply does not charge a hop
+        // by definition. So a cell the world feeds holds 15 even while the run beside it fades - the world half was
+        // not switched off, only the uncharged copy of an INNER neighbour was - and here the two facts are stated
+        // where they do not overlap.
         BlockPos head = pos(1, 64, 5);
         carryPowered(X, head, ComponentType.DUST, 15);
         carry(X, head.offset(1, 0, 0), ComponentType.DUST);
@@ -553,21 +443,12 @@ class InnerProjectionSupplyTest {
     }
 
     @Test
-    @DisplayName("another carrier's projection at the coordinate this solve reads is still read - P1.38")
+    @DisplayName("another carrier's projection at the coordinate this solve reads is still read - the seam")
     void anotherCarriersProjectionIsTheSeam() {
-        // The anti-regression plus the legitimate P1.38 seam, in two assertions that cannot both be
-        // satisfied by a wrong filter.
-        //
-        // X carries a TWO host run, fed at (5,64,5). Y is an independently physicalised structure whose
-        // own coordinate (5,64,6) projects onto the cell X's host at (6,64,5) reads towards - the exact
-        // geometry of the author's scene, where two blocks each physicalised on their own stand one world
-        // cell apart. The level sees air there, so the projection is the only route across.
-        //
-        // The fade is what makes the two assertions bite: X's (6,64,5) must hold 14 from the charged
-        // inner hop, and on HEAD it holds 15, because Y's full-strength dust at that world cell is read
-        // back as an external supply and wins the max. So this test is RED on HEAD for a reason that has
-        // nothing to do with the fix over-reaching, and it stays green only if Y's projection is still
-        // read at all AND X's own neighbour is still charged.
+        // The seam read at the same time as the reader's own neighbour is charged: X carries a two-host run fed at
+        // (5,64,5), and Y's own coordinate (5,64,6) projects onto the cell X's second host reads towards. The level
+        // sees air there, so the projection is the only route across, and both halves are asserted at once - the
+        // other structure's full-strength dust must not win the maximum, and it must not be refused either.
         carryPowered(X, pos(5, 64, 5), ComponentType.DUST, 15);
         carry(X, pos(6, 64, 5), ComponentType.DUST);
         Slot theirs = carry(Y, pos(5, 64, 6), ComponentType.DUST);
@@ -576,36 +457,26 @@ class InnerProjectionSupplyTest {
         solve(1L);
 
         assertEquals(14, powerOf(X, pos(6, 64, 5)),
-                "the host next door takes one step less: this is the P1.38 seam read at the same time as "
-                        + "the reader's own neighbours are charged, and on HEAD the other structure's "
-                        + "full-strength dust at that world cell pushes this wire to 15 instead");
+                "the host next door takes one step less: the seam with another structure is read at the "
+                        + "same time as the reader's own neighbours are charged");
         assertFalse(refused.contains(pos(5, 64, 6).asLong()),
-                "and it is read rather than refused: Y is not the carrier whose solve is running, so a fix "
-                        + "that refused every projection - the global skip rejected before this round - "
-                        + "would make the seam dark again and this test red");
+                "and it is read rather than refused: Y is not the carrier whose solve is running, so "
+                        + "refusing every projection would make the seam dark again and this test red");
     }
 
-    // --------------------------------------- 3b. P1.45: the seam's own hop, by the receiver --
+    // --------------------------------------- 3b. the seam's own hop, charged to the receiver --
 
     @Test
-    @DisplayName("P1.45: another structure's dust across the seam is CHARGED - fourteen, not fifteen")
+    @DisplayName("another structure's dust across the seam is CHARGED - fourteen, not fifteen")
     void aSeamReadIsChargedAndNotRefused() {
-        // ONE supply, and it stands on the other side of the seam: the reader's wire has no neighbour of
-        // its own (so no inner hop), no injected value and no world block at all (base = 0). The only
-        // thing it can draw from is Y's dust at the world cell its south side reads. On HEAD that read is
-        // a raw emission and the wire holds 15; with this round it holds 14 - the same "a dust beside a
-        // dust costs one" the ground has always had - and the second assertion is the one a "refuse the
-        // seam" fix would flip to 0, i.e. P1.38 lost.
+        // ONE supply, and it stands on the other side of the seam: the reader's wire has no neighbour of its own
+        // (so no inner hop), no injected value and no world block at all. The only thing it can draw from is Y's
+        // dust at the world cell its south side reads, and that read is charged - not refused, and no longer free.
         //
-        // THE FAR SIDE NEEDS A REAL INPUT, and this is the trap the first version of this test fell into:
-        // `CarrierLightNetwork#relax` resets every WIRE to zero and grows it back from its own supplies,
-        // and each carrier is solved by its own pass within the same tick - so a `slot.power = 15` written
-        // by hand on a carried wire is not a supply at all. When Y's pass happens to run first it drains Y
-        // to zero, the seam then reads zero, and the near wire sits at 0 with nothing wrong in the rule
-        // under test. A debug supply IS an input (`CarrierLightNetwork#supplyOf` takes `injectedPower`), so
-        // the fixture gives the far side one - the same `carryPowered` the run fixtures use ("the one input
-        // a fixture needs") - and keeps the hand-set value so the read does not depend on which of the two
-        // structures is solved first.
+        // THE FAR SIDE NEEDS A REAL INPUT: the solver resets every wire to zero and grows it back from its own
+        // supplies, and each carrier is solved by its own pass within the same tick, so a power written by hand on
+        // a carried wire is not a supply at all - a debug supply is, and the hand-set value is kept as well so the
+        // read does not depend on which of the two structures is solved first.
         BlockPos reader = pos(5, 64, 5);
         carry(X, reader, ComponentType.DUST);
         Slot theirs = carryPowered(Y, pos(5, 64, 6), ComponentType.DUST, 15);
@@ -622,20 +493,20 @@ class InnerProjectionSupplyTest {
                         + "solved in - otherwise the near wire would read zero and 'it was charged' would "
                         + "be indistinguishable from 'the seam had nothing to say'");
         assertEquals(14, powerOf(X, reader),
-                "the seam answered and the reader's hop was charged: fourteen - not the free fifteen this "
-                        + "round exists for, and not zero");
+                "the seam answered and the reader's hop was charged: fourteen, not a free fifteen and "
+                        + "not zero");
         assertFalse(refused.contains(pos(5, 64, 6).asLong()),
                 "and it was read rather than refused: Y is not the carrier whose solve is running, so the "
                         + "seam is charged, not closed (a global skip would answer 0 here)");
     }
 
     @Test
-    @DisplayName("P1.45: the charge is the RECEIVER's, so a superconductor crosses the seam untouched")
+    @DisplayName("the charge is the RECEIVER's, so a superconductor crosses the seam untouched")
     void aSuperconductingSeamKeepsEveryStep() {
         BlockPos reader = pos(5, 64, 5);
         carry(X, reader, ComponentType.SUPERCONDUCTOR);
-        // The far side's input, for the reason spelled out in the test above: a hand-set power on a
-        // carried wire is drained by that structure's own pass.
+        // The far side's input, for the reason spelled out in the test above: a hand-set power on a carried wire
+        // is drained by that structure's own pass.
         Slot theirs = carryPowered(Y, pos(5, 64, 6), ComponentType.DUST, 15);
         theirs.power = 15;
         seamReader = ComponentType.SUPERCONDUCTOR;
@@ -651,12 +522,11 @@ class InnerProjectionSupplyTest {
                 "a superconductor pays nothing for a hop, so the seam hands it the whole fifteen: the "
                         + "charge is the receiver's hop cost and must not become a flat one-per-seam-read");
         assertFalse(refused.contains(pos(5, 64, 6).asLong()),
-                "and the seam was read, not refused: P1.38's ability is what makes this fifteen reachable "
-                        + "at all");
+                "and the seam was read, not refused: that is what makes this fifteen reachable at all");
     }
 
     @Test
-    @DisplayName("P1.45: the seam hop IS the solver's hop rule - the receiver pays, and only between wires")
+    @DisplayName("the seam hop IS the solver's hop rule - the receiver pays, and only between wires")
     void theSeamHopIsTheSolversHopRule() {
         CarrierProjection.ProjectedHost theirDust = projected(Y, pos(6, 64, 5), 15);
         CarrierProjection.ProjectedHost theirLever = projected(Y, pos(6, 64, 5), ComponentType.LEVER, 15);
@@ -670,8 +540,8 @@ class InnerProjectionSupplyTest {
                 "and a projected lever is a source rather than a wire, so nothing is charged: exactly "
                         + "what vanilla says about a lever beside a wire");
         assertEquals(15, InnerRedstoneNetwork.seamHop(theirDust, null, 15),
-                "a caller that names no reader leaves the read as it was before this round - the honest "
-                        + "degradation, not a guess");
+                "a caller that names no reader leaves the read uncharged - the honest degradation, not "
+                        + "a guess");
         assertEquals(15, InnerRedstoneNetwork.seamHop(null, ComponentType.DUST, 15),
                 "and air has nothing to be charged for");
         assertEquals(0, InnerRedstoneNetwork.seamHop(theirDust, ComponentType.DUST, 0),
@@ -683,9 +553,8 @@ class InnerProjectionSupplyTest {
     @Test
     @DisplayName("the carrier-side world read is the owner-aware one, and the world side keeps the projection")
     void theCarrierReadNamesItsReader() throws Exception {
-        // The one part a unit test cannot build is a ServerLevel, and the merged read takes one. So the
-        // wiring that makes the rule reachable in production is pinned at the source, the way this
-        // codebase pins its other wiring decisions.
+        // The one part a unit test cannot build is a ServerLevel, and the merged read takes one, so the wiring
+        // that makes the rule reachable in production is pinned at the source.
         String network = flat("src/main/java/com/jiangyuefengyu/redstonecircuit/logic/InnerRedstoneNetwork.java");
         String io = flat("src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierWorldIo.java");
         String networks = flat("src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierNetworks.java");
@@ -704,14 +573,12 @@ class InnerProjectionSupplyTest {
         assertTrue(network.contains("if (!projectionReadableBy(host, owner)) {"),
                 "and the projected half refuses exactly the owner's own host");
         assertTrue(network.contains("() -> worldSignalAt(level, worldPos, worldDirection))"),
-                "while CarrierWorldSignals - the three-argument entry point every pre-P1.41 reader used - "
-                        + "still names no reader, so nothing about it changed");
+                "while the three-argument entry point still names no reader, so nothing about it changed");
 
-        // ---- P1.45. These four are the red light for this round at RUN time: none of the strings exists
-        // on the P1.44 tree, so they fail whether or not the new API is reachable - the same shape P1.44
-        // used for its three runtime-red assertions.
+        // ---- The seam's own four: the bridge names the receiver outright, looks it up in the carrier index, and
+        // the charge it applies is the solver's one hop rule.
         assertTrue(io.contains("InnerRedstoneNetwork.seamReader("),
-                "P1.45: the carrier bridge names the receiver outright, so the charge is exact on a machine "
+                "the carrier bridge names the receiver outright, so the charge is exact on a machine "
                         + "that has been turned - a world direction snapped to an axis is not");
         assertTrue(io.contains("CarrierStore.indexOf(level)"),
                 "looked up in the carrier index at the reading host's own LOCAL coordinate, which the "

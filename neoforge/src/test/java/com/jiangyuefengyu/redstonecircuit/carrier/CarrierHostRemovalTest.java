@@ -27,29 +27,9 @@ import org.junit.jupiter.api.Test;
 /**
  * <b>The host-level removal notice, on the client side.</b>
  *
- * <h2>The defect these tests exist for</h2>
- * The author's report was "the component dropped, but the outline and the component are still drawn
- * until the physicalisation is switched off". The server had already forgotten the host and dropped
- * the item; what it had not done was tell the client <em>which</em> of the two things had happened to a
- * host that left a carrier's list. Absence meant "put down", so the client kept a landed record and
- * went on drawing the component - the ghost.
- *
- * <p>So a removal notice was added at the host level: a list of local coordinates the server has
- * <b>discarded</b>. What is pinned here is the whole of its client-side contract, and the shapes that
- * must <b>not</b> happen:
- *
- * <ul>
- *   <li>a host the notice names is gone from the carried index <b>and</b> is not turned into a landed
- *       record - the "the record was kept under another identity" ghost;</li>
- *   <li>a host that is merely put down (absent from the list, <em>not</em> named by the notice) still
- *       becomes landed, because that is how a component put down over air stays visible;</li>
- *   <li>the notice is scoped to one structure and to the coordinates it names, so a neighbouring host
- *       or a second structure is untouched;</li>
- *   <li>an empty notice changes nothing at all - every ordinary carrier message carries one.</li>
- * </ul>
- *
- * <p>Pure: {@link CarrierIndex} and {@link LandedHosts} name no level and no renderer, so the whole
- * decision is decidable without a game.
+ * <p>服务器忘了 host、掉落了物品，却没有告诉客户端这个 host 是"被销毁"还是"放下"；缺席被当成"放下"，客户端于是
+ * 保留 landed 记录继续画一个已经不在的元件。所以新增 host 级通知: 一串被丢弃的局部坐标。契约: 被点名的 host 从索引
+ * 消失且不变成 landed；空通知什么都不改。纯逻辑，{@link CarrierIndex} 不认识 level 和渲染器。
  */
 class CarrierHostRemovalTest {
 
@@ -105,8 +85,7 @@ class CarrierHostRemovalTest {
         assertEquals(1, dropped, "the removal notice must name the host the client was holding");
         assertEquals(0, carriers.size(), "the host must be gone from the carried index");
         assertNull(carriers.atLocal(CARRIER, local), "and must not answer at its local coordinate");
-        // The whole point: nothing is left to draw. The ghost the author saw was this list being
-        // non-empty - a host kept under the "landed" identity and drawn where its block used to be.
+        // Nothing is left to draw: a host kept under the "landed" identity would be drawn where its block was.
         LandedHosts landed = new LandedHosts();
         assertEquals(0, landed.size(), "a destroyed host is not a put-down host");
         assertTrue(carriers.drawablesNear(OVERWORLD, ORIGIN, 8, landed, List.of()).stream()
@@ -214,9 +193,8 @@ class CarrierHostRemovalTest {
         BlockPos local = pos(1, 0, 2);
         CarrierIndex.CarriedView host = view(CARRIER, local);
 
-        // A contradictory message - the host is both named as removed and still listed as riding.
-        // It cannot happen on the wire, and the answer is deliberately the safe one: "this component is
-        // gone" is never softened into a ghost.
+        // A contradictory message - the host is both named as removed and still listed as riding. It cannot
+        // happen on the wire, and the safe answer wins: "this component is gone" is never softened.
         LandedHosts.Forget forget = LandedHosts.forget(List.of(host), List.of(local), CARRIER);
 
         assertTrue(forget.isForgotten(host));

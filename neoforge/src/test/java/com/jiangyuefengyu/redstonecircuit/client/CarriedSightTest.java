@@ -14,25 +14,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Specification S1, translated row by row.</b>
+ * The sight rule, row by row. A {@link BlockPos} is the block's <b>minimum corner</b>, so {@code P = (5, 64,
+ * 5)} occupies {@code [5,6) x [64,65) x [5,6)}, and which block a point is in is a floor per axis.
  *
- * <h2>The coordinate convention these tests are written in (stated once)</h2>
- * A {@link BlockPos} is the block's <b>minimum corner</b>: {@code P = (5, 64, 5)} occupies
- * {@code [5,6) x [64,65) x [5,6)}. "Which block is this point in" is {@code BlockPos.containing} - a floor
- * per axis. P's <b>near</b> face is {@code x = 5.0} and belongs to P; its <b>far</b> face is {@code x = 6.0}
- * and belongs to the block behind it.
- *
- * <h2>Why the table is the test, and not a set of hand-written cases</h2>
- * The table below is S1's numeric table. The hit column is a <b>point</b>, and the test converts it with
- * {@link BlockPos#containing(double, double, double)} - the same floor the ray itself reports as
- * {@code BlockHitResult#getBlockPos()} - so there is exactly one point-to-block conversion in the build
- * and the table cannot drift away from the rule.
- *
- * <p>Three rows together are the proof that no "distance from the hit to the target point" rule can be
- * hiding here: {@code (5.0) -> visible}, {@code (5.4) -> visible} and {@code (4.5) -> not visible}. A
- * sphere around the point would have to accept 5.4 (0.4 away) and reject 4.5 (0.5 away), i.e. a radius
- * between 0.4 and 0.5 - and then it would also accept a hit at 4.6, which is a block in front. Only a cell
- * test satisfies all three, which is what S1 specifies and what the class implements.
+ * <p>The hit column of the table is a <b>point</b>, converted with {@link BlockPos#containing} - the same
+ * floor the ray itself reports - so there is exactly one point-to-block conversion and the table cannot drift
+ * away from the rule.
  */
 class CarriedSightTest {
 
@@ -45,8 +32,8 @@ class CarriedSightTest {
     private static final double EYE_Z = 5.5;
 
     /**
-     * One row of S1's table: the eye, whether the ray met anything, where it met it, the expected answer,
-     * and <b>which rule the row is about</b> (the rule numbers are S1's own).
+     * One row of the table: the eye, whether the ray met anything, where it met it, the expected answer, and
+     * which rule the row is about.
      */
     private record Row(String what, double eyeX, double eyeY, double eyeZ, boolean met,
                        double hitX, double hitY, double hitZ, boolean visible, int rule) {
@@ -170,32 +157,8 @@ class CarriedSightTest {
     }
 
     /**
-     * <b>The union principle, for the sight rule: this rule may only widen what the previous one drew.</b>
-     *
-     * <p>The rule {@code canSeePoint} used before P1.47 is reimplemented here verbatim:
-     *
-     * <pre>
-     *   eye.distanceToSqr(target) &lt; 1.0E-4                        -&gt; visible
-     *   the ray met nothing                                       -&gt; visible
-     *   hit.distanceToSqr(eye) &gt;= eye.distanceToSqr(target) - 0.25 -&gt; visible
-     * </pre>
-     *
-     * <p>Every geometry that rule drew, this one must draw as well. The domain is the one the renderer can
-     * actually produce: the ray runs from the eye to the component block's centre, so the only blocks it
-     * can report are the ones it meets on the way - P itself, or a block beside it. Each eye below is
-     * paired with each of those seven blocks, the block's entry point is found with the usual slab
-     * intersection, and only configurations whose entry point really falls in that block before the
-     * segment ends are counted (BlockPos.containing of that point is the block the ray would report).
-     *
-     * <h2>Why this cannot hold by accident, and why it must hold</h2>
-     * For a blocker other than P, every point of it is at least half a block from P's centre (blocks are a
-     * cell apart), so along the segment {@code targetD - hitD >= 0.5}. The old rule's visible branch needs
-     * {@code (targetD - hitD)(targetD + hitD) <= 0.25}, and those two facts allow that only at
-     * {@code hitD = 0} together with {@code targetD = 0.5} - where the eye is half a block from P's centre,
-     * which is S1 rule 1. So on a genuine wall the old rule drew exactly the cases rule 1 already covers,
-     * while a ray that reached P itself was refused whenever {@code targetD > 0.5} (that is the half of the
-     * defect this class fixes). The test states both halves as invariants rather than as comments: nothing
-     * the old rule drew is lost, and at least one thing it refused is now drawn.
+     * <b>The union principle: this rule may only widen what the rule it replaced drew.</b> Every geometry the
+     * replaced rule drew, this one must draw as well - and at least one it refused is now drawn.
      */
     @Test
     @DisplayName("the union principle: everything the old rule drew, this rule draws too")
@@ -254,10 +217,8 @@ class CarriedSightTest {
                 double hitD2 = (hx - ex) * (hx - ex) + (hy - ey) * (hy - ey) + (hz - ez) * (hz - ez);
                 boolean oldDrewThis = targetD2 < 1.0E-4 || hitD2 >= targetD2 - 0.25;
                 boolean nowDrawn = CarriedSight.isVisible(ex, ey, ez, P, CarriedSight.Ray.hit(block));
-                // The carried form adds one equality and nothing else, so it can only draw more. Asserted
-                // here rather than argued in a comment: passing a host's own coordinate must not be able
-                // to refuse anything the ordinary question drew. (The coordinate used is a plot-space one,
-                // which none of these world hits can equal - so the two forms must agree exactly.)
+                // The carried form adds one equality and nothing else, so it can only draw more: passing a
+                // host's own coordinate must not refuse anything the ordinary question drew.
                 if (nowDrawn) {
                     BlockPos ownFrame = new BlockPos(20481032, 127, 20483080);
                     assertTrue(CarriedSight.isVisible(ex, ey, ez, P, CarriedSight.Ray.hit(block), ownFrame),
@@ -282,35 +243,23 @@ class CarriedSightTest {
     }
 
     /**
-     * <b>"The component's own block" has two names for a Sable host, and the log named both.</b>
+     * <b>"The component's own block" has two names for a Sable host.</b> The ray reports a sub-level hit in the
+     * structure's own frame while the target is a projected world block, so the machine was its own occluder.
      *
-     * <p>The geometry and the numbers are the author's own, from 2026-09-28 08:45:59 (there are five such
-     * frames, all the same shape):
-     *
-     * <pre>
-     *   carrier=s:f4e68bf9 local=(20481032, 127, 20483080) eye=(-62, -59, -313)
-     *       ray=hit(20481032, 127, 20483080) sight=refused-hit target=(-58, -57, -311)
-     * </pre>
-     *
-     * The ray met the block the same line calls {@code local=} - the component's own block, in the frame
-     * Sable's ray tracing reports sub-level hits in - and the decision was "refused" because that was
-     * compared with the <em>projected</em> world block. So the machine was its own occluder.
-     *
-     * <p>What is asserted here is the line between the two: the component's own block in <b>either</b>
-     * frame passes (rule 3), and a <b>different</b> block of the same structure - the machine's hull in
-     * front of the component - still refuses (rule 4).
+     * <p>The component's own block in <b>either</b> frame passes (rule 3), and a <b>different</b> block of the
+     * same structure - the machine's hull in front of the component - still refuses (rule 4).
      */
     @Test
     @DisplayName("the component's own block passes in either frame; another block of the structure still refuses")
     void theComponentsOwnBlockIsRecognisedInItsOwnFrame() {
         double ex = -61.5;
         double ey = -58.5;
-        double ez = -312.5;                              // the eye, in the frame of the log's own line
-        BlockPos projected = new BlockPos(-58, -57, -311);      // target= on that line
-        BlockPos ownPlot = new BlockPos(20481032, 127, 20483080);   // local= on that line
+        double ez = -312.5;                              // the eye, in the frame the ray reports in
+        BlockPos projected = new BlockPos(-58, -57, -311);      // the target the projection names
+        BlockPos ownPlot = new BlockPos(20481032, 127, 20483080);   // the component in the structure's frame
         BlockPos ownNeighbour = new BlockPos(20481032, 128, 20483080);
 
-        // The log's own frame: refused before this round, drawn now.
+        // The ray's own frame: refused by the world frame alone, drawn now.
         assertFalse(CarriedSight.isVisible(ex, ey, ez, projected, CarriedSight.Ray.hit(ownPlot)),
                 "asked in the world frame alone, the component's own block is an unknown block");
         assertTrue(CarriedSight.isVisible(ex, ey, ez, projected, CarriedSight.Ray.hit(ownPlot), ownPlot),
@@ -330,10 +279,7 @@ class CarriedSightTest {
 
     /**
      * The distance from {@code (ox, oy, oz)} along the unit direction {@code (ux, uy, uz)} at which the ray
-     * enters {@code block}, or {@link Double#NaN} when it never does.
-     *
-     * <p>The slab method, written out here rather than reused from the game so this test keeps the one
-     * property it is about: the block a ray reports is decided by geometry, not by a tolerance.
+     * enters {@code block}, or {@link Double#NaN} when it never does: the slab method, so geometry decides.
      */
     private static double entryDistance(double ox, double oy, double oz, double ux, double uy, double uz,
                                         BlockPos block) {
@@ -368,9 +314,8 @@ class CarriedSightTest {
     @Test
     @DisplayName("no tolerance of ours: the class declares exactly one double, and it is the eye rule")
     void noDistanceSphereAndNoTolerance() throws Exception {
-        // The "no floating-point allowance" requirement, as a property of the class rather than a promise:
-        // the only double this class declares is S1 rule 1's one block. If a future edit adds a
-        // tolerance - the shape the old `- 0.25` and the rejected `ON_TARGET` both had - this fails.
+        // The "no floating-point allowance" requirement as a property of the class: the only double it
+        // declares is S1 rule 1's one block, so an added tolerance fails this.
         List<String> doubles = new java.util.ArrayList<>();
         for (Field field : CarriedSight.class.getDeclaredFields()) {
             if (field.getType() == double.class) {

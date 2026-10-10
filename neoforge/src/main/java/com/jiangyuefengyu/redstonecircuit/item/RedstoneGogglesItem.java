@@ -1,5 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit.item;
 
+import com.jiangyuefengyu.redstonecircuit.RcTooltips;
+
 import java.util.List;
 
 import net.minecraft.ChatFormatting;
@@ -12,23 +14,11 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 
 /**
- * 红石眼镜 - the redstone goggles.
- *
- * <h2>Why this is an armour item</h2>
- * 1.21.1 has no "equippable" data component (it arrives in a later version), so the only way for an
- * item to occupy the head slot, be swapped in with a right-click and show up in the helmet slot of the
- * inventory is to be an {@link ArmorItem}. The design asks for a head-slot item with no protection,
- * and {@code ArmorMaterial} answers both halves: the slot comes from
- * {@link ArmorItem.Type#HELMET}, and a defence value of zero means the armour bar shows nothing and
- * nothing is absorbed.
- *
- * <p>Nothing else is overridden except the tooltip: what the goggles <em>do</em> is decided by the
- * client renderer, which asks "is this stack in the head slot" once per frame. That keeps the effect
- * instant - put them on and the world changes on the next frame, take them off and it changes back -
- * with no packets and no server round trip.
- *
- * <p>The tooltip is the only place the effect is ever described, since a helmet with no armour points
- * would otherwise show nothing but the useless "+0 armour" line.
+ * 红石眼镜 - the redstone goggles: a head-slot item with no protection, whose effect the client renderer applies by
+ * asking once per frame whether the stack is in the head slot, so it takes hold on the next frame with no packets.
+ * <p>An {@link ArmorItem} because 1.21.1 has no "equippable" data component: {@link ArmorItem.Type#HELMET} gives the
+ * slot, a defence of zero means the armour bar shows nothing, and the tooltip is then the only place the effect is
+ * described.
  */
 public class RedstoneGogglesItem extends ArmorItem {
 
@@ -39,11 +29,10 @@ public class RedstoneGogglesItem extends ArmorItem {
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip,
                                 TooltipFlag flag) {
-        tooltip.add(Component.translatable("item.redstonecircuit.redstone_goggles.tip.wear")
-                .withStyle(ChatFormatting.GRAY));
-        tooltip.add(Component.translatable("item.redstonecircuit.redstone_goggles.tip.inside")
-                .withStyle(ChatFormatting.AQUA));
-        tooltip.add(Component.translatable("item.redstonecircuit.redstone_goggles.tip.wrench")
-                .withStyle(ChatFormatting.DARK_RED));
+        // One line by default, the how-to behind [Shift], like Create's wrench (RcTooltips).
+        RcTooltips.append(tooltip, flag, "item.redstonecircuit.redstone_goggles.tip",
+                RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.wear"),
+                RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.inside", ChatFormatting.AQUA),
+                RcTooltips.required("item.redstonecircuit.redstone_goggles.tip.wrench"));
     }
 }

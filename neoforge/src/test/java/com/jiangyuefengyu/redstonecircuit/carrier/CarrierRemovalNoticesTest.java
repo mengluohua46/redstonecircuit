@@ -10,25 +10,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the removal-notice policy: <b>a carrier the client was told about is always taken back, on
- * every path that removes it, as many times as it is asked.</b>
+ * Tests the removal-notice policy: <b>a carrier the client was told about is always taken back, on every path that
+ * removes it, as many times as it is asked.</b>
  *
- * <p>The defect this pins down is the one that made a component invisible forever: a carrier left the
- * server's index through a path that did not put a message on the wire, so the client kept a carrier no
- * pose could be looked up for. The structural answer is a single release exit ({@code CarrierStore
- * .forget}) plus this ledger; what is tested here is the part of it that is pure logic - when a notice
- * is <em>owed</em>, and when there is genuinely nobody to tell.
+ * <p>A carrier that leaves the server's index through a path putting no message on the wire leaves the client
+ * holding a carrier no pose can be looked up for, and a component that is never drawn. The answer is a single
+ * release exit ({@code CarrierStore.forget}) plus this ledger; what is tested here is the part of it that is pure
+ * logic - when a notice is <em>owed</em>, and when there is genuinely nobody to tell.
  *
- * <p>The two rules the tests below exist for:
- *
- * <ul>
- *   <li><b>Idempotent release, non-idempotent notice.</b> Asking twice must answer "yes" twice. A
- *       policy that consumed the mention on the first answer would make the second removal path for one
- *       carrier silent - exactly the shape of the original bug.</li>
- *   <li><b>A carrier nobody was told about gets no message.</b> A claim put down inside the same tick,
- *       or a sub-level that never had a host, would otherwise cost a packet for every client in the
- *       dimension.</li>
- * </ul>
+ * <p>Two rules: asking twice must answer "yes" twice, because a policy that consumed the mention on the first answer
+ * would make the second removal path for one carrier silent; and a carrier nobody was told about gets no message, or
+ * a claim put down inside the same tick would cost a packet for every client in the dimension.
  */
 class CarrierRemovalNoticesTest {
 
@@ -131,8 +123,7 @@ class CarrierRemovalNoticesTest {
         notices.mentioned(OVERWORLD, CARRIER);
         assertTrue(notices.owesRemoval(OVERWORLD, CARRIER));
 
-        // The same contraption assembled a second time: the mention was never cleared, which is what
-        // makes the second removal path correct without a single extra line of bookkeeping.
+        // The same contraption assembled a second time: the mention was never cleared, so it is still known.
         notices.mentioned(OVERWORLD, CARRIER);
 
         assertTrue(notices.owesRemoval(OVERWORLD, CARRIER));

@@ -25,57 +25,22 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.33 commit A: only a placement that will really write a component may create a carrier record -
- * and the record and the contents land together or not at all.</b>
- *
- * <h2>The author's own three lines, one click</h2>
- * <pre>
- *   world insert declined: this position belongs to carrier s:c22611c6 owner=sublevel local=20481032, 128, 20481032 …
- *   carrier s:c22611c6: filed the carrier host a plot cell was missing local=20481032, 128, 20481032
- *       origin=-4, -59, -10 (record=created empty) …
- *   carrier entry trace: … raw=20481032, 128, 20481032 … -&gt; REFUSED refused: this carried host is EMPTY
- *       and the picked host is not this one, so there is nothing to pin towards it either (INSIDE: NOT_INSIDE)
- * </pre>
- *
- * <p>The item in hand on that click was the <b>wrench</b> (the same log's own {@code item=… tool=wrench}
- * column), so nothing was ever going to be stored - and a record was created anyway, because P1.32's
- * entry point fed the filing helper the wrench, the rotation rod and a bare hand as well as a placement.
- * From that moment the block was a host of that structure with nothing in it, and every later judgement
- * about the coordinate was taken against a record the block had not earned.
- *
- * <h2>What is asserted</h2>
- * <ol>
- *   <li><b>which clicks may file</b>: a wrench, the rotation rod, a bare hand, a non-sneaking click, a
- *       click with no face and {@code carriedInsert=false} all answer "no", and the placing click answers
- *       "yes" - plus the entry point's own source, which is where the defect really lived;</li>
- *   <li><b>the two halves are one decision</b>: the gate is computed by {@code CarriedInsert#preview} for
- *       the empty host the filing would create, and the store that follows is
- *       {@code CarriedInsert#apply}, so the record and the slot land in the same click - asserted by
- *       filing and then writing, and by the level form's own broadcast still sitting after both;</li>
- *   <li><b>a placement that cannot write files nothing</b>: an unreadable pose and a closed gate both
- *       leave the index empty, the world store untouched and the item unspent;</li>
- *   <li><b>an empty record cannot change a judgement</b>: the same plot cell with an empty host record and
- *       with no record at all answers the <em>same</em> carrier, and the two differ only in the tag that
- *       the migration and the placement path read ({@code owner=host} / {@code owner=sublevel});</li>
- *   <li><b>idempotent</b>: a second filing returns the record as it stands and never empties a host that
- *       has been built into.</li>
- * </ol>
- *
- * <h2>Why the new decisions are asked by reflection</h2>
- * Exactly as in P1.31 and P1.32: on the previous tree {@code CarrierInteraction#mayCreateRecord},
- * {@code CarriedInsert#wouldInsert}, the gated {@code CarrierStore#resolveForPlacement} and
- * {@code CarrierClickPriority#plotCellOwnership} do not exist, so a direct call would be a compile error
- * there rather than a readable red assertion - and the report has to say which of the two it is.
+ * Only a placement that will really write a component may create a carrier record - and the record and the
+ * contents land together or not at all.
+ * <p>Filing on any other click leaves a block that is a host of a structure with nothing in it, and every
+ * later judgement about that coordinate is taken against a record the block had not earned. The tests pin
+ * which clicks may file, that the gate and the store are one decision, that an empty record changes no
+ * judgement but the owner tag, and that filing is idempotent; the decisions are asked by reflection.
  */
 class CarrierRecordFilingTest {
 
-    /** The coordinate of the author's wrench click: a cell of a live structure with no record yet. */
+    /** A cell of a live structure that holds no record yet. */
     private static final BlockPos PLOT = new BlockPos(20481032, 128, 20481032);
 
-    /** Where that structure's pose puts the cell: the author's own {@code origin=-4, -59, -10}. */
+    /** Where that structure's pose puts the cell. */
     private static final BlockPos PLOT_WORLD = new BlockPos(-4, -59, -10);
 
-    /** The author's carrier, from {@code carrier s:c22611c6}. */
+    /** The carrier whose short id is {@code s:c22611c6}. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("c22611c6-0000-0000-0000-000000000000"));
 
@@ -109,7 +74,7 @@ class CarrierRecordFilingTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's claim is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos}: a plain translation. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -136,31 +101,35 @@ class CarrierRecordFilingTest {
     // --------------------------------------------- the decisions, by reflection --
 
     /**
-     * {@code CarrierInteraction#mayCreateRecord(gesture, stored, sneaking, face, carriedInsert,
-     * allowReplace)} - the answer the entry point gates the filing on.
+     * The answer the entry point gates the filing on: which gestures may create a record at all. The
+     * seventh input is the host rule - whether the block itself may hold a component - and the overload
+     * below states the ordinary case, a block that may.
      */
     private static boolean mayCreate(CarrierGesture.Kind gesture, @Nullable ComponentType stored,
                                      boolean sneaking, @Nullable Direction face) {
+        return mayCreate(gesture, stored, sneaking, face, true);
+    }
+
+    /** The same, with "the block itself may not host a component" stated outright. */
+    private static boolean mayCreate(CarrierGesture.Kind gesture, @Nullable ComponentType stored,
+                                     boolean sneaking, @Nullable Direction face, boolean hostAccepts) {
         try {
             Class<?> interaction =
                     Class.forName("com.jiangyuefengyu.redstonecircuit.carrier.CarrierInteraction");
             java.lang.reflect.Method method = interaction.getDeclaredMethod("mayCreateRecord",
                     CarrierGesture.Kind.class, ComponentType.class, boolean.class, Direction.class,
-                    boolean.class, boolean.class);
+                    boolean.class, boolean.class, boolean.class);
             method.setAccessible(true);
-            return Boolean.TRUE.equals(method.invoke(null, gesture, stored, sneaking, face, true, false));
+            return Boolean.TRUE.equals(method.invoke(null, gesture, stored, sneaking, face, true, false,
+                    hostAccepts));
         } catch (ReflectiveOperationException absent) {
-            // The previous build: the decision does not exist, so the entry point has nothing to gate on
-            // and the filing happens for whatever gesture got here. `false` is the answer this round
-            // wants, and the assertion that the decision EXISTS is `onlyThePlacingClickMayFile`.
+            // No such decision on an older build: nothing gates the filing, so any gesture files.
             return false;
         }
     }
 
-    /**
-     * {@code CarrierStore#resolveForPlacement(owners, poses, index, pos, slots, miss, mayWrite)} through
-     * its gated level-free core.
-     */
+    /** The filing decision, reached through its gated level-free core: a placement that will not write
+     * must not create a record. */
     @Nullable
     private CarriedBlockRemoval.Hit file(boolean placementWillWrite,
                                          @Nullable CarrierEntryTrace.Miss miss) {
@@ -179,10 +148,8 @@ class CarrierRecordFilingTest {
         }
     }
 
-    /**
-     * {@code CarriedInsert#wouldInsert(localFace, sneaking, held, replaceExisting)} - the gate the entry
-     * point computes, which is {@code preview} for the empty host a filing would create.
-     */
+    /** The gate the entry point computes, which is the placement decision for the empty host a filing
+     * would create. */
     private static boolean wouldInsert(@Nullable Direction localFace, boolean sneaking,
                                        @Nullable ComponentType held, boolean replaceExisting) {
         try {
@@ -195,10 +162,7 @@ class CarrierRecordFilingTest {
         }
     }
 
-    /**
-     * {@code CarriedInsert#preview(hostExists, slot, localFace, sneaking, held, replaceExisting)} - the
-     * decision {@code apply} runs, without writing.
-     */
+    /** The decision {@code apply} runs, without writing - the gate and the store are the same code. */
     @Nullable
     private static Object preview(boolean hostExists, @Nullable Slot slot, @Nullable Direction localFace,
                                   boolean sneaking, @Nullable ComponentType held,
@@ -214,10 +178,7 @@ class CarrierRecordFilingTest {
         }
     }
 
-    /**
-     * {@code CarrierClickPriority#plotCellOwnership(owner, index, pos, poses, alive)} - what one plot cell
-     * of a structure is for ownership.
-     */
+    /** What one plot cell of a structure is for ownership, from the owner, the index and the poses. */
     @Nullable
     private static CarrierClickPriority.Owned ownership(CarrierId owner, CarriedHostIndex index,
                                                         BlockPos pos,
@@ -236,7 +197,7 @@ class CarrierRecordFilingTest {
         }
     }
 
-    /** The entry point's own body, for the wiring assertions - the defect really lived in a condition. */
+    /** The entry point's own body, for the wiring assertions. */
     private static String entryPointSource() {
         String source = CarrierInteraction.sourceOf("onRightClickBlock");
         assertFalse(source.isEmpty(), "the entry point's source must be readable in a development tree");
@@ -262,7 +223,7 @@ class CarrierRecordFilingTest {
         @DisplayName("the wrench, the rotation rod, a bare hand and anything else are all `no`")
         void theToolsAndTheEmptyHandNeverFile() {
             assertFalse(mayCreate(CarrierGesture.Kind.WRENCH, ComponentType.DUST, true, Direction.NORTH),
-                    "the author's click held the wrench: it can never store a component, so it must never "
+                    "the wrench can never store a component, so it must never "
                             + "create a host record for the block it landed on");
             assertFalse(mayCreate(CarrierGesture.Kind.ROD, null, true, Direction.NORTH),
                     "the rotation rod is the same shape");
@@ -289,6 +250,40 @@ class CarrierRecordFilingTest {
         }
 
         @Test
+        @DisplayName("and a block that may not host a component is still a `no`")
+        void aBlockThatMayNotHostNeverFiles() {
+            assertFalse(mayCreate(CarrierGesture.Kind.PLACEMENT, ComponentType.DUST, true, Direction.NORTH,
+                            false),
+                    "物理化后的玻璃、结构方块、工作台、台阶: the click is a real placement and the hand really "
+                            + "holds a component, but the BLOCK cannot hold one. The world's own rule refuses "
+                            + "it (HostRules#isValidHost), so no carrier host may be filed for it either - "
+                            + "otherwise the refusal would leave behind an empty record, and the block would "
+                            + "be a structure's host from then on");
+            assertTrue(mayCreate(CarrierGesture.Kind.PLACEMENT, ComponentType.DUST, true, Direction.NORTH,
+                            true),
+                    "and the same click on an ordinary stone block still files: the new fact narrows "
+                            + "nothing that already worked");
+        }
+
+        @Test
+        @DisplayName("the entry point asks the block's own rule, of the structure's view and the world's switch")
+        void theEntryPointAsksTheHostRule() {
+            String source = entryPointSource();
+
+            assertTrue(source.contains(
+                            "CarrierStore.hostAcceptsComponent(serverLevel, event.getPos(), miss)"),
+                    "the filing gate asks whether the block may hold a component at all, and it asks it "
+                            + "about THIS click's cell - the state of a physicalised block is not in the "
+                            + "level, so it has to come from the structure's own view");
+            String store = storeSource();
+            assertTrue(store.contains("HostRules.isValidHost(state)"),
+                    "and the answer is the world's own function on the same state, not a second rule "
+                            + "written beside it");
+            assertTrue(store.contains("if (!RCConfig.validateHosts()"),
+                    "behind the same switch the world's own placement reads first");
+        }
+
+        @Test
         @DisplayName("the entry point gates the filing on that decision, and no longer on the tool")
         void theEntryPointAsksTheDecision() {
             String source = entryPointSource();
@@ -300,7 +295,7 @@ class CarrierRecordFilingTest {
             assertTrue(source.contains("resolveForPlacement(serverLevel, event.getPos(), miss, true)"),
                     "and it only reaches the filing when that answer is yes");
             assertFalse(source.contains("|| wrench"),
-                    "the P1.32 condition - a placement OR the wrench OR the rotation rod - is exactly the "
+                    "a placement OR the wrench OR the rotation rod is exactly the "
                             + "defect: it fed the filing helper the gestures that can never store anything");
         }
     }
@@ -320,8 +315,8 @@ class CarrierRecordFilingTest {
                     "nothing to store");
             assertFalse(wouldInsert(null, true, ComponentType.DUST, false),
                     "no face to name the input side with");
-            // AND THE HALF THAT MAKES IT ONE DECISION rather than a promise: `preview` is the very code
-            // `apply` runs, so a store the gate said yes to cannot be refused a moment later.
+            // And the half that makes it one decision rather than a promise: the gate is computed from
+            // the very code the placement then runs.
             assertEquals(CarriedInsert.Action.INSERT,
                     preview(true, null, Direction.NORTH, true, ComponentType.DUST, false),
                     "the decision the gate is computed from is the decision the placement reaches");
@@ -335,7 +330,7 @@ class CarrierRecordFilingTest {
             CarriedBlockRemoval.Hit hit = file(true, null);
 
             assertNotNull(hit, "the cell belongs to a live structure, holds no record, and a placement is "
-                    + "going to store a component in it - so this is the click the round is about");
+                    + "going to store a component in it - so this is the click that must file");
             assertEquals(PLOT, hit.localPos(), "the coordinate IS the structure's own local coordinate");
             assertNotNull(index.at(AUTHOR, PLOT), "the record is filed");
 
@@ -401,8 +396,8 @@ class CarrierRecordFilingTest {
             CarriedBlockRemoval.Hit hit = file(false, miss);
 
             assertNull(hit, "nothing was going to be written, so nothing may be created");
-            assertTrue(index.isEmpty(), "and in particular no EMPTY host: that is the state the author's "
-                    + "log left behind, and it changed every later judgement about the block");
+            assertTrue(index.isEmpty(), "and in particular no EMPTY host: that is the state a click that "
+                    + "stores nothing leaves behind, and it changes every later judgement about the block");
             assertEquals(before, world, "the world store is not even read for a migration");
             assertTrue(miss.describe().contains("not a placement that would store a component"),
                     miss.describe());
@@ -431,12 +426,12 @@ class CarrierRecordFilingTest {
             CarrierClickPriority.Owned withoutRecord = ownership(AUTHOR, index, PLOT, poses(),
                     carrier -> true);
             assertNotNull(withoutRecord, "a plot cell of a live structure with no record is the "
-                    + "structure's - that is P1.30's widening and it must stay");
+                    + "structure's, and that must stay");
             assertEquals(AUTHOR, withoutRecord.carrier());
             assertEquals(PLOT, withoutRecord.localPos());
             assertEquals(CarrierClickPriority.Probe.SUB_LEVEL, withoutRecord.probe());
 
-            // The record the previous build's wrench click left behind: a live host holding nothing.
+            // A live host holding nothing: a record created for a click that stored no component.
             index.registerAt(AUTHOR, PLOT, PLOT_WORLD, PLOT, new MapWorld(world));
             assertNotNull(index.at(AUTHOR, PLOT), "the setup is the point");
             assertNull(index.at(AUTHOR, PLOT).slot(), "and it is EMPTY: no component was ever put there");
@@ -444,8 +439,8 @@ class CarrierRecordFilingTest {
             CarrierClickPriority.Owned withRecord = ownership(AUTHOR, index, PLOT, poses(),
                     carrier -> true);
 
-            assertNotNull(withRecord, "the empty record must NOT answer `not ours`: that is exactly what "
-                    + "made the author's next shift-click answer INSIDE: NOT_INSIDE instead of locking the "
+            assertNotNull(withRecord, "the empty record must NOT answer `not ours`: otherwise a later "
+                    + "shift-click answers INSIDE: NOT_INSIDE instead of locking the "
                     + "line towards the block beside it");
             assertEquals(withoutRecord.carrier(), withRecord.carrier(),
                     "both states name the same structure, so every decision taken from this answer is the "
@@ -478,8 +473,8 @@ class CarrierRecordFilingTest {
         void aLandedRecordIsStillRefused() {
             liveStructure();
             index.registerAt(AUTHOR, PLOT, PLOT_WORLD, PLOT, new MapWorld(world));
-            // An empty host writes nothing back into the world (see CarriedHostIndex#writeBack), so the
-            // landing position simply stays empty and the record really does land there.
+            // An empty host writes nothing back into the world, so the landing position stays empty and
+            // the record really does land there.
             index.release(AUTHOR, PLOT, landing -> PLOT_WORLD, new MapWorld(world));
             assertTrue(index.at(AUTHOR, PLOT).landed(), "the setup is the point");
 

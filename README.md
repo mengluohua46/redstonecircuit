@@ -5,8 +5,8 @@
 Put redstone components *inside* blocks, then see them with the redstone goggles.
 
 * Minecraft **1.21.1**（客户端与服务端都要装 / required on both client and server）
-* **NeoForge**：21.1.100+（**推荐 21.1.250 或更新**）· 版本 / Version **1.1.0** · `redstonecircuit-1.1.0-neoforge-1.21.1.jar`
-* **Fabric**：Fabric Loader 0.15.11+ 与 **Fabric API** · 版本 / Version **1.0.0** · `redstonecircuit-1.0.0-fabric-1.21.1.jar`
+* **NeoForge**：21.1.100+（**推荐 21.1.250 或更新**）· 版本 / Version **1.2.0** · `redstonecircuit-1.2.0-neoforge-1.21.1.jar`
+* **Fabric**：Fabric Loader 0.15.11+ 与 **Fabric API** · 版本 / Version **1.1.0** · `redstonecircuit-1.1.0-fabric-1.21.1.jar`
 * 两个加载器各自独立编号、独立发版，按你用的加载器装对应的 jar 即可 / one jar per loader, versioned independently
 * 作者 / Author: 江月风雨
 
@@ -40,26 +40,35 @@ the redstone goggles let you see the wiring, facing, delay and connections insid
 | Jade（玉）支持 | 装了 [Jade](https://modrinth.com/mod/jade) 时：对准维持中继器/双倍中继器/双倍维持中继器显示「延迟：第 N 档（M tick）」，对准天气探测器显示当前模式与输出强度，对准**藏着中继器的方块**也会显示里面那一颗的档位。**不装 Jade 完全没影响**，本模组不依赖它 |
 | 空手调设置 | 空手右键中继器切换延迟档位、右键比较器切换比较/减法模式（和原版右键地面上的元件一样） |
 | 无侵入 | 原版方块、原版世界数据都不改动；数据存在世界存档的自定义数据里 |
+| 红石结构方块 | 框选一片区域把它**捕获**下来：**第一次操作只显示边框，第二次才真正执行**；捕获到的结构收进「结构」物品，可以拿在手上，也可以由方块在原地或别处**释放**。结构里的方块照常在跑——里面的活塞、红石、漏斗都是**真方块**。结构物品带立体缩略预览 |
+| 结构方块的控制方式 | **面表**：六个面各自通电时向指定的格子注入信号；**按键面板**：把按键名绑到一个格子，按下就推一次脉冲；**输出表**：指定的格子有信号时，某个面向外发出设定强度。格子坐标相对"正在显示的区域"，所以先显示区域再填格子 |
+| 逻辑整合器 | 七档逻辑门，一面输入、一面输出 |
+| 传输门 | 正面主输入、背面主输出、四个侧面是副输入；**恰好一个副输入有信号**时才放行主输入 |
+| 方块放置器 | 自带九格储物，把里面的方块放到正面 |
+| 控制器 | 按输入档位比较正面信号，满足条件才从背面输出 |
+| 红石变压器 | 把正面收到的信号，按设定强度从背面输出；没有输入就输出 0 |
+| 时钟源 | 每（秒 × 20 + 刻）从背面输出一次设定强度的脉冲，持续 2 tick；0 秒 0 tick 就是关掉 |
+| 信号延长器 | 输入在时原样输出，输入走后再保持设定时长 |
 
 ## 安装 / Installation
 
 **NeoForge**
 
 1. 为 Minecraft **1.21.1** 安装 **NeoForge 21.1.100 或更新**（**推荐 21.1.250 或更新**）。
-   * jar 里声明的最低要求是 `[21.1.100,)`，这个下限是**实测过**的（用该版本编译并跑完 1132 个单元测试 + 73 个 GameTest）；
+   * jar 里声明的最低要求是 `[21.1.100,)`，这个下限是**实测过**的（用该版本编译并跑完 1472 个单元测试 + 192 个 GameTest）；
      更老的 21.1.x 会被加载器判为依赖版本不符而拒绝加载。
-2. 把 `redstonecircuit-1.1.0-neoforge-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
+2. 把 `redstonecircuit-1.2.0-neoforge-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
 3. 启动游戏即可，没有其它前置模组。
 
 **Fabric**
 
 1. 为 Minecraft **1.21.1** 安装 **Fabric Loader 0.15.11 或更新**，并把 **Fabric API** 一起装进 `mods`。
-   * 元数据里声明的最低 Loader 是 `>=0.15.11`，同样是**实测过**的（钉在这个版本上构建并跑完 130 个单元测试 + 72 个 GameTest）。
+   * 元数据里声明的最低 Loader 是 `>=0.15.11`，同样是**实测过**的（钉在这个版本上构建并跑完 1475 个单元测试 + 192 个 GameTest）。
    * **Fabric API 是 Fabric 版的前置**（写在 `fabric.mod.json` 的 `depends` 里）；NeoForge 版则不需要任何前置。
-2. 把 `redstonecircuit-1.0.0-fabric-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
+2. 把 `redstonecircuit-1.1.0-fabric-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
 3. 启动游戏即可。
 
-两个加载器上的玩法、配置项与指令是同一套设计；两个 jar **各自独立编号、独立发版**（NeoForge 1.1.x、Fabric 1.0.x），
+两个加载器上的玩法、配置项与指令是同一套设计；两个 jar **各自独立编号、独立发版**（NeoForge 1.2.x、Fabric 1.1.x），
 报问题时请说明用的是哪一个。唯一的功能差别：**机械动力 / 机械动力：航空学的物理结构适配只有 NeoForge 版有**
 （Fabric 版不含该适配）；玉（Jade）两个版本都支持。
 

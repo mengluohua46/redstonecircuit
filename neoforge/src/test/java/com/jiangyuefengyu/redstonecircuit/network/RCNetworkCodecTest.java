@@ -3,6 +3,7 @@ package com.jiangyuefengyu.redstonecircuit.network;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
@@ -18,6 +19,10 @@ import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.ConnectionState;
 import com.jiangyuefengyu.redstonecircuit.data.HostEntry;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.ClockRule;
+import com.jiangyuefengyu.redstonecircuit.logic.DeviceKind;
+
+import io.netty.handler.codec.DecoderException;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -47,6 +52,41 @@ class RCNetworkCodecTest {
 
     private static final ResourceKey<Level> OVERWORLD =
             ResourceKey.create(Registries.DIMENSION, ResourceLocation.withDefaultNamespace("overworld"));
+
+    /**
+     * A device's live reading has to survive the trip - 时钟源's countdown did not. The reading went over the wire as
+     * a <b>signed byte</b>, and a clock's reading is a countdown rather than a strength (0-15), so "165 ticks until
+     * the next change" arrived as -91 and the client's decoder refused the whole packet.
+     *
+     * <p>So: the widest reading any device can report has to round trip, and a number wider than that has to stay
+     * refused - the refusal is the tripwire, not the bug.
+     */
+    @Test
+    @DisplayName("设备读数：时钟源的倒计时可以是一整个周期，不能被一个字节截成负数")
+    void aDeviceReadingIsAsWideAsTheWidestDevice() {
+        RCNetwork.DeviceViewPayload sent = new RCNetwork.DeviceViewPayload(BlockPos.ZERO, true,
+                DeviceKind.CLOCK.ordinal(), ClockRule.MAX_SECONDS, ClockRule.MAX_TICKS, ClockRule.MAX_STRENGTH, 0,
+                15, ClockRule.MAX_PERIOD);
+        RegistryFriendlyByteBuf buffer = buffer();
+        RCNetwork.DeviceViewPayload.STREAM_CODEC.encode(buffer, sent);
+        assertEquals(sent, RCNetwork.DeviceViewPayload.STREAM_CODEC.decode(buffer),
+                "一整个周期（72019 tick）的读数必须原样过线");
+
+        // The regression itself: 165 must not come back as -91.
+        RCNetwork.DeviceViewPayload countdown = new RCNetwork.DeviceViewPayload(BlockPos.ZERO, true,
+                DeviceKind.CLOCK.ordinal(), 10, 0, 15, 0, 0, 165);
+        RegistryFriendlyByteBuf second = buffer();
+        RCNetwork.DeviceViewPayload.STREAM_CODEC.encode(second, countdown);
+        assertEquals(countdown, RCNetwork.DeviceViewPayload.STREAM_CODEC.decode(second),
+                "165 的读数过线之后还必须是 165");
+
+        RegistryFriendlyByteBuf tooBig = buffer();
+        RCNetwork.DeviceViewPayload.STREAM_CODEC.encode(tooBig, new RCNetwork.DeviceViewPayload(BlockPos.ZERO, false,
+                DeviceKind.CLOCK.ordinal(), 0, 0, 15, 0, 0, DeviceKind.MAX_READING + 1));
+        assertThrows(DecoderException.class,
+                () -> RCNetwork.DeviceViewPayload.STREAM_CODEC.decode(tooBig),
+                "比最宽的读数还宽的数字 = 没有设备会这么读，解码端必须拒（这道闸就是抓出这个 bug 的那一道）");
+    }
 
     private static RegistryFriendlyByteBuf buffer() {
         return new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
@@ -137,16 +177,30 @@ class RCNetworkCodecTest {
     }
 
     @Test
-    @DisplayName("a wrench selection round trips, including 'nothing selected'")
+    @DisplayName("a wrench selection round trips, including the server's 'still a host' answer")
     void wrenchSelectionRoundTrip() {
+        // The flag is the whole of what the client draws on - it cannot be derived from the position
+        // (a stale pick and a live carried host share one), so both of its values have to survive the codec.
         RCNetwork.WrenchSelectionPayload selected =
-                new RCNetwork.WrenchSelectionPayload(true, new BlockPos(8, 9, 10));
+                new RCNetwork.WrenchSelectionPayload(true, new BlockPos(8, 9, 10), true);
         RegistryFriendlyByteBuf encoded = buffer();
         RCNetwork.WrenchSelectionPayload.STREAM_CODEC.encode(encoded, selected);
         RCNetwork.WrenchSelectionPayload decoded =
                 RCNetwork.WrenchSelectionPayload.STREAM_CODEC.decode(encoded);
         assertEquals(true, decoded.hasSelection());
         assertEquals(new BlockPos(8, 9, 10), decoded.pos());
+        assertEquals(true, decoded.liveHost(), "a live pick draws its box");
+        assertNull(decoded.carried(), "a world pick names no structure - and the codec must not invent one");
+        assertNull(decoded.carriedLocal());
+
+        RCNetwork.WrenchSelectionPayload stale =
+                new RCNetwork.WrenchSelectionPayload(true, new BlockPos(8, 9, 10), false);
+        RegistryFriendlyByteBuf third = buffer();
+        RCNetwork.WrenchSelectionPayload.STREAM_CODEC.encode(third, stale);
+        RCNetwork.WrenchSelectionPayload decodedStale =
+                RCNetwork.WrenchSelectionPayload.STREAM_CODEC.decode(third);
+        assertEquals(true, decodedStale.hasSelection(), "the position is still named, so the pick is not forgotten");
+        assertEquals(false, decodedStale.liveHost(), "and a pick whose host is gone draws nothing");
 
         RCNetwork.WrenchSelectionPayload none = RCNetwork.WrenchSelectionPayload.none();
         RegistryFriendlyByteBuf second = buffer();
@@ -154,6 +208,42 @@ class RCNetworkCodecTest {
         RCNetwork.WrenchSelectionPayload decodedNone =
                 RCNetwork.WrenchSelectionPayload.STREAM_CODEC.decode(second);
         assertEquals(false, decodedNone.hasSelection());
+    }
+
+    /** A pick inside a machine, which is placed in the machine's own frame on the client. */
+    @Test
+    @DisplayName("a carried selection carries its structure and local block, and a plot coordinate survives intact")
+    void carriedSelectionRoundTrip() {
+        CarrierId carrier = CarrierId.contraption(UUID.fromString("00000000-0000-0000-0000-00000000c0ff"));
+        // A Sable sub-level's own coordinate: the magnitude is the point of the test - the client places the box with
+        // this number, in double, in a frame that never narrows it to float.
+        BlockPos local = new BlockPos(20481032, 128, 20489224);
+        RCNetwork.WrenchSelectionPayload carried =
+                new RCNetwork.WrenchSelectionPayload(true, new BlockPos(-233, -60, 88), true, carrier, local);
+
+        RegistryFriendlyByteBuf encoded = buffer();
+        RCNetwork.WrenchSelectionPayload.STREAM_CODEC.encode(encoded, carried);
+        RCNetwork.WrenchSelectionPayload decoded =
+                RCNetwork.WrenchSelectionPayload.STREAM_CODEC.decode(encoded);
+
+        assertEquals(carrier, decoded.carried(),
+                "the structure comes back, which is what lets the box be placed in its frame rather than on the nearest "
+                        + "world coordinate that the machine has not moved to");
+        assertEquals(local, decoded.carriedLocal());
+        assertEquals(new BlockPos(-233, -60, 88), decoded.pos(),
+                "and the projected world position stays for a client with no pose for that structure to fall back on");
+        assertEquals(true, decoded.liveHost());
+
+        // One flag carries both fields: a structure with no local block is not a place, and the pair is written as a
+        // unit, so a payload cannot name one without the other.
+        RCNetwork.WrenchSelectionPayload half =
+                new RCNetwork.WrenchSelectionPayload(true, new BlockPos(-233, -60, 88), true, carrier, null);
+        RegistryFriendlyByteBuf other = buffer();
+        RCNetwork.WrenchSelectionPayload.STREAM_CODEC.encode(other, half);
+        RCNetwork.WrenchSelectionPayload decodedHalf =
+                RCNetwork.WrenchSelectionPayload.STREAM_CODEC.decode(other);
+        assertNull(decodedHalf.carried(), "a structure with no block is not a carried pick");
+        assertNull(decodedHalf.carriedLocal());
     }
 
     /** The debug-only power field is deliberately not on the wire; a client must not depend on it. */
@@ -173,15 +263,15 @@ class RCNetworkCodecTest {
         assertEquals(-1, decoded.injectedPower);
     }
 
-    // ------------------------------------------------- moving structures (P1) --
+    // ------------------------------------------------- moving structures --
 
     private static final CarrierId CARRIER = CarrierId.contraption(
             UUID.fromString("00000000-0000-0000-0000-0000000000c1"));
 
     /**
-     * A pose that is not a right angle, on purpose: the P1 diagnostics measured a real contraption at
-     * 9.5 degrees, and a codec that rounded or dropped the quaternion would draw every tilted machine
-     * wrong while looking perfectly correct in a test that only ever used a yaw of 0 or 90.
+     * A pose that is not a right angle: a contraption can stand at 9.5 degrees, and a codec that rounded or
+     * dropped the quaternion would draw every tilted machine wrong while looking perfectly correct in a test
+     * that only ever used a yaw of 0 or 90.
      */
     private static CarrierPose tiltedPose() {
         return CarrierPose.of(new Vector3d(101.25, 64.5, -300.75),

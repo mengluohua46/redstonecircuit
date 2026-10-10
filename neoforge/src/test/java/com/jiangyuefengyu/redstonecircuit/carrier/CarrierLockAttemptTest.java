@@ -30,43 +30,20 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.34 commit B: "I picked a host, shift-clicked the block beside it, and NOTHING happened - not even a
- * line."</b>
+ * The lock chain: every click of the wrench gesture ends with either a lock or a <b>named refusal</b>.
  *
- * <h2>What the author's own log contains, counted</h2>
- * <pre>
- *   picked the near end of a line        6      the pick really was recorded, six times
- *   carrier entry trace … tool=wrench    8      the click really did arrive at this listener
- *   locked INSIDE the structure          0
- *   locked OUTSIDE the structure         0
- *   link refused                         0
- *   NOT_ADJACENT / UNREADABLE_POSE / NO_SUCH_BLOCK / NO_COMPONENT / NOT_INSIDE   0, 0, 0, 0, 0
- *   INSIDE: …  /  OUTSIDE: …             0      not one prefixed trace line
- * </pre>
+ * <p>The chain has two silent branches, and they are the ones a click can fall into: the inside gesture answers
+ * {@code NOT_INSIDE} and the outside gesture {@code NOT_OUTSIDE} whenever the clicked coordinate belongs to a
+ * structure that is <b>not</b> the picked one, and a dispatch that reads both as "this was the other gesture's
+ * click" prints nothing. Two separately assembled blocks are two sub-levels - Sable's own granularity - so a
+ * shift-click on the block beside the pick lands exactly in that hole. A far end of another structure is now
+ * named {@code FAR_END_NOT_THE_PICKED_STRUCTURE}, with a {@code blocked-by=} step of its own.
  *
- * <p>Every answer the lock chain can give was absent, so the author's click was not refused - it had
- * <b>no answer at all</b>. The chain has two silent branches and they are the ones that can produce this:
- * the inside gesture answers {@code NOT_INSIDE} and the outside gesture {@code NOT_OUTSIDE} whenever the
- * clicked coordinate belongs to a structure that is <b>not</b> the picked one, and the dispatch that
- * chooses which of the two to report quietly reads both of those as "this was the other gesture's click"
- * and prints nothing. Two separately assembled blocks are two sub-levels (Sable's own granularity, and the
- * shape the author's own machine was in), so a shift-click on the block beside the pick lands exactly in
- * that hole.
- *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>the happy paths, with the real decision</b>: a block inside the picked structure with no
- *       component of its own locks {@code LOCKED_INSIDE}, an adjacent world block locks {@code LOCKED}, and
- *       both write a line a report can grep;</li>
- *   <li><b>every refusal has a name and a step</b>: not adjacent, unreadable pose, no such block - and the
- *       one that used to be silent, a far end of another structure, is now
- *       {@code FAR_END_NOT_THE_PICKED_STRUCTURE} with a {@code blocked-by=} step of its own;</li>
- *   <li><b>no status is silent</b>: driven over every geometry and ownership combination this decision can
- *       be handed, and asserted that the answer is always one of "locked" or "a named refusal", with a
- *       non-blank step. That is the invariant the author's log violates, and it is asserted rather than
- *       promised;</li>
- *   <li><b>the write is real</b>: the in-structure solve reads the pin, so a lock is not a display.</li>
- * </ol>
+ * <p>What is pinned here: the happy paths through the real decision (a block inside the picked structure with
+ * no component of its own locks {@code LOCKED_INSIDE}, an adjacent world block locks {@code LOCKED}, and both
+ * write a line a report can grep); every refusal having a name <em>and</em> the step that answered it, driven
+ * over every geometry and ownership combination this decision can be handed; and that the write is real,
+ * because the in-structure solve reads the pin - so a lock is not a display.
  */
 class CarrierLockAttemptTest {
 
@@ -78,7 +55,7 @@ class CarrierLockAttemptTest {
     /** The picked host, with a supply on it. */
     private static final BlockPos A = new BlockPos(1, 0, 0);
 
-    /** <b>The author's own gesture's far end</b>: a cell of the same structure that holds nothing. */
+    /** The far end of the gesture: a cell of the same structure that holds nothing. */
     private static final BlockPos DEVICE = new BlockPos(2, 0, 0);
 
     /** A wire of the same structure, on the side the lock does NOT pin. */
@@ -89,7 +66,7 @@ class CarrierLockAttemptTest {
 
     private static final BlockPos A_WORLD = new BlockPos(100, 64, 100);
 
-    /** The world block standing beside the pick: P1.31's far end. */
+    /** The world block standing beside the pick. */
     private static final BlockPos WORLD_BESIDE = A_WORLD.relative(Direction.EAST);
 
     private static final BlockPos WORLD_FAR = new BlockPos(140, 64, 100);
@@ -123,7 +100,7 @@ class CarrierLockAttemptTest {
         return slot;
     }
 
-    /** The author's machine: a host with a supply, a wire beside it, and a block that holds nothing. */
+    /** The machine: a host with a supply, a wire beside it, and a block that holds nothing. */
     private void machineWithADevice() {
         carry(MINE, A, A_WORLD, ComponentType.DUST);
         carry(MINE, WIRE, A_WORLD.relative(Direction.SOUTH), ComponentType.DUST);
@@ -264,7 +241,7 @@ class CarrierLockAttemptTest {
     // ------------------------------------------------------------------ cases --
 
     @Nested
-    @DisplayName("the two far ends the author's gesture has, and both now reach a decision")
+    @DisplayName("the two far ends the gesture has, and both reach a decision")
     class TheTwoFarEnds {
 
         @Test
@@ -275,7 +252,7 @@ class CarrierLockAttemptTest {
             Object decision = lockTowardsTheDevice(MINE);
 
             assertEquals("LOCKED_INSIDE", status(decision),
-                    "the whole of P1.32/P1.33's gesture has to reach this answer: "
+                    "the whole gesture has to reach this answer: "
                             + (decision == null ? "no decision exists at all" : decision));
             assertTrue(handled(decision), "and it is an outcome that consumes the click");
             assertEquals(Direction.EAST, read(actionOf(decision), "side"),
@@ -298,7 +275,7 @@ class CarrierLockAttemptTest {
             Object decision = lockTowardsTheWorld();
 
             assertEquals("LOCKED", status(decision),
-                    "P1.31's gesture: " + (decision == null ? "no decision exists at all" : decision));
+                    "the world-side gesture: " + (decision == null ? "no decision exists at all" : decision));
             assertEquals(Direction.EAST, read(actionOf(decision), "side"));
 
             String line = lineFor(decision, MINE, index);
@@ -368,7 +345,7 @@ class CarrierLockAttemptTest {
         }
 
         @Test
-        @DisplayName("THE ONE THAT USED TO BE SILENT: a far end of another structure is named now")
+        @DisplayName("a far end of another structure is named rather than silently ignored")
         void anotherStructuresFarEndIsNamed() {
             machineWithADevice();
 
@@ -376,9 +353,9 @@ class CarrierLockAttemptTest {
                     CarriedBlockRemoval.StructureViewState.PRESENT);
 
             assertEquals("FAR_END_NOT_THE_PICKED_STRUCTURE", status(decision),
-                    "two records could be written at a cross-structure far end, so this one still refuses - "
-                            + "but it says so now, because the silent version of this branch is what "
-                            + "swallowed the author's own click: " + String.valueOf(decision));
+                    "two records could be written at a cross-structure far end, so this still refuses - but "
+                            + "it says so, because a silent branch here is what swallows the click: "
+                            + String.valueOf(decision));
             assertTrue(blockedBy(decision).contains("another-structure"), blockedBy(decision));
             assertTrue(blockedBy(decision).contains(THEIRS.shortId()), blockedBy(decision));
             assertTrue(blockedBy(decision).contains(MINE.shortId()),
@@ -437,12 +414,11 @@ class CarrierLockAttemptTest {
     class NoSilentClick {
 
         /**
-         * <b>Every combination this decision can be handed, driven through the real chain.</b>
+         * Every combination this decision can be handed, driven through the real chain.
          *
-         * <p>This is the assertion the author's session fails in spirit and this round makes explicit: for
-         * each geometry and each ownership answer, the decision must be either a lock or a <b>named</b>
-         * refusal with a non-blank step. "Locked" or "refused, and here is which question answered" are the
-         * only two allowed outcomes - a status that a reader would have to call silent is not.
+         * <p>For each geometry and each ownership answer the decision has to be either a lock or a <b>named</b>
+         * refusal with a non-blank step: "locked" and "refused, and here is which question answered" are the
+         * only two allowed outcomes, and a status a reader would have to call silent is not one of them.
          */
         @Test
         @DisplayName("every answer is a lock or a named refusal, with the step that produced it")
@@ -509,7 +485,7 @@ class CarrierLockAttemptTest {
         }
 
         @Test
-        @DisplayName("the dispatch no longer reads the named far end as `the other gesture's click`")
+        @DisplayName("the dispatch reports the named far end instead of calling it the other gesture's click")
         void theDispatchReportsTheNamedFarEnd() throws java.io.IOException {
             String source = java.nio.file.Files.readString(java.nio.file.Path.of(
                             "src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierInteraction.java"))
@@ -517,9 +493,8 @@ class CarrierLockAttemptTest {
 
             assertTrue(source.contains("if (named.status() == OutsideStatus.FAR_END_NOT_THE_PICKED_STRUCTURE)"),
                     "the branch that turned a click on a physicalised block into a named refusal");
-            // P1.35: the two hand-written lists ("which statuses get a sentence" and "which get a line")
-            // became one predicate, so the assertion is now "that predicate covers this status" rather
-            // than "this status is on the second list".
+            // One predicate decides both "which statuses get a sentence" and "which get a line", so the
+            // assertion is that it covers this status rather than that the status is on a second list.
             assertTrue(source.contains("FAR_END_NOT_THE_PICKED_STRUCTURE -> true;"),
                     "and the named-far-end status is on the one list both halves read, beside the four "
                             + "other named refusals");

@@ -1,0 +1,7 @@
+{
+  "replace": false,
+  "values": [
+    "redstonecircuit:redstone_structure_block",
+    "redstonecircuit:structure"
+  ]
+}

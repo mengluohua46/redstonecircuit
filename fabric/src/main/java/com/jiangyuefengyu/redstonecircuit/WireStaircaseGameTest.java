@@ -2,6 +2,7 @@ package com.jiangyuefengyu.redstonecircuit;
 
 import java.util.Locale;
 
+import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -19,53 +20,16 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
-import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
-
 /**
  * Compares the shape a wire of each kind ends up with in the same terrain, side by side.
  *
- * <h2>What this is about</h2>
- * A redstone wire's four connection properties ({@code north/east/south/west}, each
- * {@code none|side|up}) are what the blockstate JSON turns into a picture. Vanilla draws a vertical
- * strip up the face of a step ({@code up}) and a horizontal arm reaching down off one ({@code side});
- * the superconductor inherits vanilla's state definition, so it is supposed to end up with exactly the
- * same four values in exactly the same terrain. Every scenario here is built twice - once in
- * {@link Blocks#REDSTONE_WIRE} as the reference, once in
- * {@link RCRegistry#SUPERCONDUCTING_WIRE} - and each wire of the superconductor's copy is asserted to
- * carry exactly the properties vanilla's does.
- *
- * <h2>Placement, not hand-written states</h2>
- * Every state here is worked out by vanilla's own placement path: {@link Block#getStateForPlacement}
- * with the same {@link BlockPlaceContext} a player's item use produces. The reading is taken a few
- * ticks later, because a placement is not the last word on a wire's shape - the updates it sends run
- * over the rest of the tick, and a state read too early is a state no player ever sees.
- *
- * <h2>Why the two wires live in different columns</h2>
- * One wire's shape depends on the terrain around <em>it</em>, so the two runs must not be each other's
- * neighbours: they are laid out along Z with a column of air between them - the same terrain, with no
- * interaction between the two runs.
- *
- * <h2>The step, and what the two ends are called</h2>
- * <pre>
- *   high wire                       low wire   -- east=up     (strip up the face of the step)
- *      |                            high wire  -- west=side   (arm reaching down off it)
- *   [step block]
- *   low wire  (on the ground)
- * </pre>
- * The two ends are decided by different branches of vanilla's connection rule, so both are checked: a
- * step that only drew one of them would not be joined. The build order is the one a player uses -
- * ground wire first, then the step, then the wire on top - and it matters, because it is what forces
- * the lower wire's connection to be worked out <em>again</em> after the step appears. That is the case
- * the author reported, and the one that used to come out unconnected on the superconductor.
- *
- * <h2>How it is registered on Fabric</h2>
- * NeoForge found this test through {@code @GameTestHolder}; Fabric scans the classes named by the
- * {@code fabric-gametest} entrypoint in {@code fabric.mod.json}, and {@link FabricGameTest} is how it
- * recognises one. {@code @PrefixGameTestTemplate(false)} has no counterpart and is not needed, but
- * nothing on this side prefixes a template with the mod id either, so every {@code @GameTest} names
- * its template in full - {@code redstonecircuit:empty}.
+ * <p>A redstone wire's four connection properties ({@code north/east/south/west}, each {@code none|side|up}) are what
+ * the blockstate JSON turns into a picture, and the superconductor inherits vanilla's state definition, so it must end
+ * up with the same values in the same terrain. Each scenario is built twice, once as {@link Blocks#REDSTONE_WIRE} and
+ * once as {@link RCRegistry#SUPERCONDUCTING_WIRE}, through vanilla's own {@link Block#getStateForPlacement} and read
+ * {@link #SETTLE_TICKS} ticks later; the two runs sit a column apart along Z, so neither is the other's neighbour.
  */
-public final class WireStaircaseGameTest implements FabricGameTest {
+public class WireStaircaseGameTest implements FabricGameTest {
 
     /** The step's foot: wire lies at this level, its floor is the block below. */
     private static final int LOW_Y = 1;
@@ -108,8 +72,7 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * Places a wire the way a player does: through {@code getStateForPlacement}, and into the north
-     * half of the cell while looking down, which is the placement that makes vanilla lay dust flat.
+     * Places a wire the way a player does: through {@code getStateForPlacement}, into the north half of the cell.
      */
     private static void placeAsPlayer(GameTestHelper helper, Block wire, int x, int y, int z) {
         ServerLevel level = helper.getLevel();
@@ -133,11 +96,8 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * A lever, switched on, standing on the block below it.
-     *
-     * <p>Used to feed a wire from a cell a block could stand in, where a redstone block would do the
-     * same job but is a redstone conductor - and a conductor changes the very terrain whose effect on
-     * the shape is under test. Placed last, so nothing can overwrite it.
+     * A lever, switched on, standing on the block below it. A redstone block would do the same job but is a conductor,
+     * and a conductor would change the very terrain whose effect on the shape is under test. Placed last.
      */
     private static void poweredLever(GameTestHelper helper, int x, int y, int z) {
         helper.setBlock(new BlockPos(x, y, z), Blocks.LEVER.defaultBlockState()
@@ -147,16 +107,13 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * The step, built in the order a player builds it: floor, wire on the ground, the solid block
-     * beside it, then the wire on top of that block.
-     *
-     * <p>The lower wire is at x=0, the step at x=1 and the upper wire on top of it.
+     * The step, built in the order a player builds it: floor, wire on the ground, the solid block beside it, then the
+     * wire on top. The lower wire is at x=0, the step at x=1, the upper wire on top of it.
      */
     private static Where placeStep(GameTestHelper helper, int z, Block wire) {
         stone(helper, 0, LOW_Y - 1, z);
         stone(helper, 1, LOW_Y - 1, z);
-        // The ground wire before the step: that order is what makes the lower wire decide its
-        // connections twice, and the second decision is the one that used to come out unconnected.
+        // The ground wire before the step: that order is what makes the lower wire decide its connections twice.
         placeAsPlayer(helper, wire, 0, LOW_Y, z);
         stone(helper, 1, LOW_Y, z);
         placeAsPlayer(helper, wire, 1, HIGH_Y, z);
@@ -165,10 +122,9 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * The same step, with the lower wire fed: a lever placed in the run after the wire, so it powers it
-     * without putting a redstone conductor into any cell that decides the step's shape.
-     *
-     * <p>Returns the lower wire, the upper wire on the step, and the lever feeding the lower one.
+     * The same step with the lower wire fed: a lever placed in the run after the wire, so it powers it without putting
+     * a redstone conductor into any cell that decides the step's shape. Returns the lower wire, the upper wire and the
+     * lever.
      */
     private static Where placeFedStep(GameTestHelper helper, int z, Block wire) {
         for (int x = 0; x <= 3; x++) {
@@ -197,11 +153,9 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * Builds {@code build} once per wire, then reads both back after {@link #SETTLE_TICKS} ticks.
-     *
-     * <p>The two runs are byte-for-byte the same build: same blocks in the same order, same placement
-     * call. The only thing that differs between them is the block being placed, so any difference in
-     * the result is a difference in the game rather than in the test.
+     * Builds {@code build} once per wire, then reads both back after {@link #SETTLE_TICKS} ticks. The two runs are the
+     * same build: same blocks in the same order, same placement call, so any difference in the result is a difference
+     * in the game rather than in the test.
      */
     private static void buildAndCompare(GameTestHelper helper, Scenario build, Compare check) {
         Where[] where = new Where[2];
@@ -248,11 +202,8 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * The step, <b>from the foot</b>: the lower wire's side towards the step must be {@code up}.
-     *
-     * <p>The first of the two ends the author reported, and the one that reddens without the fix: the
-     * superconductor used to answer vanilla's "do you connect here?" with no, and kept its
-     * placement-time arm instead of growing the rising bar.
+     * The step, <b>from the foot</b>: the lower wire's side towards the step must be {@code up}. It is one of the two
+     * ends of the step, and is decided by a different branch of vanilla's connection rule than the head is.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void theLowerWireClimbsTheStepLikeVanilla(GameTestHelper helper) {
@@ -274,10 +225,8 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * The same step, <b>from the head</b>: the upper wire's side back down it must be {@code side}.
-     *
-     * <p>The other half of the author's report - a step is only joined if both ends agree - and decided
-     * by a different branch of vanilla's rule than the one above.
+     * The same step, <b>from the head</b>: the upper wire's side back down it must be {@code side} - the other end of
+     * the step, and a different branch of vanilla's rule than the one above.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void theUpperWireReachesDownTheStepLikeVanilla(GameTestHelper helper) {
@@ -327,18 +276,11 @@ public final class WireStaircaseGameTest implements FabricGameTest {
     }
 
     /**
-     * The shape fix must not change what the wires are worth - the regression guard for it.
-     *
-     * <p>A shape and a strength are different questions, and the first is not allowed to move the second.
-     * The run below the step is fed by a lever, and the two wires' strengths are compared between the
-     * two kinds <em>and</em> pinned to the concrete numbers each kind is supposed to produce, so a change
-     * that moved both together would still fail.
-     *
-     * <p>The numbers are not the same for the two kinds, and are not meant to be: that is the whole
-     * point of the material. Ordinary dust loses a step for every hop it makes, so it reaches 13 on the
-     * wire below the step and 14 on the wire up it (the step costs it one); the superconductor loses
-     * nothing, so both of its wires sit at the lever's 15. Vanilla's own strengths are pinned too, so a
-     * fix that changed ordinary redstone would also fail here.
+     * The shape must not change what the wires are worth: a shape and a strength are different questions, and the first
+     * is not allowed to move the second. Both strengths are compared between the two kinds <em>and</em> pinned to the
+     * numbers each kind produces: ordinary dust loses a step for every hop (13 below the step, 14 on it), the
+     * superconductor loses nothing (15 on both), and vanilla's own strengths are pinned too, so a change that moved
+     * ordinary redstone would fail here as well.
      */
     @GameTest(template = "redstonecircuit:empty")
     public void theStepDoesNotChangeWhatTheWiresAreWorth(GameTestHelper helper) {

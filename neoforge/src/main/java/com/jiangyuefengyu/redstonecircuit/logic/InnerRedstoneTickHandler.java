@@ -1,10 +1,13 @@
 package com.jiangyuefengyu.redstonecircuit.logic;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.block.ClockBlock;
+import com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierGuards;
 import com.jiangyuefengyu.redstonecircuit.carrier.SolveFailureLedger;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketDimension;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -18,45 +21,28 @@ import net.neoforged.neoforge.event.tick.LevelTickEvent;
 /**
  * Resolves queued inner-redstone power updates once per level tick.
  *
- * <p>Batching to the end of the tick means a burst of placements (or a chain reaction of block
- * changes) costs a single propagation pass instead of one per change.
- *
- * <h2>The one thing this stage freezes</h2>
- * A host block that a moving structure has picked up must not be solved. Its component is not in the
- * world any more: the answer to "what is on the other side of this block" is now a question about the
- * inside of a contraption, and until P2 teaches the solver to ask that question, the honest thing to
- * do is nothing at all. Both entry points below therefore drop a position that is currently carried,
- * which is a single hash lookup ({@link CarrierStore#isCarried}) that is only reached when something
- * is actually in flight.
- *
- * <p>What that buys, concretely: no power changes, no neighbour notifications, no packets, and no
- * {@code PowerSolver} work for a host that is riding - so a machine cannot be dragged around by
- * signals that do not apply to it any more. What P4 added is the other side of the same coin: the
- * component is not at this position, it is at the position the machine has carried it to, and there it
- * <em>is</em> solved (by {@code CarrierNetworks}) and it <em>does</em> answer the world's signal
- * queries (through {@code CarrierStore}'s projection).
+ * <p>批到 tick 末尾，意味着一批放置（或连锁的方块变化）只花一次传播，而不是每个变化一次。被移动结构搬走的 host 方块
+ * 必须不求解: 它的元件已经不在世界里，"这个方块另一边是什么"变成了关于搬运内部的提问，所以在有替代答案之前什么都不做
+ * 才是诚实的。两个入口因此都丢掉正在被搬运的位置（一次哈希查询，且只在真有东西在飞时才走到）。代价是那个 host 没有功率
+ * 变化、没有邻居通知、没有包、没有 {@code PowerSolver} 工作；另一面由搬运层负责 - 元件在机器把它带到的位置上被求解，
+ * 并通过投影回答世界的信号查询。
  */
 public final class InnerRedstoneTickHandler {
 
     @SubscribeEvent
     public void onLevelTick(LevelTickEvent.Post event) {
         if (event.getLevel() instanceof ServerLevel level) {
-            // END THE PREVIOUS TICK'S SOLVER LOG FIRST, so the per-tick counters the spin warning is
-            // stated in really do cover one tick - and so the summary is written before this tick adds to
-            // it. Diagnostics only: SolverLog counts and never decides.
+            // END THE PREVIOUS TICK'S SOLVER LOG FIRST, so the per-tick counters the spin warning is stated in
+            // really do cover one tick. Diagnostics only: SolverLog counts and never decides.
             SolverLog.flush(level);
-            // P1.38: and the one carrier-read line for the tick that just ended. Written here - at the
-            // same boundary as the summary - so "which structure read which position" is at most one
-            // line per tick however many signal queries the tick made. Diagnostics only: the class
-            // counts and never decides.
+            // And the one carrier-read line for the tick that just ended, at the same boundary as the summary, so
+            // "which structure read which position" is at most one line per tick however many queries were made.
+            // Diagnostics only: the class counts and never decides.
             SignalReadTrace.flush();
             if (CarrierStore.isActive()) {
-                // THE TOP-LEVEL NET. The carrier store's own entry points are each guarded where they are
-                // (see CarrierGuards), and this one wraps the whole pass on the level tick - the place the
-                // author's crash came out of, because an exception here is rethrown by the event bus and
-                // stops the server. A pass that fails does nothing this tick and is retried on the next
-                // one; the solver below still runs, so a carrier failure cannot also freeze the world's
-                // inner redstone.
+                // THE TOP-LEVEL NET. An exception here is rethrown by the event bus and stops the server, so the
+                // whole pass is guarded. A pass that fails does nothing this tick and is retried on the next one,
+                // and the solver below still runs, so a carrier failure cannot also freeze the world's redstone.
                 CarrierGuards.OTHER.call(null, () -> {
                     // Poses to clients, and the sweep that rescues the hosts of a structure that died
                     // without ever calling stopMoving. Cheap and empty while nothing is in flight.
@@ -64,19 +50,33 @@ public final class InnerRedstoneTickHandler {
                     return Boolean.TRUE;
                 }, false);
             }
+            // AND THE DEVICES NOTHING EVER NOTIFIES AT THE RIGHT MOMENT: 时钟源 has no input and answers to the world
+            // clock, and 信号延长器's hold runs out on that same clock. The pass that owns the level asks every standing
+            // one of them, once per tick and before the solver's own pass, so an edge lands in the same tick's settle.
+            // The two stored inside a host block are written by InnerRedstoneNetwork#tickTimedDevices, a few lines down.
+            ClockBlock.tickStanding(level);
+            ExtenderBlock.tickStanding(level);
             InnerRedstoneNetwork.tick(level);
+            // AND THE INPUTS THAT NEVER ANNOUNCE THEMSELVES: a turning helm notifies no neighbour at all, so a
+            // comparator inside a block would keep its old reading for ever while one on the ground tracked the
+            // wheel. This is the poll that closes that hole: comparators only, one read each, and a re-solve only
+            // when the number moved.
+            InnerRedstoneNetwork.pollAnalogInputs(level, InnerRedstoneStore.get(level));
+            // And the products no level ticks: a Sable sub-level's blocks live in an embedded plot outside the
+            // level's ticking chunk map, so a physicalised structure's faces would be read by nobody at all. This
+            // runs after the level's own block-entity ticks, which is what makes the tick's own "already ticked
+            // this tick" latch meaningful. Gated inside the compat half, and free while Sable is absent.
+            ServerLevel pocket = PocketDimension.of(level.getServer());
+            if (pocket != null) {
+                com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat.tickCarriedProducts(level,
+                        pocket);
+            }
         }
     }
 
-    /**
-     * Re-solves inner redstone when the world around a host block changes.
-     *
-     * <p>Without this, an inner component would never react to the outside world: placing a lever or
-     * redstone torch against a host block changes no state of ours, so nothing would ever mark the
-     * network dirty and the component would keep reporting its old power forever. That was a real
-     * bug - levers and torches appeared to do nothing, and power stayed latched after the source was
-     * removed.
-     */
+    /** Re-solves inner redstone when the world around a host block changes. Without this an inner component would never
+     * react to the outside world: placing a lever or a redstone torch against a host block changes no state of ours, so
+     * nothing would mark the network dirty and the component would keep reporting its old power for ever. */
     @SubscribeEvent
     public void onNeighborNotify(BlockEvent.NeighborNotifyEvent event) {
         if (!(event.getLevel() instanceof ServerLevel level)) {
@@ -88,16 +88,15 @@ public final class InnerRedstoneTickHandler {
         }
         boolean carriersPossible = CarrierStore.isActive();
 
-        // The block whose output changed may itself hold a component. A diode (repeater, comparator)
-        // and an observer notify the block they output INTO - `neighborChanged(output)` plus
-        // `updateNeighborsAtExceptFromFacing(output, ...)` - so when a host block sits on the output
-        // side, the notify event arrives with the host as its position, not as a notified neighbour.
-        // Only looking at the notified sides missed every one of them.
+        // The block whose output changed may itself hold a component. A diode (repeater, comparator) and an
+        // observer notify the block they output INTO, so when a host block sits on the output side the event
+        // arrives with the host as its position, not as a notified neighbour. Only looking at the notified
+        // sides missed every one of them.
         BlockPos pos = event.getPos();
         if (holdsComponent(level, store, pos, carriersPossible) && !carried(level, pos, carriersPossible)) {
-            // COUNT, AND PRINT ONLY WHEN ASKED. This line fired 77,416 times in one measured minute; the
-            // count is what the 'solver:' summary and the spin warning are built from, and the per-step
-            // text is behind verboseSolverLog (off by default). See SolverLog.
+            // COUNT, AND PRINT ONLY WHEN ASKED: this runs tens of thousands of times a minute in a busy world, so
+            // the count is what the 'solver:' summary and the spin warning are built from, while the per-step text
+            // is behind verboseSolverLog (off by default).
             SolverLog.change(pos);
             if (SolverLog.verbose()) {
                 RCConfig.LOGGER.info(
@@ -109,12 +108,12 @@ public final class InnerRedstoneTickHandler {
         // The block at event.getPos() is the one that CHANGED. Its neighbours are the ones being
         // notified, so a host block is the *neighbour* here, not the source. Checking getPos()
         // instead would miss every case where the source disappeared: when a lever is broken, the
-        // position it used to occupy is air by the time this event fires.
+        // position it occupied is air by the time this event fires.
         for (Direction direction : event.getNotifiedSides()) {
             BlockPos neighbour = pos.relative(direction);
             if (holdsComponent(level, store, neighbour, carriersPossible)
                     && !carried(level, neighbour, carriersPossible)) {
-                // 86,543 lines in that same measured minute, for one line here. See above.
+                // The same count, once per notified side; see above.
                 SolverLog.change(neighbour);
                 if (SolverLog.verbose()) {
                     RCConfig.LOGGER.info(
@@ -126,13 +125,8 @@ public final class InnerRedstoneTickHandler {
         }
     }
 
-    /**
-     * Whether this position has a component, counting one that is riding a structure.
-     *
-     * <p>The world store is asked first and answers in every ordinary case; only when it has nothing
-     * and something is in flight is the carried index consulted. That keeps the common path a single
-     * hash lookup in the store the mod already had.
-     */
+    /** Whether this position has a component, counting one that is riding a structure. The world store is asked first and
+     * answers in every ordinary case; only when it has nothing and something is in flight is the carried index consulted. */
     private static boolean holdsComponent(ServerLevel level, InnerRedstoneStore store, BlockPos pos,
                                           boolean carriersPossible) {
         if (store.slotAt(pos) != null) {
@@ -141,19 +135,11 @@ public final class InnerRedstoneTickHandler {
         return carriersPossible && CarrierStore.slotAt(level, pos) != null;
     }
 
-    /**
-     * Whether this host's data is riding a structure right now, i.e. whether it must be left alone.
-     *
-     * <p>The {@code carriersPossible} flag is checked first so the cost while Sable and Create are
-     * absent - or while nothing is in flight - is one boolean per event, not a lookup per host.
-     *
-     * <p>This is unconditional since P4: a carried host's <em>world</em> position is not where its
-     * component is, whatever {@code carrierFreezeWorldIo} says. With the bridge open the component
-     * lives at the position the machine has carried it to, and the in-structure solve is what
-     * recomputes it there; the position it was picked up from is somebody's air. (Before P4 the switch
-     * also gated this, which only ever suppressed a log line: the world store has nothing at the
-     * origin either way.)
-     */
+    /** Whether this host's data is riding a structure right now, i.e. whether it must be left alone. This is
+     * unconditional: a carried host's <em>world</em> position is not where its component is, whatever
+     * {@code carrierFreezeWorldIo} says - the component lives where the machine carried it, and the in-structure solve
+     * recomputes it there, while the position it was picked up from is somebody's air. {@code carriersPossible} is
+     * checked first, so the cost while nothing is in flight is one boolean per event, not a lookup per host. */
     private static boolean carried(ServerLevel level, BlockPos pos, boolean carriersPossible) {
         if (!carriersPossible) {
             return false;
@@ -175,6 +161,9 @@ public final class InnerRedstoneTickHandler {
         if (event.getLevel() instanceof ServerLevel level) {
             InnerRedstoneNetwork.clear(level);
             CarrierStore.clear(level);
+            // Holds run out on the world clock, and a dimension that unloads must not leave a deadline behind for the
+            // next world to read as its own.
+            ExtenderDeadlines.clear(level.dimension());
             // The solver log's window clock and counters describe one level's ticks, so they are exactly
             // the kind of state that must not survive a reload.
             SolverLog.clear();

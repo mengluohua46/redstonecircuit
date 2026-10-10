@@ -23,31 +23,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Breaking a carried block that a structure has <em>moved</em> must behave exactly as breaking one that
- * has not moved.</b>
+ * Breaking a carried block that a structure has <em>moved</em> must behave exactly as breaking one that has
+ * not moved: the break path must not read a coordinate that stopped being true when the structure moved.
  *
- * <h2>The author's report</h2>
- * <em>"Breaking a physicalised block after it has moved does not drop the redstone component, and the
- * component stays where it was."</em> Breaking one that has <b>not</b> moved drops correctly - that was
- * the previous round's fix - so the difference is not "the break path is broken" but "the break path
- * reads a coordinate that stopped being true when the structure moved".
- *
- * <h2>What is pinned here, and why a pose is an argument</h2>
- * The rule for "which host is this, and where does the item go" is
- * {@link CarriedBlockRemoval#resolve}, and it takes the host's <b>current</b> world position as an
- * argument rather than deriving one from the clicked position. These tests drive it with two poses for
- * one structure - the same host, moved five blocks and turned thirty degrees - and assert:
- *
- * <ol>
- *   <li>the hit still resolves (the record is live, and the host is the same host);</li>
- *   <li>the drop is at the <b>current projection</b>, not at the {@code origin} the record was captured
- *       with, and not at the position the old pose would have named;</li>
- *   <li>the record is the one consumed - and it is discarded rather than released, so nothing is written
- *       back into a block that has just been destroyed.</li>
- * </ol>
- *
- * <p>The two "before" conditions are asserted as <b>not equal</b> rather than described in a comment, so
- * a fix that quietly went back to {@code origin} would fail here rather than pass everywhere.
+ * <p>{@link CarriedBlockRemoval#resolve} takes the host's <b>current</b> world position as an argument rather
+ * than deriving one from the clicked position, so the drop is the current projection - not the {@code origin}
+ * the record was captured with, and not the position an earlier pose would name. The record is consumed and
+ * discarded rather than released, so nothing is written back into a block that has just been destroyed.
  */
 class CarriedBlockRemovalMovementTest {
 
@@ -135,7 +117,7 @@ class CarriedBlockRemovalMovementTest {
         assertNotEquals(ORIGIN, now,
                 "the setup is only meaningful if moving really moved the host: " + now);
         assertNotEquals(whereItWas, now,
-                "and the old pose names a different block, which is the stale-pose half of the defect");
+                "and the pose from before the move names a different block");
         CarriedBlockRemoval.Destroyed destroyed = CarriedBlockRemoval.resolve(index, null,
                 projectionHit(after, LOCAL), now, CarriedBlockRemoval.StructureViewState.PRESENT,
                 CarriedBlockRemoval.ViewRequirement.PROJECTION_IS_PROOF);
@@ -163,11 +145,11 @@ class CarriedBlockRemovalMovementTest {
 
         assertNotNull(destroyed);
         assertEquals(now, destroyed.dropPos(),
-                "the item lands where the block IS: a drop at the origin is the defect this round fixes");
+                "the item lands where the block IS, not at the origin");
         assertNotEquals(ORIGIN, destroyed.dropPos(),
                 "and the origin is a different block after the structure has moved");
         assertNotEquals(before, destroyed.dropPos(),
-                "as is the position the OLD pose named - the stale-pose half of the same defect");
+                "and neither is the position the pose from before the move names");
         assertEquals(now, destroyed.worldPos(),
                 "the world position the client is told about is the same one");
     }
@@ -205,15 +187,13 @@ class CarriedBlockRemovalMovementTest {
         CarrierPose after = moved();
         BlockPos now = CarrierProjection.project(after, LOCAL);
 
-        // This is the shape of the defect, stated as arithmetic: if the drop were the record's `at()`
-        // (which does not move while riding) or the clicked position, it would not be `now`.
+        // Stated as arithmetic: if the drop were the record's own position - which does not move while
+        // riding - or the clicked position, it would not be `now`.
         CarriedHost record = index.at(MINE, LOCAL);
         assertEquals(ORIGIN, record.at(),
-                "a riding record's `at()` is where it was picked up - the number the sweep used to read "
-                        + "the world store at");
+                "a riding record's own position is where it was picked up, not where the host is");
         assertNotEquals(now, record.at(),
-                "so after movement the record and the host name different blocks, which is the whole "
-                        + "defect");
+                "so after movement the record and the host name different blocks");
     }
 
     // ------------------------------------------------- 4. the record is consumed --
@@ -302,10 +282,10 @@ class CarriedBlockRemovalMovementTest {
     @Test
     @DisplayName("a projected hit is accepted with no view at all, and a searched one never is")
     void aMissingViewIsNotEvidenceAgainstTheProjectionTable() {
-        // A structure whose own reader cannot even be resolved has no view to offer. That is not
-        // evidence AGAINST the projection table - which computed this coordinate from the carrier's own
-        // pose and the host's own local coordinate - so a break there is still a destruction; and it is
-        // certainly not evidence FOR a hit that had to search the structure's storage.
+        // A structure whose own reader cannot be resolved has no view to offer. That is not evidence AGAINST
+        // the projection table, which computed this coordinate from the carrier's own pose and the host's own
+        // local coordinate, so a break there is still a destruction - and it is certainly not evidence FOR a
+        // hit that had to search the structure's storage.
         assertTrue(CarriedBlockRemoval.accepts(null,
                 CarriedBlockRemoval.ViewRequirement.PROJECTION_IS_PROOF));
         assertFalse(CarriedBlockRemoval.accepts(null,
@@ -331,7 +311,7 @@ class CarriedBlockRemovalMovementTest {
 
         assertNotNull(destroyed,
                 "both safeties must fire for a moved structure: the break path and the sweep share this "
-                        + "decision, and 'the sweep never converged' is the second half of the report");
+                        + "decision");
         assertEquals(now, destroyed.dropPos(),
                 "and it drops where the host IS, which is the block the player just watched disappear");
         assertNotEquals(ORIGIN, destroyed.dropPos());
@@ -357,8 +337,8 @@ class CarriedBlockRemovalMovementTest {
                         CarriedBlockRemoval.StructureViewState.GONE, now,
                         new Slot(ComponentType.LEVER)),
                 "and a component the WORLD holds at the host's current position belongs to the world's "
-                        + "own path - which is the check that used to be made at the ORIGIN, a different "
-                        + "block entirely, once the structure had moved");
+                        + "own path - the check has to use that position, not the origin, once the "
+                        + "structure has moved");
         assertNull(CarriedBlockRemoval.selfHealCandidate(index, MINE, record(),
                         CarriedBlockRemoval.StructureViewState.GONE, null, null),
                 "no current position means no drop, rather than a guess");
@@ -369,8 +349,7 @@ class CarriedBlockRemovalMovementTest {
     void anEmptiedHostIsStillAHost() {
         carry(ComponentType.TORCH);
         assertTrue(index.removeSlot(MINE, LOCAL),
-                "a component put into a carried block has to be removable again, which nothing could do "
-                        + "before this round");
+                "a component put into a carried block has to be removable again");
         assertNotNull(index.at(MINE, LOCAL), "the host is still the structure's");
         assertNull(index.at(MINE, LOCAL).slot());
 

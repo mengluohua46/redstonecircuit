@@ -26,13 +26,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the client's view of a moving structure: which components it believes are riding what, and
- * where it thinks the structure is.
+ * Tests the client's view of a moving structure: which components ride what, and where it is.
  *
- * <p>The two things worth pinning down are the ones that decide whether the picture is right:
- * a host whose carrier the client has not been told about is skipped rather than drawn at the
- * position the feature exists to move it away from, and a carrier that leaves takes its hosts with it
- * rather than leaving them behind at a stale position.
+ * <p>A host whose carrier the client has not been told about is skipped rather than drawn at the
+ * position the feature exists to move it away from; a carrier that leaves takes its hosts with it.
  */
 class CarrierIndexTest {
 
@@ -69,7 +66,7 @@ class CarrierIndexTest {
     }
 
     @Test
-    @DisplayName("P1.55: a frame draws a moving carrier between the last two poses the server sent")
+    @DisplayName("a frame draws a moving carrier between the last two poses the server sent")
     void aFrameInterpolatesBetweenTheLastTwoPoses() {
         index.applySnapshot(OVERWORLD, List.of(view(CARRIER, 0, 0, 0, 10, 64, 10, 7)),
                 Map.of(CARRIER, pose(10.0, 64.0, 10.0)));
@@ -84,7 +81,7 @@ class CarrierIndexTest {
     }
 
     @Test
-    @DisplayName("P1.55: the drawables the carried pass reads carry that interpolated pose")
+    @DisplayName("the drawables the carried pass reads carry that interpolated pose")
     void drawablesCarryTheInterpolatedPose() {
         index.applySnapshot(OVERWORLD, List.of(view(CARRIER, 0, 0, 0, 10, 64, 10, 7)),
                 Map.of(CARRIER, pose(10.0, 64.0, 10.0)));
@@ -99,11 +96,11 @@ class CarrierIndexTest {
         List<CarrierIndex.Drawable> whole =
                 index.drawablesNear(OVERWORLD, pos(10, 64, 10), 8, null, List.of());
         assertEquals(11.0, whole.get(0).pose().position().x(), 1.0E-9,
-                "the overload without a partial tick is the old behaviour, to the bit");
+                "the overload without a partial tick gives the whole newest pose, to the bit");
     }
 
     @Test
-    @DisplayName("P1.55: a jump - a snapshot, a landing, a drop - is not a tick and does not interpolate")
+    @DisplayName("a jump - a snapshot, a landing, a drop - is not a tick and does not interpolate")
     void aJumpDoesNotInterpolate() {
         index.applySnapshot(OVERWORLD, List.of(view(CARRIER, 0, 0, 0, 10, 64, 10, 7)),
                 Map.of(CARRIER, pose(10.0, 64.0, 10.0)));
@@ -383,8 +380,7 @@ class CarrierIndexTest {
             index.tick();
         }
         index.expireStale(2L);
-        // The host went with the carrier, which is what the caller puts back on the world path; the
-        // index itself must not still answer for it.
+        // The host went with the carrier; the index must not still answer for it.
         assertNull(index.poseOf(CARRIER));
         assertEquals(0, index.size());
     }
@@ -400,9 +396,7 @@ class CarrierIndexTest {
     @Test
     @DisplayName("a landed host is drawn at the position it was put down at, not where it came from")
     void landedHostFallsBackToItsLandingPosition() {
-        // The host came from (10,64,10) and the structure put it down at (12,64,12): a structure that
-        // drifted. Drawing it at its origin here would put the component on a block the server does
-        // not answer for, which is what made it invisible in the first place.
+        // Origin (10,64,10), landing (12,64,12): the origin is a block the server does not answer for.
         LandedHosts landedHosts = new LandedHosts();
         landedHosts.stow(List.of(landed(CARRIER, 1, 0, 0, pos(10, 64, 10), pos(12, 64, 12))));
         index.applySnapshot(OVERWORLD, List.of(), Map.of());
@@ -420,8 +414,8 @@ class CarrierIndexTest {
     @Test
     @DisplayName("a host whose carrier went stale mid-flight falls back to where it came from")
     void expiredHostFallsBackToItsOrigin() {
-        // The opposite promise: nothing put this host down, the client simply stopped trusting where
-        // the structure was. "Return to where you started" is the only honest place left.
+        // Nothing put this host down: the client stopped trusting the structure, so it falls back to
+        // its origin.
         CarrierIndex.CarriedView riding = view(CARRIER, 1, 0, 0, 10, 64, 10, 5);
         index.applySnapshot(OVERWORLD, List.of(), Map.of());
 

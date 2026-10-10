@@ -22,15 +22,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the client's host bookkeeping.
+ * The client's host bookkeeping.
  *
- * <p>This is the class that decides what a client believes is inside a block, so the rules worth
- * pinning down are the ones that would look like a rendering bug in game: which section a position
- * lands in (including negative coordinates), that a stale dimension is never drawn, that an update
- * replaces the contents of a position rather than adding a second copy of it, and that the renderer
- * only sees hosts near the camera.
+ * <p>This is the class that decides what a client believes is inside a block, so the rules worth pinning down are the
+ * ones that would look like a rendering bug in game: which section a position lands in (including negative
+ * coordinates), that a stale dimension is never drawn, that an update replaces the contents of a position rather than
+ * adding a second copy of it, and that the renderer only sees hosts near the camera.
  *
- * <p>Deliberately free of any client bootstrap - {@code HostIndex} has no {@code Minecraft} reference.
+ * <p>Free of any client bootstrap - {@code HostIndex} has no {@code Minecraft} reference.
  */
 class HostIndexTest {
 

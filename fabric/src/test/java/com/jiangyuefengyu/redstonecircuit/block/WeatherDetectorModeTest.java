@@ -18,10 +18,10 @@ import org.junit.jupiter.api.Test;
 /**
  * The weather detector's three settings: which sky each one answers, and that nothing else forgot them.
  *
- * <p>The rule itself is one line of arithmetic and is tested here as a pure function. The rest of this
- * class is about the ways a three-valued setting can be silently half-applied - a blockstate that lists
- * only the old two-value combinations, a language file that never learned the word "thunder" - because
- * those failures do not throw: the block simply never renders, or the message shows a raw key.
+ * <p>The rule itself is one line of arithmetic and is tested here as a pure function. The rest of this class is about
+ * the ways a three-valued setting can be silently half-applied - a blockstate that lists only two-value combinations, a
+ * language file that never learned the word "thunder" - because those failures do not throw: the block simply never
+ * renders, or the message shows a raw key.
  */
 class WeatherDetectorModeTest {
 
@@ -46,7 +46,7 @@ class WeatherDetectorModeTest {
                 "BlockState#cycle follows this list, so it is the cycle the player sees");
 
         assertEquals("weather", WeatherDetectorBlock.WEATHER.getName(),
-                "the property is named for the setting it holds, not for the old two-valued flag");
+                "the property is named for the setting it holds, not for a two-valued flag");
         assertEquals("active", WeatherDetectorBlock.ACTIVE.getName(),
                 "and the answer keeps its own property, which is what makes 'did it change?' one comparison");
     }
@@ -74,7 +74,7 @@ class WeatherDetectorModeTest {
             }
         }
         assertFalse(json.contains("rainy="),
-                "the two-valued 'rainy' variant is gone from the block, so a blockstate still listing it "
+                "the block has no two-valued 'rainy' variant, so a blockstate still listing it "
                         + "would never match anything");
     }
 
@@ -95,18 +95,15 @@ class WeatherDetectorModeTest {
     /**
      * Reads one of the mod's resources, failing loudly rather than quietly skipping the check.
      *
-     * <p>Tries both layouts the harness may run from (the project directory and the repository root), the
-     * way the other source-reading guards here do - see {@code HostBufferTallyTest#readMainSource}.
+     * <p>Addressed from this project's own directory, so a guard that stops finding its file fails
+     * loudly instead of reading another module's copy.
      */
     private static String readResource(String kind, String fileName) throws IOException {
         Path relative = Path.of("src", "main", "resources", "assets", "redstonecircuit", kind, fileName);
-        Path absolute = Path.of("neoforge").resolve(relative);
-        for (Path candidate : List.of(relative, absolute)) {
-            if (Files.isRegularFile(candidate)) {
-                return Files.readString(candidate, StandardCharsets.UTF_8);
-            }
+        if (Files.isRegularFile(relative)) {
+            return Files.readString(relative, StandardCharsets.UTF_8);
         }
         throw new IOException("could not find " + fileName + " from " + Path.of("").toAbsolutePath()
-                + " (tried " + relative + " and " + absolute + ")");
+                + " (tried " + relative + ")");
     }
 }

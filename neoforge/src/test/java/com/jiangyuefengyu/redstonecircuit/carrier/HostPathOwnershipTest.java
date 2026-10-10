@@ -11,28 +11,20 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests the rule that decides <b>which of the two drawing paths owns a world position</b>.
  *
- * <h2>The defect these tests pin down</h2>
- * A structure puts a component down. The server broadcasts the world host at once; Create puts the
- * block back a moment later. So there are frames in which the client holds a world host over air. The
- * world renderer refuses to draw a shell in mid-air, and the carried path used to let its landed
- * record go on the strength of the host broadcast alone - <b>neither path drew the component</b>, and
- * the frame reported {@code drew 0} with every skip counter at zero, which is the shape that made this
- * defect take a round of live testing to find.
+ * <p>A structure puts a component down: the server broadcasts the world host at once, Create puts the block back a
+ * moment later, so there are frames in which the client holds a world host over air. The world renderer refuses to
+ * draw a shell in mid-air, so if the carried path also let its landed record go on the strength of the host broadcast
+ * alone, <b>neither path would draw the component</b> - a frame reporting {@code drew 0} with every skip counter at
+ * zero.
  *
- * <h2>What has to hold</h2>
- * <ul>
- *   <li>the world path draws a position only with <b>both</b> a host the sync knows about <b>and</b> a
- *       block standing there - the same two facts the world renderer itself uses;</li>
- *   <li>a landed or carried candidate draws itself <b>exactly</b> when the world path does not, so
- *       every combination is owned by one path: never both (two shells on one block), never neither
- *       (the invisible window above);</li>
- *   <li>the ambiguous-looking case - a world host announced, the block not back yet - resolves to the
- *       carried path, because the world path cannot draw and something must.</li>
- * </ul>
+ * <p>What has to hold: the world path draws a position only with <b>both</b> a host the sync knows about <b>and</b> a
+ * block standing there; a landed or carried candidate draws itself <b>exactly</b> when the world path does not, so
+ * every combination is owned by one path - never both (two shells on one block), never neither; and the ambiguous
+ * case (a world host announced, the block not back yet) resolves to the carried path, because the world path cannot
+ * draw and something must.
  *
- * <p>Pure logic, so no game, no level and no block state is needed: two booleans in, one answer out.
- * The renderer and the client cache both call this class, which is what keeps their two answers from
- * drifting.
+ * <p>Pure logic: two booleans in, one answer out. The renderer and the client cache both call this class, which is
+ * what keeps their two answers from drifting.
  */
 class HostPathOwnershipTest {
 
@@ -51,10 +43,8 @@ class HostPathOwnershipTest {
     @Test
     @DisplayName("a world host with AIR underneath is owned by the carried path, not by neither")
     void aWorldHostOverAirIsDrawnByTheCarriedPath() {
-        // The one line the whole round of work is about. Before the fix this combination was claimed by
-        // the world path (the host broadcast had arrived) while that path was refusing to draw (no
-        // block), and the landed record had already yielded - so nothing was drawn. It is now the
-        // carried path's, by construction.
+        // Claiming this combination for the world path - which refuses to draw without a block - while the
+        // landed record yields is what would leave nothing drawn; it belongs to the carried path instead.
         assertEquals(HostPathOwnership.Owner.CARRIED_PATH,
                 HostPathOwnership.owner(true, false));
         assertTrue(HostPathOwnership.fallbackDraws(true, false),
@@ -72,19 +62,17 @@ class HostPathOwnershipTest {
     @Test
     @DisplayName("a block with no world host is still the carried path's: the world path has no component")
     void aBlockWithoutAWorldHostIsTheCarriedPaths() {
-        // A block standing where the component belongs, while this client's host sync has nothing for
-        // that position - the component is only in the carried record. The world path has no slot to
-        // draw, so the record draws itself. (When a block is broken the server removes the host too;
-        // this is the state before that removal arrives.)
+        // A block standing where the component belongs while this client's host sync has nothing for that
+        // position: the component is only in the carried record, so the record draws itself.
         assertEquals(HostPathOwnership.Owner.CARRIED_PATH, HostPathOwnership.owner(false, true));
         assertTrue(HostPathOwnership.fallbackDraws(false, true));
     }
 
     @Test
-    @DisplayName("no host and no block is the carried path's, as it always was")
+    @DisplayName("no host and no block is the carried path's")
     void nothingAtAllIsStillTheCarriedPaths() {
-        // The ordinary put-down case: the landing position is bare world. The world path has nothing to
-        // draw and the landed record is the only thing holding the component.
+        // The ordinary put-down case: the landing position is bare world, and the landed record is the only
+        // thing holding the component.
         assertEquals(HostPathOwnership.Owner.CARRIED_PATH, HostPathOwnership.owner(false, false));
         assertTrue(HostPathOwnership.fallbackDraws(false, false));
     }

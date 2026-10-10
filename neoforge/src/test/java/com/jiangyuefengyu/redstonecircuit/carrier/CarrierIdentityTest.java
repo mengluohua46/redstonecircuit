@@ -12,14 +12,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the two-phase identity: the rules that let a host be claimed before its structure has an
- * entity, and re-labelled onto the entity afterwards.
+ * The two-phase identity: the rules that let a host be claimed before its structure has an entity, and re-labelled
+ * onto the entity afterwards.
  *
- * <p>These are the tests for the defect that made components neither move nor draw: the claim used to
- * be abandoned whenever {@code contraption.entity} was still null. What has to be pinned down is
- * therefore not "does the arithmetic work" but <b>"is a claim ever dropped"</b> - so the cases here are
- * the decision table's four rows, the dual-path lookup, and the properties that make a provisional id
- * safe to store beside a real one.
+ * <p>What has to be pinned down is not "does the arithmetic work" but <b>"is a claim ever dropped"</b>, so the cases
+ * here are the decision table's four rows, the dual-path lookup, and the properties that make a provisional id safe to
+ * store beside a real one.
  */
 class CarrierIdentityTest {
 
@@ -86,8 +84,7 @@ class CarrierIdentityTest {
         assertEquals(CarrierId.contraption(ENTITY), withEntity.carrier());
         assertFalse(withEntity.isProvisional());
 
-        // THE INVARIANT: no entity is not "no claim". This is the row the old code got wrong by
-        // returning early instead of substituting an identity.
+        // THE INVARIANT: no entity is not "no claim" - an absent entity must not drop the claim.
         CarrierIdentity.Identity withoutEntity = CarrierIdentity.claim(null, provisional(1L));
         assertEquals(CarrierIdentity.Phase.PROVISIONAL, withoutEntity.phase());
         assertEquals(CarrierId.contraption(provisional(1L)), withoutEntity.carrier());
@@ -97,12 +94,9 @@ class CarrierIdentityTest {
     @Test
     @DisplayName("the kind the caller passes survives: a Sable sub-level is never filed as a contraption")
     void claimKeepsTheCallersKind() {
-        // THE DEFECT THE AUTHOR'S LOG SHOWS. CarrierStore#startMoving used to build the identity with
-        // `Identity.ofEntity(uuid)`, which is always a CONTRAPTION - so the Sable sweep's own claim was
-        // logged as `carrier claim c:6c60aeef` for a structure the same log calls
-        // `sub-level 6c60aeef-…`. The Create half's orphan sweep then asked the Create half for that
-        // carrier's pose, was told there is no such contraption, and wrote the components of a
-        // still-flying sub-level back into the world.
+        // The kind the caller passes has to survive: building the identity from the entity UUID alone would make
+        // every claim a CONTRAPTION, so a still-flying sub-level would be written back into the world by the other
+        // half's orphan sweep.
         CarrierIdentity.Identity sable =
                 CarrierIdentity.claim(ENTITY, null, CarrierKind.SUB_LEVEL);
         assertEquals(CarrierId.subLevel(ENTITY), sable.carrier());

@@ -13,6 +13,8 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarriedHostIndex.SlotWorld;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.CarrierLightNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
@@ -24,54 +26,19 @@ import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Drives the recomputation of every redstone network that is riding a moving structure: the P2 half
- * of "the components travel, and they keep working while they do".
+ * Drives the recomputation of every redstone network riding a moving structure.
  *
- * <h2>What it does, in one paragraph</h2>
- * Once per pass it asks the carried index which structures are holding host blocks (<b>not</b> which
- * hosts exist in the level - see the performance note), builds a {@link CarrierSpace} for each one,
- * and hands that space plus the carrier's own local coordinates to a {@link CarrierLightNetwork}. The
- * network settles the wires, schedules the driven components, and reports which local coordinates
- * changed. Those are written back into the index, and the clients are told with the same carrier
- * message P1 already sends.
+ * <p>Once per pass it asks the carried index which structures hold host blocks - never which hosts exist
+ * in the level - and settles each carrier's own hosts through a {@link CarrierLightNetwork}, writing the
+ * changed local coordinates back into the index and sending them over the existing carrier message.
  *
- * <h2>Performance: the index is the whole point</h2>
- * The P1 brief puts the author's world at roughly 840 host blocks. Nothing here may walk them: the
- * loop is over {@code index.carriers()} - a handful of structures in flight - and then over
- * <em>that carrier's own</em> hosts. The level-wide store is never enumerated, and a solved
- * coordinate is remembered so the same component reached from two seeds costs one hash lookup. On top
- * of that there are two ceilings, because a machine can be arbitrarily large:
- *
- * <ul>
- *   <li>{@code carrierSolveMaxComponentsPerTick} bounds how many components one carrier may settle in
- *       one pass. Hitting it is reported as an <em>effect budget</em> exhaustion rather than as a
- *       solve, so "it did not settle" is never mistaken for "it settled and nothing changed".</li>
- *   <li>{@code carrierSolveMaxNodesPerCarrier} bounds how many hosts the seeds are taken from, which
- *       is the only step that touches every host of a structure.</li>
- * </ul>
- *
- * <h2>Two facts the diagnostics have to keep apart</h2>
- * A structure whose components are all still holding exactly the values they were picked up with is
- * <em>solved</em> and has <em>nothing to say</em>: {@code solves} goes up and {@code lastDiff} stays
- * 0 - and with nothing outside it that is the whole of the observable behaviour, because nothing on
- * the machine changes by itself. "The solve ran" and "the solve found something" are different claims;
- * P2 promised the first, and P4 is what makes the second happen without an operator's help, by opening
- * the bridge the other way: a lever on the ground now reaches the machine, so the solve finally has an
- * input that can move. {@code /rc carrier} prints both, separately, for exactly that reason.
+ * <p>A solve that changed nothing is still a solve, and hitting {@code carrierSolveMaxComponentsPerTick}
+ * is reported as budget exhaustion rather than as a solve.
  */
 public final class CarrierNetworks {
 
     /**
-     * What one solve pass found for one structure.
-     *
-     * @param nodes how many host blocks of this structure hold a component that takes part in a solve
-     * @param components how many components the last pass settled
-     * @param solves how many passes this structure has had since it was picked up
-     * @param lastTick the level tick of the last pass, or -1 when there has not been one
-     * @param lastDiff how many local coordinates changed value in the last pass
-     * @param unsentDiff how many local coordinates differ from what the clients were last told
-     * @param pendingFlips how many driven components are waiting for their delayed re-evaluation
-     * @param overflowed true when the component budget ran out before this structure was fully visited
+     * What one solve pass found for one structure; {@code lastTick} is -1 when there has not been a pass.
      */
     public record SolveReport(int nodes, int components, int solves, long lastTick, int lastDiff,
                               int unsentDiff, int pendingFlips, boolean overflowed) {
@@ -122,12 +89,8 @@ public final class CarrierNetworks {
     }
 
     /**
-     * Everything remembered about one structure between passes.
-     *
-     * <p>The changes are kept as <em>differences against what the clients were last told</em> rather
-     * than as a list of positions: a later pass that changes the same coordinate again supersedes the
-     * earlier entry instead of queueing a second copy, and the number the diagnostics print is then
-     * the honest answer to "is there anything left to send".
+     * Everything remembered about one structure between passes. Changes are kept as differences against
+     * what the clients were last told, so a later change to the same coordinate supersedes the earlier one.
      */
     private static final class CarrierState {
 
@@ -162,12 +125,9 @@ public final class CarrierNetworks {
     private static final Map<ResourceKey<Level>, TickSummary> LAST_TICK = new HashMap<>();
 
     /**
-     * The level tick each dimension was last solved at.
-     *
-     * <p>The solve has two drivers - the level tick and Create's own per-actor callback - because
-     * neither is available in every situation (a Sable sub-level has no Create actor, and a Create
-     * contraption may not be the only thing riding). Running both would solve twice per tick, which is
-     * correct but wasteful, so a pass for a dimension that has already run in this tick is skipped.
+     * The level tick each dimension was last solved at. The solve has two drivers - the level tick and
+     * Create's own per-actor callback - because neither is available in every situation, and a pass for a
+     * dimension that has already run in this tick is skipped.
      */
     private static final Map<ResourceKey<Level>, Long> SOLVED_AT = new HashMap<>();
 
@@ -177,13 +137,7 @@ public final class CarrierNetworks {
     // ------------------------------------------------------------------ tick --
 
     /**
-     * One solve pass over everything a level is carrying.
-     *
-     * <p>Cheap and empty while nothing is in flight: the first thing it does is ask a store that
-     * answers "nothing" in one boolean. Called once per level tick from the same handler that already
-     * ticks the carrier store, so the two halves of the feature cannot drift out of step.
-     *
-     * @param tick the level's own clock; only ever used to schedule a repeater's delay
+     * One solve pass over everything a level is carrying; cheap and empty while nothing is in flight.
      */
     public static TickSummary tick(CarrierStore.TickContext ctx, CarrierStore.Clock clock) {
         ResourceKey<Level> dimension = clock.dimension();
@@ -234,11 +188,8 @@ public final class CarrierNetworks {
                     exhausted++;
                 }
             } catch (RuntimeException failed) {
-                // One structure's solve must never take the tick down - or, through it, the server. AND
-                // ONE FAILURE MUST NOT FLOOD THE LOG EITHER: this used to warn on every failure, and the
-                // author's P1.24 log had 53 identical lines from one emptied host. The ledger counts
-                // every failure, warns once per exception KIND (so a later, different defect is still
-                // reported), and is bounded; see SolveFailureLedger.
+                // One structure's failure must not take the tick down; the ledger counts every failure,
+                // warns once per exception kind and is bounded, so one empty host cannot flood the log.
                 SolveFailureLedger.fail(carrier, failed);
             }
         }
@@ -254,19 +205,8 @@ public final class CarrierNetworks {
     }
 
     /**
-     * One structure's pass, and everything that has to happen because of it.
-     *
-     * <ol>
-     *   <li><b>Seeds.</b> The local coordinates of the components that take part in a solve, capped,
-     *       with a host seen for the first time recorded as "what the clients already believe" - which
-     *       is the honest answer for a block that has just been picked up, because the carrier message
-     *       that announced it carried its contents too.</li>
-     *   <li><b>Solve.</b> {@link CarrierLightNetwork} does the work.</li>
-     *   <li><b>Compare.</b> Every logic host is compared against what the clients last saw. A slot
-     *       whose value did not move is left exactly where it is, so "the solve ran and changed
-     *       nothing" costs nothing beyond the solve itself.</li>
-     *   <li><b>Write back and sync.</b> Only the coordinates that differ are recorded and sent.</li>
-     * </ol>
+     * One structure's pass: seed the components that take part in a solve, let the network settle, compare
+     * each logic host against what the clients last saw, then write back and sync only what differs.
      */
     private static SolveReport solve(CarrierStore.TickContext ctx, CarriedHostIndex index,
                                      CarrierId carrier, CarrierState state, long tick) {
@@ -279,20 +219,29 @@ public final class CarrierNetworks {
         int taken = 0;
         for (CarriedHost host : index.liveHostsOf(carrier)) {
             Slot slot = host.slot();
-            // AN EMPTY HOST IS NOT A SEED, AND IS NOT AN ERROR. The structure still carries the block
-            // and the block holds nothing - the state a player leaves behind by taking the component out
-            // (CarriedHostIndex#removeSlot) - so the honest answer is the one CarrierSpace#nodeAt already
-            // gives for the same coordinate: "there is no component here". This dereference is what threw
-            // 53 times in the author's P1.24 log (`Cannot read field "type" because "slot" is null`),
-            // once per tick, from inside the per-structure catch below - no crash, but a machine whose
-            // internal redstone silently stopped being computed.
+            // An empty host is not a seed and is not an error: the structure carries the block, the block
+            // holds nothing.
             if (slot == null || !CarrierLightNetwork.isLogic(slot.type)) {
                 continue;
             }
+            // A time-driven output is a function of the world clock, so it is written before the network
+            // settles and before the diff below.
+            if (slot.type.isTimeDriven()) {
+                slot.power = slot.clock.answer(tick);
+            } else if (slot.type == ComponentType.EXTENDER) {
+                // 信号延长器's hold runs out on the same clock, so this pass advances it too. What is arriving at its
+                // 正面 is the number the last solve read: a sub-level keeps its blocks outside this level's
+                // coordinates, so a world query here would read somebody else's air. The network below then does the
+                // following half - with nothing arriving, the output stays exactly where it is.
+                int input = slot.lastInput >= 0 ? PowerSolver.clamp(slot.lastInput) : 0;
+                slot.extenderDeadline = ExtenderRule.deadline(tick, input, slot.extender.holdTicks(),
+                        slot.extenderDeadline);
+                slot.power = ExtenderRule.answer(tick, input, slot.power, slot.extenderDeadline);
+            }
             long key = host.localPos().asLong();
             if (!state.synced.containsKey(key)) {
-                // First time this host is seen by the solver: the clients were told its contents when
-                // the structure picked it up, so that value is the baseline, not zero.
+                // First seen by the solver: the clients were told its contents when the structure was
+                // picked up, so that value is the baseline, not zero.
                 state.synced.put(key, slot.power);
             }
             if (taken++ < cap) {
@@ -314,9 +263,7 @@ public final class CarrierNetworks {
         state.changedSinceSync.clear();
         for (CarriedHost host : index.liveHostsOf(carrier)) {
             Slot slot = host.slot();
-            // The same "an empty host carries nothing" rule as the seeds loop above, for the same
-            // reason: this is the second of the two walks over the structure's hosts, and it read
-            // `slot.type` unconditionally as well.
+            // Same "an empty host carries nothing" rule as the seeds loop: the second walk over the hosts.
             if (slot == null || !CarrierLightNetwork.isLogic(slot.type)) {
                 continue;
             }
@@ -339,21 +286,12 @@ public final class CarrierNetworks {
     }
 
     /**
-     * P4: the bridge one carrier's solve reads the world through, or {@code null} for the frozen
-     * behaviour.
-     *
-     * <p>Resolved once per carrier per pass rather than per query: the pose is the expensive half (a
-     * Create contraption has to be asked for three basis vectors, a Sable sub-level looked up in its
-     * container), and asking it again for every side of every component would turn a per-tick cost
-     * proportional to <em>structures</em> into one proportional to components. A structure whose pose
-     * cannot be read is simply frozen for this pass - the honest answer, and the same one the renderer
-     * and the landing arithmetic get.
-     *
-     * <p><b>P1.41: and the reader's own identity.</b> The carrier whose solve this is, plus the level the
-     * projection table is indexed by, are handed over so the world read can refuse <em>this</em> carrier's
-     * own projected hosts - the uncharged second copy of a neighbour the inner relationship already
-     * delivers. Both are in hand here (the carrier is the loop variable, the level is on the context), and
-     * no other carrier's projection is affected: see {@code CarrierWorldIo#signalIntoOwnFrame}.
+     * The bridge one carrier's solve reads the world through, or {@code null} for the frozen behaviour.
+     * Resolved once per carrier per pass rather than per query, because the pose is the expensive half: a
+     * Create contraption has to be asked for three basis vectors and a Sable sub-level looked up in its
+     * container. The carrier and its level are handed over so the world read can refuse <em>this</em>
+     * carrier's own projected hosts - the uncharged second copy of a neighbour the inner relationship
+     * already delivers - without affecting any other carrier's projection.
      */
     @Nullable
     private static CarrierWorldIo worldIoOf(CarrierStore.TickContext ctx, CarrierId carrier) {
@@ -366,17 +304,11 @@ public final class CarrierNetworks {
     }
 
     /**
-     * Records the changed values in the index, so the renderer, {@code /rc dump} and the save all see
-     * them, and tells the clients with the message P1 already sends.
+     * Records the changed values in the index - so the renderer, {@code /rc dump} and the save all see
+     * them - and tells the clients with the existing carrier message: no new message, no protocol bump.
      *
-     * <p>This is the point of P2. The goggles draw whatever the carried record holds, so a structure
-     * whose components were recomputed but whose record was not updated would look exactly like a
-     * structure that was never solved. The index is marked dirty for the same reason: a machine that
-     * is later put down must come home carrying the value it actually had.
-     *
-     * <p>The sync reuses {@code CarrierPayload} - no new message and no protocol bump. A carrier
-     * message is already "this structure's pose plus its hosts, wholesale", which is precisely the
-     * fact that changed.
+     * <p>The goggles draw whatever the carried record holds, and a machine that is later put down must come
+     * home carrying the value it actually had, so it is the record that has to be current.
      */
     private static void sync(CarrierStore.TickContext ctx, CarriedHostIndex index, CarrierId carrier,
                              CarrierState state) {
@@ -385,16 +317,14 @@ public final class CarrierNetworks {
             BlockPos local = BlockPos.of(key);
             CarriedHost host = index.at(carrier, local);
             Slot current = host == null ? null : host.slot();
-            // An empty host answers exactly like a coordinate the structure does not carry: there is
-            // nothing to write back, so there is nothing to record and nothing to send. `updateSlot`
-            // would accept a null slot - it is the named form of "the player emptied this block" - but
-            // the solve must never be the thing that empties one, so this is a skip and not a write.
+            // An empty host answers exactly like a coordinate the structure does not carry: nothing to
+            // write back. `updateSlot` would accept a null slot, but the solve must never be the thing
+            // that empties a block, so this is a skip and not a write.
             if (current == null) {
                 continue;
             }
-            // The slot object is already the one the solver mutated; putting it back in the record is
-            // what makes the new power the one everything else reads. Carried through rather than
-            // copied so the two representations cannot disagree for even one tick.
+            // The slot object is already the one the solver mutated; carrying it through rather than
+            // copying it keeps the two representations from disagreeing for even one tick.
             index.updateSlot(carrier, local, current);
             state.synced.put(key, current.power);
             wrote = true;
@@ -403,8 +333,8 @@ public final class CarrierNetworks {
             return;
         }
         ctx.writeBack().wrote(carrier);
-        // Nothing is left unsent: what the clients were just told is now the baseline, so the count
-        // the diagnostics print ("unsentDiff") means exactly what it says.
+        // Nothing is left unsent: what the clients were just told is the baseline the unsentDiff count is
+        // compared against.
         state.changedSinceSync.clear();
         state.overflowed = false;
     }
@@ -445,8 +375,7 @@ public final class CarrierNetworks {
         int empty = 0;
         for (CarriedHost host : hosts) {
             Slot slot = host.slot();
-            // A diagnostics walk must not be the thing that fails a command: an emptied host is counted
-            // as a host that holds nothing, never as a wire and never as a dereference.
+            // A diagnostics walk must never fail a command: an emptied host counts as holding nothing.
             if (slot == null) {
                 empty++;
                 continue;
@@ -454,7 +383,7 @@ public final class CarrierNetworks {
             ComponentType type = slot.type;
             if (type.isWire()) {
                 wires++;
-            } else if (type.isDriven()) {
+            } else if (type.hasInputSide()) {
                 driven++;
             }
         }

@@ -96,10 +96,10 @@ physicsCompatJars.each { path ->
 // supertype chain before it will let you assign the result to anything - even to BlockGetter, which
 // it already is.
 //
-// Both used to be committed into neoforge/libs/ and pushed to a public repository. They are not any
-// more: they are third-party code redistributed inside somebody else's mod, so they are unpacked at
-// build time from the mods the developer has installed, into build/physics-libs/, and wired in as
-// compileOnly exactly like the mod jars above. See neoforge/libs/README.md.
+// Both are third-party code redistributed inside somebody else's mod, so they are not committed into
+// neoforge/libs/: they are unpacked at build time from the mods the developer has installed, into
+// build/physics-libs/, and wired in as compileOnly exactly like the mod jars above. See
+// neoforge/libs/README.md.
 //
 // The search order is "already unpacked, else nested":
 //   1. a file with the wanted name lying loose in physicsModsDir (flat);
@@ -281,11 +281,10 @@ tasks.named('jar', Jar) {
     if (!physicsRequiredLibsMissing) {
         from sourceSets.compat.output
     }
-    // The released file name carries the version AND the loader it is for, the way 1.0.0 shipped
-    // (`redstonecircuit-1.0.0-neoforge-1.21.1.jar`). Gradle's default is `<mod_id>-<version>.jar`,
-    // which says neither which loader nor which Minecraft line the jar is built for, so the whole
-    // name is written out here. Only the file name changes: the mod version inside
-    // neoforge.mods.toml still comes from `mod_version`.
+    // The released file name carries the version AND the loader it is for. Gradle's default is
+    // `<mod_id>-<version>.jar`, which says neither which loader nor which Minecraft line the jar is
+    // built for, so the whole name is written out here. Only the file name changes: the mod version
+    // inside neoforge.mods.toml still comes from `mod_version`.
     archiveFileName = "${mod_id}-${mod_version}-neoforge-${minecraft_version}.jar"
 }
 
@@ -415,9 +414,9 @@ dependencies {
     localRuntime "maven.modrinth:jade:${jade_version}"
 }
 
-// P1.58: a RELEASE package logs lightly by default; a build made for development keeps the detailed log.
+// A RELEASE package logs lightly by default; a build made for development keeps the detailed log.
 // `-Prelease` (or `-Prelease=true`) marks the jar; BuildFlags reads the marker and RCConfig takes its
-// debugLog default from it. Everything else about the two builds is identical, deliberately.
+// debugLog default from it. Everything else about the two builds is identical.
 var releaseBuild = project.hasProperty('release') && project.property('release') != 'false'
 logger.lifecycle("[redstonecircuit] build mode: {} (debugLog default {})",
         releaseBuild ? 'RELEASE - light log by default' : 'development - detailed log by default',
@@ -621,9 +620,9 @@ idea {
     }
 }
 
-// P1.58: the test suite is part of "the making and testing process", so it keeps the DETAILED log even in
-// a release build (`-Prelease` only changes what a released jar defaults to). One property, read by
-// RCConfig#debugLog, is also the supported way to ask a released jar for a diagnostic log:
+// The test suite keeps the DETAILED log even in a release build (`-Prelease` only changes what a
+// released jar defaults to). One property, read by RCConfig#debugLog, is also the supported way to ask
+// a released jar for a diagnostic log:
 //     -Dredstonecircuit.debugLog=true
 tasks.named('test', Test) {
     systemProperty 'redstonecircuit.debugLog', 'true'

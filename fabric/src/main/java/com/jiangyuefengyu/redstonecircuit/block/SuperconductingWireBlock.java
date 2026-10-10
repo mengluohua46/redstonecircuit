@@ -20,43 +20,23 @@ import net.minecraft.world.level.block.state.BlockState;
 /**
  * 超导红石粉 placed in the world: a redstone wire whose hops cost nothing.
  *
- * <h2>What is inherited, and what is not</h2>
- * Everything that makes a wire <em>look</em> and behave like a wire is vanilla's: the state definition
- * (strength plus the four connection flags), the shapes and models, where it may be placed, how the
- * connections are worked out, and which blocks it counts as a source. What has to change is the
- * strength calculation, and it turns out that a lossless wire cannot be computed the way vanilla
- * computes a lossy one.
+ * <p>Everything that makes a wire <em>look</em> and behave like a wire is vanilla's - the state definition, the shapes
+ * and models, where it may be placed, how connections are worked out - except the strength calculation. Vanilla's rule
+ * subtracts one per hop, and that subtraction is what lets a fading run walk itself down to zero; without it two wires at
+ * fifteen beside each other see nothing wrong, so neither ever changes and a run whose lever has been switched off stays
+ * at fifteen for good.
  *
- * <h2>Why the whole run is solved at once</h2>
- * Vanilla's rule is {@code strength = max(sources around it, best neighbouring wire - 1)}, evaluated
- * one wire at a time. The subtraction is what makes that work: every wire is strictly weaker than the
- * neighbour it follows, so a run with no source left in it walks itself down to zero, one step per
- * update.
+ * <p>A lossless wire therefore cannot be decided from its neighbours' current values at all: {@link #updateComponent}
+ * collects the whole connected run, takes the best supply anywhere in it and gives every wire that value - both the
+ * physical meaning of a superconductor and a unique answer. The block reports nothing while any wire is calculating (see
+ * the suppression counter), because a wire's {@code getDirectSignal} charges the solid block it lies on, and a lossless
+ * run would otherwise find its own strength coming out of the ground and never go dark.
  *
- * <p>Remove the subtraction and that mechanism disappears. Two wires at fifteen beside each other see
- * nothing wrong with each other, so neither ever changes, and a run whose lever has just been switched
- * off stays at fifteen for good - and keeps lighting whatever redstone is laid against it. A lossless
- * wire therefore cannot be decided from its neighbours' current values at all.
- *
- * <p>What can decide it is the sources: with no loss, an entire connected run sits at the strength of
- * the best source touching it, and at nothing when no source touches it. That is both the physical
- * meaning of a superconductor and a unique answer, so {@link #updateComponent} collects the run,
- * takes the best supply anywhere in it, and gives every wire that value. A run that has lost its source
- * has no supply left anywhere in it, and goes dark.
- *
- * <h2>Keeping quiet while deciding</h2>
- * Vanilla silences its wire while it works out a strength, and for two reasons that both apply here.
- *
- * <p>The first is wire-to-wire coupling: a wire reports its strength as an ordinary signal as well, so
- * without the silence a wire would find itself through its neighbours' source scan and charge itself.
- *
- * <p>The second is subtler and is what makes a lossless run possible at all. Vanilla's wire reports
- * {@code getDirectSignal} as its own strength, which means a wire <em>charges the solid block it lies
- * on</em>; that block then reports the charge back to everything around it, including the wire. For a
- * fading wire that is harmless - the value it reads back is never better than what it has. For a
- * lossless one it is fatal: the run finds its own strength coming out of the ground beneath it, decides
- * it still has a supply, and never goes dark once its lever is switched off. So this block is silent
- * whenever any wire is calculating, vanilla's or its own.
+ * <p>The one answer about the wire's <em>shape</em> that a subclass cannot reach is whether ordinary dust may connect to
+ * it at all: vanilla's {@code shouldConnectTo} is static, and it answers yes for its own dust and, for everything else,
+ * only when it is asked about a particular side - while the wire's step rule asks with <em>no</em> side exactly when it
+ * wants to know whether it may climb or drop past a block. That predicate is patched instead; see
+ * {@code com.jiangyuefengyu.redstonecircuit.mixin.RedStoneWireBlockMixin}. Nothing in the power path consults it.
  */
 public class SuperconductingWireBlock extends RedStoneWireBlock {
 

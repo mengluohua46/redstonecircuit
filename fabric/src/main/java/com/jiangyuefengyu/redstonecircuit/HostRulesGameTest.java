@@ -3,13 +3,12 @@ package com.jiangyuefengyu.redstonecircuit;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
+import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
-
-import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
 
 /**
  * Tests which right-clicks the mod claims, since that answer is shared by both sides.
@@ -22,13 +21,6 @@ import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
  * <p>It lives in a game test rather than a unit test because it needs real block states and item stacks:
  * vanilla's registries are not bootstrapped in the headless test JVM (see {@code InnerRedstoneDataTest}).
  * The world is never touched, so the empty template is all it needs.
- *
- * <h2>How it is registered on Fabric</h2>
- * NeoForge found these tests through {@code @GameTestHolder}; Fabric has no equivalent annotation, and
- * instead scans the classes named by the {@code fabric-gametest} entrypoint in {@code fabric.mod.json},
- * which is why this class implements {@link FabricGameTest} - that interface is how Fabric recognises a
- * test class. {@code @PrefixGameTestTemplate(false)} has no counterpart and is not needed: with the
- * template named explicitly in every {@code @GameTest}, no name prefixing happens either way.
  */
 public final class HostRulesGameTest implements FabricGameTest {
 

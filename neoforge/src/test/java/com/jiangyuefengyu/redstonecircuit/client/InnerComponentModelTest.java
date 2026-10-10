@@ -60,10 +60,7 @@ class InnerComponentModelTest {
         }
     }
 
-    /**
-     * The block's faces are at 0.5 from its centre, and a component that reached past one would be
-     * drawn inside the neighbouring block - visibly wrong, and only in game.
-     */
+    /** The block's faces are at 0.5 from its centre: a box past one is drawn inside the neighbour. */
     @Test
     @DisplayName("no box leaves the block it is drawn in")
     void boxesStayInsideTheBlock() {
@@ -162,9 +159,8 @@ class InnerComponentModelTest {
     }
 
     /**
-     * The wire inside a block is drawn with vanilla's greyscale dust art, and the wire on the ground
-     * with the same art already multiplied by orange. The tint applied to the first has to be that
-     * exact orange at full strength, or the two would not match when a player sees both at once.
+     * The inner wire is vanilla's greyscale dust art tinted; the placed wire's art already carries the orange.
+     * The tint must be that exact orange at full strength, or the two do not match side by side.
      */
     @Test
     @DisplayName("the inner wire's orange is the orange the placed wire's art already carries")
@@ -176,8 +172,8 @@ class InnerComponentModelTest {
     }
 
     /**
-     * The tint the placed wire gets is brightness only - its colour is in the texture - so it has to be
-     * a grey, never a colour of its own, or the two would multiply into something dark and muddy.
+     * The placed wire's tint is brightness only - its colour is in the texture - so it has to be a grey, or
+     * the two multiply into something dark and muddy.
      */
     @Test
     @DisplayName("the placed wire's tint is a grey brightness ramp")
@@ -281,7 +277,7 @@ class InnerComponentModelTest {
         assertEquals(1, inputs.size(), "one mark on the side it reads from");
         assertTrue(!inputs.get(0).textured(),
                 "and it is a mark, not a line: a line would say the component is connected there,"
-                        + " which is how a repeater came to look like it signalled into its own back");
+                        + " which it is not");
     }
 
     @Test

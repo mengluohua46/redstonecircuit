@@ -27,57 +27,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.37: two physicalised blocks standing next to each other have to keep talking.</b>
+ * Two physicalised blocks standing next to each other have to keep talking.
  *
- * <h2>The defect, in the author's words</h2>
- * "A new problem has appeared: physicalised blocks no longer transmit signals to each other" - two blocks
- * that are <em>each their own sub-level</em> (the author's normal build style), standing one block apart,
- * stopped reading each other's redstone when P1.36 landed.
- *
- * <h2>The mechanism: one integer, two frames</h2>
- * A Sable sub-level's plot coordinates <em>are</em> level coordinates (P1.30 section 30.1.2), and the two
- * grids share no origin - the author's own log carries {@code local=20481032, 127, 20483080} for a block
- * standing at world {@code -24, -60, -21}. So any integer can be a <b>world position</b> (where a block
- * stands; what P4's projection table and every vanilla signal query are keyed by) and a <b>plot cell</b>
- * (what P1.36's new structure-frame table is keyed by) at the same time.
- *
- * <p>P1.36 added that third source to {@code BlockStateSignalMixin}, asked <em>after</em> the world
- * projection source. The priority is right; what is missing is the restriction. The third source answers
- * "the host whose coordinate inside its structure is this number" and nothing else, so without an
- * ownership test it will answer for <b>any</b> number, including one that is another structure's own
- * block - and it answers it in the wrong frame.
- *
- * <h2>What that does to a cross-structure read, step by step</h2>
- * The fixture is the author's layout with every number named:
- *
- * <ul>
- *   <li>A's block stands in the world at {@link #A_WORLD} and sits at plot cell {@link #A_LOCAL};</li>
- *   <li>B's block stands one block from it, at {@link #B_WORLD} - <b>the seam</b> - and its own cell is
- *       {@link #B_LOCAL};</li>
- *   <li>B's inside solve asks about the side A is on. In B's own frame that is the plot coordinate
- *       {@link #A_LOCAL}, which is a cell of A's - and the structure index therefore holds A's host
- *       at that number;</li>
- *   <li>the world projection table answers the number where A's block <em>stands</em>, which is a
- *       different number. That is the P1.35 answer;</li>
- *   <li>but the structure frame is consulted first and has an entry, so the world source is never
- *       reached. The shadow is at the front of the if-chain, and the source that cannot know anything
- *       about "what stands where" is the one that answers.</li>
- * </ul>
- *
- * <p>When the shadowing host holds a component, the answer is that component as seen in <em>its own</em>
- * frame - the wrong source, and the wrong answer the moment the two frames disagree (a repeater, a
- * torch, a turned machine). When it holds nothing, the answer is <b>0</b>, indistinguishable from "no
- * signal anywhere". Either way the seam goes dark, which is the author's symptom.
- *
- * <h2>What is pinned here</h2>
- * The fix is a priority/short-circuit rule, not a new source: the structure frame may only answer for a
- * coordinate that is <em>the found host's own structure's</em> block (the {@code plotOwnerAt} authority
- * P1.30 established), so a coordinate belonging to another sub-level is refused there and left to the
- * world projection source. These tests are red on the code as P1.36 left it and green after the guard.
+ * <p>A sub-level's plot coordinates <em>are</em> level coordinates, so one integer can name a world
+ * position and a plot cell at the same time. The structure-frame source may only answer for a coordinate
+ * that is the found host's own structure's block; otherwise it shadows the world projection source - the
+ * only source that can answer "what stands where" - and the seam reads the wrong frame, or zero.
  */
 class CarrierCrossStructureSignalTest {
 
-    /** One block, physicalised: the author's build style, one sub-level per block. */
+    /** One block, physicalised: one sub-level per block. */
     private static final CarrierId STRUCTURE_A =
             CarrierId.subLevel(UUID.fromString("00000000-0000-0000-0000-00000000a17e"));
     /** The block standing one block away, physicalised on its own: the second sub-level. */
@@ -113,10 +72,7 @@ class CarrierCrossStructureSignalTest {
                 slot == null ? 0 : slot.power);
     }
 
-    /**
-     * The author's layout, projected the way one tick projects it: A's dust at full power standing one
-     * block from B's dust, each block its own sub-level.
-     */
+    /** A's dust one block from B's dust, each block its own sub-level, projected as one tick projects it. */
     private static CarrierProjection twoAdjacentStructures(Slot a, Slot b) {
         CarrierProjection projection = new CarrierProjection();
         projection.begin(DIMENSION, true);
@@ -143,15 +99,13 @@ class CarrierCrossStructureSignalTest {
     void theStructureIndexAnswersBsAskWithAnotherStructuresHost() {
         CarrierProjection projection = twoAdjacentStructures(dust(15), dust(0));
 
-        // B's solve asks about the side A is on. In B's own frame that is a plot coordinate - and the
-        // number is a plot cell of A's, so the structure index holds A's host there.
+        // In B's frame that ask is a plot coordinate, and the number is a cell of A's: the index holds A's host.
         CarrierProjection.ProjectedHost found = projection.atStructure(DIMENSION, A_LOCAL);
         assertNotNull(found, "the structure index does hold a host at the coordinate B asked about");
         assertEquals(STRUCTURE_A, found.carrier(),
                 "and that host belongs to A, not to the machine that asked");
 
-        // The world half answers a different number - where A's block actually stands - which is the
-        // answer B would get if the structure frame did not step in front of it.
+        // The world half answers where A's block stands - what B would get with no shadow in front of it.
         CarrierProjection.ProjectedHost viaWorld = projection.at(DIMENSION, A_WORLD);
         assertNotNull(viaWorld, "the world half holds A's block where it stands");
         assertEquals(STRUCTURE_A, viaWorld.carrier());
@@ -171,8 +125,7 @@ class CarrierCrossStructureSignalTest {
                         false),
                 "A's dust at full power, answered in A's frame for a question B asked");
 
-        // The fix: that coordinate belongs to A, so B must not be answered from it. The world projection
-        // source - the only source that can answer "what stands where" - is left to speak.
+        // That coordinate belongs to A, so B is not answered from it: the world source gets to speak.
         assertNull(projection.atStructureOwnedBy(DIMENSION, A_LOCAL, STRUCTURE_B),
                 "a query at A's plot cell must not be answered when the asker is B");
         assertFalse(CarrierProjection.withinStructureFrame(found, STRUCTURE_B),
@@ -183,11 +136,9 @@ class CarrierCrossStructureSignalTest {
     }
 
     @Test
-    @DisplayName("and when the shadowing host is empty the shadow answers zero - the author's symptom")
+    @DisplayName("and when the shadowing host is empty the shadow answers zero")
     void anEmptyShadowCostsTheCrossStructureRead() {
-        // A holds nothing in this one: the shape in which the shadow is not merely the wrong source but
-        // the wrong *value*. B's solve asks about the seam; the structure index answers with A's empty
-        // host, and an empty host answers 0 - indistinguishable from "there is no signal anywhere".
+        // A holds nothing, so the shadow is the wrong *value* too: an empty host answers 0, like no signal.
         CarrierProjection projection = twoAdjacentStructures(null, dust(12));
 
         CarrierProjection.ProjectedHost shadow = projection.atStructure(DIMENSION, A_LOCAL);
@@ -206,7 +157,7 @@ class CarrierCrossStructureSignalTest {
     // --------------------------------- 2. the fix: both reads, both frames --
 
     @Test
-    @DisplayName("each structure's own block is still answered in its own frame - the P1.36 ability, kept")
+    @DisplayName("each structure's own block is still answered in its own frame")
     void theStructureFrameStillAnswersForItsOwnStructure() {
         CarrierProjection projection = twoAdjacentStructures(dust(15), dust(9));
 
@@ -218,8 +169,7 @@ class CarrierCrossStructureSignalTest {
         assertEquals(15, inA.slot().power);
         assertEquals(CarrierProjection.StructureRead.OWN_STRUCTURE,
                 CarrierProjection.structureRead(inA, STRUCTURE_A),
-                "asked from inside A, this is A's own coordinate and the structure frame owns the "
-                        + "answer - the author's piston reading the redstone beside it");
+                "asked from inside A, this is A's own coordinate and the structure frame owns the answer");
 
         // And B's own cell is answered for B: the same ability on the other machine.
         CarrierProjection.ProjectedHost inB = projection.atStructureOwnedBy(DIMENSION, B_LOCAL,
@@ -238,8 +188,8 @@ class CarrierCrossStructureSignalTest {
         CarrierProjection.ProjectedHost aInWorld = projection.at(DIMENSION, A_WORLD);
         assertNotNull(aInWorld, "A's block is projected where it stands");
         assertEquals(15, CarrierProjection.emittedToward(aInWorld, Direction.NORTH, false, false),
-                "dust emits on every side, so the seam reads A's full power - the P1.35 answer the "
-                        + "P1.36 structure source was shadowing");
+                "dust emits on every side, so the seam reads A's full power - the answer the structure "
+                        + "source was shadowing");
         assertNull(projection.atStructureOwnedBy(DIMENSION, A_LOCAL, STRUCTURE_B),
                 "and that is the source that gets to answer, because the structure frame refused");
     }
@@ -290,12 +240,12 @@ class CarrierCrossStructureSignalTest {
         projection.forEachChange(DIMENSION, world::add, h -> structure.add(h.localPos()), null);
 
         assertEquals(List.of(A_LOCAL), structure,
-                "the machine's own block is woken - P1.36's notification half is not being given up");
+                "the machine's own block is woken - the notification half is not being given up");
         assertEquals(List.of(A_WORLD), world,
                 "and the world position is announced exactly as it always was");
     }
 
-    // ------------------------------------------- 4. the world side, P1.35 --
+    // ---------------------------------------------------- 4. the world side --
 
     @Test
     @DisplayName("an ordinary world coordinate is answered exactly as before: nothing at all")
@@ -349,7 +299,7 @@ class CarrierCrossStructureSignalTest {
         assertTrue(store.contains("atStructureOwnedBy(level.dimension(),"),
                 "the signal read must ask the guarded lookup, not the raw index");
         assertTrue(store.contains("carrierSource.plotOwnerAt(level, structurePos)"),
-                "and the owner it is guarded by is the plot-ownership question P1.30 established");
+                "and the owner it is guarded by is the plot-ownership question");
         assertTrue(store.contains("noteStructureFrameDeclined("),
                 "a refused cross-structure read is counted, so the next log can name the frame");
         assertTrue(store.contains("atStructureOwnedBy(level.dimension(), structurePos,"),

@@ -17,41 +17,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The log's <em>frequency</em>, not its line length: one parked machine must not produce 26,668
- * identical lines.</b>
- *
- * <h2>The author's measurement (P1.24, 40.1 MB / 33,170 lines of mod log)</h2>
- * <pre>
- *   client: carrier frame drew 0, everything settled …    26,668 lines   32.01 MB
- *   client: carrier frame drew 1, …                        1,900 lines    4.19 MB
- *   client: matrixProbe[shell] …                           2,289 lines    2.82 MB
- *   client: drawCheck …                                    1,317 lines    0.78 MB
- *   jade: carried host …                                     268 lines    0.09 MB
- * </pre>
- *
- * <p>P1.24's own fix only shortened the line (1510 → 854 characters). The lines above are 98% of the file
- * and the reason is cadence: the frame summary was throttled in <em>frames</em> and printed its "everything
- * settled" heartbeat on every window expiry, the matrix probe and the draw check printed whenever their
- * watched value moved (which, on a moving machine, is every frame), and Jade's judgement line answered a
- * per-frame question per frame.
- *
- * <h2>What is asserted here</h2>
- * <ol>
- *   <li><b>the summary is written once per window, not once per frame</b> - and the counting is in ticks,
- *       so "once a second" means a second at any frame rate;</li>
- *   <li><b>"everything settled" is not repeated per frame</b> - and not per second either: the heartbeat
- *       is minutes apart, while still existing, because a diagnostic that cannot report its own absence
- *       is not a diagnostic;</li>
- *   <li><b>an alarm is never throttled out</b> - a landed host the world path could not draw, and a pose
- *       that just went stale, print immediately;</li>
- *   <li><b>matrixProbe and drawCheck obey the same ceiling</b>, and an unchanged value is never repeated
- *       at all;</li>
- *   <li><b>the verbose switch is off by default</b> and is the only thing that brings every frame back; it
- *       changes when the lines are written and nothing else.</li>
- * </ol>
- *
- * <p>The throttle takes the client's game time as an explicit argument, so all of this is driven with plain
- * longs - no game, no clock, no sleeping.
+ * The log's <em>frequency</em>, not its line length: one parked machine must not produce tens of thousands
+ * of identical lines. The lines that dominated a session were all cadence - a frame summary throttled in
+ * <em>frames</em> and a matrix probe and draw check that printed whenever their watched value moved.
+ * <p>Asserted: one summary per window with the counting in ticks, a heartbeat minutes apart that still
+ * exists, alarms never throttled out, and a verbose switch that is off by default; game time is an argument,
+ * so all of it runs on plain longs - no game, no clock, no sleeping.
  */
 class CarrierRenderLogFrequencyTest {
 
@@ -76,13 +47,8 @@ class CarrierRenderLogFrequencyTest {
     }
 
     /**
-     * Puts the recorded geometry back to "nothing at all was emitted", then forgets the throttle.
-     *
-     * <p>Needed by the tests about the <em>settled</em> state: {@code CarrierTrace}'s render record is
-     * process-lifetime and this class's other tests fill it, so a test that asserts "an empty picture is
-     * quiet" must first say what an empty picture's counters are. (In game they are zero whenever nothing
-     * is carried, which is why the production rule needs no such reset.)
-     */
+     * Puts the recorded geometry back to "nothing at all was emitted", then forgets the throttle: the
+     * render record is process-lifetime, so a test about the settled state must say what it starts from. */
     private static void settledGeometry() {
         CarrierRenderTrace.geometry(DIMENSION,
                 CarrierGeometry.Emitted.of(0, 0, 0, 0, 0, "nothing carried", "nothing carried"),
@@ -100,22 +66,16 @@ class CarrierRenderLogFrequencyTest {
         CarrierRenderTrace.geometry(DIMENSION,
                 CarrierGeometry.Emitted.of(30, 24, 1, 1, 1, "shell", "content"), "gates", "host detail");
         // The drawn count alternates, which is what a machine in flight looks like to this counter: the
-        // hosts in range come and go as it moves. (A picture that is genuinely identical frame after frame
-        // is the settled case, and is asserted to go quiet above.)
+        // hosts in range come and go as it moves.
         int drawn = 1 + (int) (tick % 2);
-        // A HEALTHY, CONSTANT POSE AGE. This used to be `tick`, which walks the age past
-        // `POSE_AGE_WARN_TICKS` at tick 41 and fires the "a pose just went stale" alarm - an extra line
-        // that has nothing to do with the counters this test is about, and exactly the one-line
-        // discrepancy the count below kept reporting.
+        // A constant pose age: an age that walked past the warn threshold would fire an alarm of its own.
         return CarrierRenderTrace.frameSummary(DIMENSION, drawn, 0, 0, 0, 0, 0, 0, 5L, tick);
     }
 
     // ------------------------------------------------------------ the summary --
 
-    /**
-     * <b>The headline number.</b> Twenty seconds of frames at 60 fps are one line, not 1200 - and the
-     * heartbeat still arrives, on its own much longer period, so the diagnostic can report its own absence.
-     */
+    /** The headline number: twenty seconds of frames at 60 fps are one line, not 1200 - and the heartbeat
+     * still arrives, on its own much longer period, so the diagnostic can report its own absence. */
     @Test
     @DisplayName("a settled picture is written once per heartbeat, not once per frame or per second")
     void aSettledPictureIsWrittenOnTheHeartbeat() {
@@ -123,10 +83,8 @@ class CarrierRenderLogFrequencyTest {
         // The first frame of a session always reports itself: "the pass ran" has to be visible.
         assertTrue(quietFrame(0L), "the first frame of a session must report itself");
 
-        // The heartbeat is two minutes of ticks, and this loop is bounded BY it: "the settled picture says
-        // nothing at all until the heartbeat" is the claim, and the old bound (`WINDOW * 60` = 6000 ticks)
-        // ran past the heartbeat twice over, so the same assertion demanded both "silent for 6000 ticks"
-        // and "due at 2400" - two claims that cannot both hold.
+        // The heartbeat is two minutes of ticks, and this loop is bounded BY it: the claim is that the
+        // settled picture says nothing at all until then.
         int written = 0;
         for (long tick = 1; tick < HEARTBEAT; tick++) {
             if (quietFrame(tick)) {
@@ -134,8 +92,8 @@ class CarrierRenderLogFrequencyTest {
             }
         }
         assertEquals(0, written, "a settled picture must not repeat while the heartbeat is not due: "
-                + written + " line(s) in " + (HEARTBEAT - 1) + " ticks - which is exactly the author's"
-                + " 26,668-line / 32 MB defect");
+                + written + " line(s) in " + (HEARTBEAT - 1) + " ticks - a repeat here is the flood of"
+                + " identical lines this rule exists to prevent");
 
         // ...and it does come back, exactly on the heartbeat.
         assertTrue(quietFrame(HEARTBEAT), "the heartbeat is due at " + HEARTBEAT + " ticks");
@@ -149,17 +107,13 @@ class CarrierRenderLogFrequencyTest {
         assertTrue(quietFrame(HEARTBEAT * 2L), "the next heartbeat is due");
     }
 
-    /**
-     * A state change is worth a line - but the counters change on <em>every</em> frame while a machine
-     * moves, so without the window that is sixty lines a second. Ten windows, ten lines.
-     */
+    /** A state change is worth a line - but the counters change on <em>every</em> frame while a machine
+     * moves, so without the window that is sixty lines a second. Ten windows, ten lines. */
     @Test
     @DisplayName("a moving machine writes one summary per window, not one per frame")
     void aMovingMachineWritesOneSummaryPerWindow() {
-        // The first frame of a session reports itself, whatever the window says - so it is asserted here
-        // and the loop below then counts the windows that follow it. Counting the first frame inside the
-        // loop as well is how the previous round's expectation came out one too high: the window opened at
-        // tick 0 is a line, and taking it as a "window in the range" makes ten windows eleven lines.
+        // The first frame of a session reports itself, whatever the window says, so it is asserted here
+        // and the loop below counts only the windows that follow it.
         assertTrue(movingFrame(0L), "the first frame of a session reports itself");
         int written = 0;
         for (long tick = 1; tick < WINDOW * 10L; tick++) {
@@ -172,15 +126,9 @@ class CarrierRenderLogFrequencyTest {
                         + " from tick 0 to 999 are exactly ten lines, not one per frame: " + written);
     }
 
-    /**
-     * <b>A pass that is switched off reports itself, because silence cannot be read.</b>
-     *
-     * <p>The author's session of 2026-09-28 is the shape this test exists for: the machine was carried for
-     * twelve seconds and the log contains <b>no frame summary at all</b> in that time, because the summary
-     * was only written when the host overlay pass was active. "The overlay is off" and "the overlay is on
-     * and nothing reaches the screen" were therefore the same log, and the log could not answer the one
-     * question being asked. Same throttle, same clock, one line that says which it was.
-     */
+    /** A pass that is switched off reports itself, because silence cannot be read: "the overlay is off"
+     * and "the overlay is on and nothing reaches the screen" would otherwise be the same log, and the log
+     * could not answer the question being asked. Same throttle, same clock, one line saying which it was. */
     @Test
     @DisplayName("a pass that is not active reports itself once, then on its heartbeat")
     void anInactivePassStillReportsItself() {
@@ -205,15 +153,14 @@ class CarrierRenderLogFrequencyTest {
         assertTrue(quietFrame(0L), "the first frame reports itself");
         assertFalse(quietFrame(1L), "an unchanged frame one tick later does not");
 
-        // A landed host the world path could not draw: an alarm. It must not wait for the window - which
-        // is forty ticks away at the earliest, i.e. exactly the case where the reader needs it now.
+        // A landed host the world path could not draw: an alarm, and it must not wait for the window.
         assertTrue(CarrierRenderTrace.frameSummary(DIMENSION, 1, 0, 0, 0, 0, 1, 0, -1L, 2L),
                 "landedDeferred>0 is a finding and prints at once, " + (WINDOW - 2) + " ticks early");
     }
 
     // ----------------------------------------------- the other two client lines --
 
-    /** The matrix probe: it used to be printed whenever the matrix moved, which is every frame. */
+    /** The matrix probe, printed on a change and at most once per window. */
     @Test
     @DisplayName("the matrix probe is written on a change, at most once per window")
     void theMatrixProbeIsThrottledToTheWindow() {
@@ -275,27 +222,20 @@ class CarrierRenderLogFrequencyTest {
 
     // -------------------------------------------------------------- the switch --
 
-    /**
-     * <b>⑤ the switch: one key restores every frame, and changes nothing else.</b>
-     *
-     * <p>The JVM this test runs in has no loaded config file, so {@code verboseRenderLog()} answers its own
-     * documented default - which is what must be off. With it on, every one of the loops above produces one
-     * line per frame, i.e. the previous behaviour exactly.
-     */
+    /** The switch: one key restores every frame, and changes nothing else. The config file is not loaded
+     * here, so the switch answers its own documented default - which must be off - and with it on every
+     * loop above would produce one line per frame, i.e. the previous behaviour exactly. */
     @Test
     @DisplayName("verboseRenderLog is off by default, and is the one key that brings the frames back")
     void theVerboseSwitchDefaultsOffAndIsTheOneKey() {
         assertFalse(RCConfig.verboseRenderLog(),
                 "the default must be OFF: with it on, one parked machine is 32 MB of log again");
 
-        // The two numbers the size claim rests on: a five-second ceiling (P1.48 moved it from 20, which
-        // was one line a second), and a two-minute heartbeat.
+        // The two numbers the size claim rests on: a five-second ceiling and a two-minute heartbeat.
         assertEquals(100, WINDOW, "the shared ceiling is five seconds of ticks");
         assertEquals(2400, HEARTBEAT, "the settled heartbeat is two minutes of ticks");
 
-        // A caller with no clock keeps the old frame-counted behaviour, so the legacy overloads (and every
-        // test that predates this change) are untouched: twenty frames of a settled picture still produce
-        // the heartbeat the old code produced.
+        // A caller with no clock keeps the frame-counted behaviour, so the legacy overloads are untouched.
         settledGeometry();
         int legacy = 0;
         for (long tick = 0; tick < CarrierRenderTrace.FRAME_LOG_INTERVAL * 3L; tick++) {
@@ -309,28 +249,17 @@ class CarrierRenderLogFrequencyTest {
 
     // ------------------------------------------------------- the size claim --
 
-    /**
-     * <b>The size claim, as a worked projection over the author's own session shape.</b>
+    /** The size claim, as a worked projection over the session shape that produced the flood: 38 seconds
+     * of a settled picture whose recorded geometry still oscillates from frame to frame - which is what
+     * made the old rule print on every frame instead of on every window, and which the window never got a
+     * say in - then 51 seconds of a machine in flight with its host counts moving.
      *
-     * <p>The measured file (P1.24) is 99 seconds long, and the four client lines in it are:
-     *
-     * <pre>
-     *   carrier frame (settled)  26,668 lines over 37.9 s   =   704 lines/s
-     *   carrier frame (drawing)   1,900 lines over 51.1 s   =    37 lines/s
-     *   matrixProbe               2,289 lines over the run
-     *   drawCheck                 1,317 lines over the run
-     * </pre>
-     *
-     * <p>Twenty calls to {@code frameSummary} per window clearly did not bound that, and this test drives
-     * the reason: while nothing was carried, the <em>recorded quad counts</em> still moved from frame to
-     * frame, so the old rule's "a change prints immediately" fired on every frame and the window never had
-     * a say. The projection below replays that shape - the same oscillation, then the same moving machine -
-     * through the new rule and counts what would be written.
-     *
-     * <p>The numbers are printed so a report can quote a measurement rather than an estimate.
+     * <p>The projection replays that shape through the rule and counts what would be written, so a report
+     * can quote a measurement rather than an estimate. The ceiling is one line per window per line kind:
+     * four kinds over 89 seconds is at most four times eighty-nine lines.
      */
     @Test
-    @DisplayName("the author's session shape, projected through the new rule, is under a megabyte")
+    @DisplayName("a session of that shape, projected through the rule, is under a megabyte")
     void theAuthorsSessionShapeIsUnderAMegabyte() {
         final int tps = 20;
         final int settledSeconds = 38;
@@ -375,8 +304,7 @@ class CarrierRenderLogFrequencyTest {
         System.out.println("[redstonecircuit] log frequency: " + sessionSeconds + " s session -> marked"
                 + " settled=" + settledLines + " moving=" + movingLines + " matrixProbe=" + matrixLines
                 + " drawCheck=" + drawCheckLines + " total=" + total + " lines, ~" + (bytes / 1024)
-                + " KiB (the measured file had 26,668 + 1,900 + 2,289 + 1,317 = 32,174 lines and"
-                + " 39.80 MB for the same shape)");
+                + " KiB (against 26,668 + 1,900 + 2,289 + 1,317 = 32,174 lines for the same shape)");
 
         // The ceiling is one line per window per line-kind: four kinds over 89 seconds is at most 4x89.
         int ceiling = sessionSeconds * tps / WINDOW;
@@ -390,7 +318,7 @@ class CarrierRenderLogFrequencyTest {
                 "and the draw check: " + drawCheckLines + " > " + ceiling);
         assertTrue(bytes < 1024 * 1024,
                 "the whole of it has to fit in a megabyte: " + (bytes / 1024) + " KiB");
-        // And it is not merely "small": it is two orders of magnitude smaller than what was measured.
-        assertTrue(total * 100 < 32174, "the reduction has to be large: " + total + " vs 32,174 measured");
+        // And it is not merely "small": it is two orders of magnitude smaller than the flood it replaces.
+        assertTrue(total * 100 < 32174, "the reduction has to be large: " + total + " vs 32,174 in that flood");
     }
 }

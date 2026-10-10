@@ -26,31 +26,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.20, ability three: the wrench and the rotation rod on a host a structure is carrying.</b>
+ * The wrench and the rotation rod on a host a structure is carrying.
  *
- * <h2>The author's question</h2>
- * <em>"Can a physicalised block be used with the wrench or the rotation rod?"</em> It can, and this class
- * pins the whole of the behaviour - the three-state cycle, the adjacency rule, the turn, and every
- * refusal - against {@link CarriedHostIndex} alone: no level, no player, no packet. That is the point of
- * {@link CarriedTool} being a separate class from {@code WrenchLinks} and {@code RotationRod}: the world's
- * logic is not reachable from here in either direction, which is what makes "the world's behaviour is
- * unchanged" a structural fact rather than a promise.
- *
- * <h2>What is pinned</h2>
- * <ol>
- *   <li><b>The cycle is the world's cycle.</b> {@code AUTO -> ON -> OFF -> AUTO}, stepped by repeated
- *       shift-clicks, with both ends of the line written so neither can be re-routed alone.</li>
- *   <li><b>Adjacency is decided inside the structure.</b> Neighbours in the local frame, which is where
- *       the components are: a machine turned by ninety degrees has its local east at the world's south,
- *       and the two blocks a player sees beside each other are neighbours locally.</li>
- *   <li><b>Clear drops every override</b> and puts the host back to deciding for itself.</li>
- *   <li><b>The rod turns to the clicked face</b>, given in the structure's own frame, and refuses wire,
- *       which has no orientation.</li>
- *   <li><b>Every refusal is a refusal and not a side effect.</b> No component, no orientation, not
- *       adjacent, nothing picked - none of them writes anything.</li>
- *   <li><b>A landed host is not a carried host.</b> Once a structure has put a host down, the world's
- *       wrench owns it and this path must not touch its record, whatever the index still remembers.</li>
- * </ol>
+ * <p>Pinned against {@link CarriedHostIndex} alone - no level, no player, no packet - so "the world's
+ * behaviour is unchanged" is structural: {@link CarriedTool} cannot reach the world's logic, and the
+ * world's tools cannot reach a carried host. The cycle, adjacency in the structure's own frame, clear, the
+ * turn, and every refusal that writes nothing are all pinned here.
  */
 class CarriedToolTest {
 
@@ -97,12 +78,8 @@ class CarriedToolTest {
     }
 
     /**
-     * Picks a block up that holds nothing.
-     *
-     * <p>The index only files a claim when the world store has a component there - "a claim that carries
-     * nothing is not a claim" - so a block of the machine with no component in it is simply not in the
-     * index. The test's own world store can be told to answer nothing, which is what the pick-up path
-     * itself sees for a plain block.
+     * The index only files a claim when the world store has a component there, so a block of the machine
+     * that holds nothing is simply not in the index.
      */
     private static CarriedHostIndex indexWithoutComponents() {
         return new CarriedHostIndex();
@@ -177,8 +154,7 @@ class CarriedToolTest {
     void aLineToANeighbourWithoutAComponentPinsOnlyThisEnd() {
         BlockPos a = pos(1, 0, 0);
         carry(MINE, a, ComponentType.DUST);
-        // The far end is a block of the same machine that holds no component, so there is no host record
-        // for it at all - the shape a plain stone block of a machine has.
+        // The far end holds no component, so there is no host record for it at all.
 
         CarriedTool.Action action = CarriedTool.link(index, MINE, a, pos(2, 0, 0));
         assertInstanceOf(CarriedTool.Action.FarEndEmpty.class, action,
@@ -208,8 +184,7 @@ class CarriedToolTest {
     @Test
     @DisplayName("select, link, clear and turn all refuse a coordinate this structure never claimed")
     void aCoordinateWithoutAHostIsRefused() {
-        // The host record is what an action writes; a block of the machine that holds no component has
-        // none, and neither has a coordinate of a different machine.
+        // No component means no host record - and another structure's coordinate is not this one's.
         CarriedHostIndex empty = indexWithoutComponents();
         BlockPos none = pos(3, 0, 0);
 
@@ -256,10 +231,8 @@ class CarriedToolTest {
         carry(MINE, local, ComponentType.REPEATER);
         Slot slot = slotOf(MINE, local);
 
-        // The rule, in the form the class documents it: the first click makes the face the place the
-        // component READS from, unless that is already where it reads from - in which case that click is
-        // the one that turns the output onto it. Stating the expectation from the state rather than
-        // hard-coding a direction means the test pins the RULE, not a particular default facing.
+        // The first click makes the face the place the component READS from, unless it already reads
+        // there - then that click turns the output onto it. Stated from the state, so the rule is pinned.
         Direction initial = slot.facing;
         boolean firstIsInput = initial != Direction.EAST;
 

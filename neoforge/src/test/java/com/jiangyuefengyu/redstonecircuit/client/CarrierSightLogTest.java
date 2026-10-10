@@ -18,23 +18,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The B1 and B2 diagnostics' <em>timing</em> and <em>wording</em>, driven with plain longs.</b>
+ * The B1 and B2 diagnostics' <em>timing</em> and <em>wording</em>, driven with plain longs.
  *
- * <h2>Timing: the boolean sequences, not the line counts</h2>
- * Every cadence assertion here goes through {@link CarrierSightLog}, whose rules are the pure functions
- * of {@link CarrierSightThrottle}, and each one is stated as a sequence of {@code due} answers over a
- * named range of ticks. The convention is fixed and asserted once, in
- * {@link CarrierSightThrottleTest}: <b>a window opens when {@code now - last >= window}</b>, not when
- * {@code tick % window == 0}, and the first frame of a session is always due. The previous round tested
- * these windows by counting the lines a loop produced, and every one of its numbers was off by one.
+ * <p>Every cadence assertion goes through {@link CarrierSightLog}, whose rules are the pure functions of
+ * {@link CarrierSightThrottle}, and each is stated as a sequence of {@code due} answers over a named range of
+ * ticks: a window opens when the elapsed time reaches it, not on a tick multiple, and the first frame of a
+ * session is always due.
  *
- * <h2>Wording: the fields, not the sentence</h2>
- * The lines themselves are asserted by <b>which keys they carry</b> and by the <b>values those keys are
- * allowed to take</b> - never character for character. A reworded sentence or a reordered field must not
- * be able to turn this test red while the information a reader greps for is still there, and a field that
- * <em>disappears</em> must. Both B1 and B2 are worded in exactly one place
- * ({@link CarrierHostCheck}), which is what makes that possible: the line the log carries and the line
- * these assertions read are the same call.
+ * <p>The lines themselves are asserted by <b>which keys they carry</b> and the values those keys may take,
+ * never character for character, so a reworded sentence or a reordered field cannot turn this red while the
+ * information a reader greps for is still there - and a field that disappears must.
  */
 class CarrierSightLogTest {
 
@@ -50,27 +43,22 @@ class CarrierSightLogTest {
     // ------------------------------------------------------------- the gate --
 
     /**
-     * <b>The headline bound, as a sequence: an unchanged settlement answers false on every tick from 1
-     * to 2399 and true at 2400.</b>
+     * The headline bound, as a sequence: an unchanged settlement answers false on every tick from 1 to 2399
+     * and true at 2400.
      *
      * <p>Asserted with one statement per tick rather than by counting, so a failure names the tick that
-     * disagreed. This is the assertion the previous round failed: it expected the heartbeat to lie
-     * outside a 2,399-frame loop, and the loop's first call - the first frame of the session, which is
-     * always due - was inside it.
+     * disagreed.
      */
     @Test
     @DisplayName("an unchanged settlement is due at the first frame and then not until 2400")
     void anUnchangedSettlementIsVisitedOnce() {
         ClientHostCache.CarrierSweep parked = sweep(1, 1, 0, 0);
-        // The first call names the SAME settlement the loop then compares against. Passing `null` here -
-        // "no previous sweep" - gives the deliberate signature `none/1`, which differs from `parked`, so
-        // the very next visit is a *change* and the floor lets one through at tick 40. That is correct
-        // behaviour for "the picture changed", and this test is about the unchanged one.
+        // The first call names the SAME settlement the loop then compares against; passing `null` here would
+        // make the very next visit a change, which is the branch this test is not about.
         assertTrue(CarrierSightLog.sweepDue(0L, parked, 1), "the first frame of a session always reports");
         for (long tick = 1L; tick < CarrierSightLog.SWEEP_HEARTBEAT_TICKS; tick++) {
             assertFalse(CarrierSightLog.sweepDue(tick, parked, 1),
-                    "an unchanged settlement must not be visited again at tick " + tick + " - which is the"
-                            + " 59-visits-in-2400-frames defect this gate was rewritten for");
+                    "an unchanged settlement must not be visited again at tick " + tick);
         }
         assertTrue(CarrierSightLog.sweepDue(CarrierSightLog.SWEEP_HEARTBEAT_TICKS, parked, 1),
                 "and the heartbeat brings it back, because a diagnostic must be able to report its own"
@@ -80,11 +68,9 @@ class CarrierSightLogTest {
     }
 
     /**
-     * <b>A changed settlement is visited at once, and then floored.</b>
-     *
-     * <p>Once the frame that changes the numbers is visited, the next frames must not be: a count that
-     * changes on frame after frame - a machine crossing the walk's radius, a player walking around it - is
-     * one event per floor, not one line per frame.
+     * A changed settlement is visited at once, and then floored: a count that changes frame after frame - a
+     * machine crossing the walk's radius, a player walking around it - is one event per floor, not one line
+     * per frame.
      */
     @Test
     @DisplayName("a changed settlement is visited at once, and then floored")
@@ -107,18 +93,15 @@ class CarrierSightLogTest {
         assertTrue(RCConfig.debugLog(),
                 "debugLog must default ON: these two lines have to be visible without a switch");
         assertFalse(RCConfig.verboseRenderLog(),
-                "verboseRenderLog must default OFF: the author's own setting, and these two lines do"
-                        + " not depend on it");
+                "verboseRenderLog must default OFF: these two lines do not depend on it");
         assertTrue(CarrierSightLog.sweepDue(0L, null, 1));
         assertTrue(CarrierSightLog.sightDue(0L));
     }
 
     /**
-     * <b>The B2 window, as a sequence of ten.</b>
-     *
-     * <p>The convention stated in {@link CarrierSightThrottleTest} applied to the line the render pass
-     * writes: the first frame is due, and after that a window start every 100 ticks. The list of due
-     * ticks is asserted rather than their count, so "ten" cannot be an accident of a loop bound.
+     * The B2 window, as a sequence of ten: the first frame is due, and after that a window start every 100
+     * ticks. The list of due ticks is asserted rather than their count, so "ten" cannot be an accident of a
+     * loop bound.
      */
     @Test
     @DisplayName("the B2 line is due at 0, 100, ... 900 and nowhere else in 1,000 ticks")
@@ -140,12 +123,11 @@ class CarrierSightLogTest {
     // ---------------------------------------------------------- the writer --
 
     /**
-     * <b>A settlement that has not changed writes one line, not one per visit.</b>
+     * A settlement that has not changed writes one line, not one per visit.
      *
-     * <p>The gate is allowed to let a visit through for its own reasons (the heartbeat), and the writer is
-     * what keeps an unchanged picture quiet. Both halves are asserted because a log that writes the same
-     * rollup every five seconds is the noise this round exists to remove - and because the two memories
-     * ("what the last look saw" and "what was last written") are deliberately different fields.
+     * <p>The gate may let a visit through for its own reasons - the heartbeat - and the writer is what keeps an
+     * unchanged picture quiet. The two memories, "what the last look saw" and "what was last written", are
+     * different fields.
      */
     @Test
     @DisplayName("an unchanged settlement writes one line, not one per visit")
@@ -162,20 +144,19 @@ class CarrierSightLogTest {
         assertEquals(1, CarrierSightLog.writeSweep("dim", parked, 0, 0,
                 CarrierSightLog.SWEEP_HEARTBEAT_TICKS, camera, CarrierSightLog.SWEEP_HEARTBEAT_TICKS),
                 "the heartbeat is due, because a diagnostic must be able to report its own absence");
-        // The two memories are different questions: the visit saw this settlement, and it is also what was
-        // written last - but the gate is measured against the first, not the second.
+        // The two memories answer different questions: the gate compares against what was last seen, not
+        // against what was last written.
         assertEquals(CarrierSightLog.settlementOf(parked, 1), CarrierSightLog.lastSweepSeen(),
                 "the last visit's memory is what the change rule compares against");
         assertNotNull(CarrierSightLog.lastSweepSignature(), "and the writer remembers its own line");
     }
 
     /**
-     * <b>The B2 line is written once per window, and an identical one is never repeated whatever the
-     * window says.</b>
+     * The B2 line is written once per window, and an identical one is never repeated whatever the window says.
      *
      * <p>Two rules, both needed: the window bounds a <em>changing</em> line, and the equality test stops a
      * <em>constant</em> one - the component that has not moved, which is the ordinary case while a player
-     * stares at a machine. A parked machine must not fill the log with the same coordinates.
+     * stares at a machine.
      */
     @Test
     @DisplayName("the B2 line is written once per window, and never twice with the same text")
@@ -187,8 +168,8 @@ class CarrierSightLogTest {
                 "the same text is never written twice, even in the same window");
         assertEquals(line, CarrierSightLog.lastSightLine(), "the memory is the exact line");
 
-        // A different line every tick: nine more windows in the range that follows, which together with
-        // the first write is the ten the sequence test above asserts.
+        // A different line every tick: nine more windows here, which with the first write are the ten the
+        // sequence test above asserts.
         int written = 0;
         for (long tick = 1; tick < CarrierSightLog.SIGHT_INTERVAL_TICKS * 10L; tick++) {
             String changed = "carrier=c:1 local=" + tick;
@@ -202,10 +183,8 @@ class CarrierSightLogTest {
     }
 
     /**
-     * A settlement, so the gate can be driven with five numbers and no client index.
-     *
-     * <p>Two carriers and one collected: a picture that is not empty (so the "unchanged" branch is the
-     * one under test) and not degenerate (so a change is a change in one of the five numbers).
+     * A settlement, so the gate can be driven with five numbers and no client index: not empty, so the
+     * "unchanged" branch is the one under test, and not degenerate, so a change is a change in one number.
      */
     private static ClientHostCache.CarrierSweep sweep(int carriers, int collected, int onlySkipped,
                                                       int noPose) {
@@ -224,16 +203,12 @@ class CarrierSightLogTest {
     }
 
     /**
-     * <b>B1's per-carrier line: the field names, and the two sections the finding rests on.</b>
+     * B1's per-carrier line: the field names, and the two sections the line is read for.
      *
-     * <p>Two things have to be readable from this one line, and the test pins both: the <b>sections</b> -
-     * pose beside the camera, origin seven chunks away - and the <b>reason</b>, worded so "the origin
-     * bucket is out of radius" cannot be confused with "there was no pose" or "the pose was stale". The
-     * section numbers are <b>section coordinates</b> (block &gt;&gt; 4), which is what makes "is the pose
-     * in the camera's own section" a comparison a reader can do by eye.
-     *
-     * <p>Asserted as {@code key=value} for the fields whose value is the point, and as presence for the
-     * rest - never as a whole sentence.
+     * <p>The <b>sections</b> - pose beside the camera, origin seven chunks away - and the <b>reason</b> have to
+     * be readable from this one line, worded so "the origin bucket is out of radius" cannot be confused with
+     * "there was no pose" or "the pose was stale". The numbers are section coordinates (block &gt;&gt; 4),
+     * which makes "is the pose in the camera's own section" a comparison a reader can do by eye.
      */
     @Test
     @DisplayName("the B1 line names every field the acceptance procedure looks for")
@@ -256,8 +231,8 @@ class CarrierSightLogTest {
         assertTrue(line.contains("collected=no(origin-bucket-outside-radius)"), line);
         assertTrue(line.contains("hosts=0/1"), line);
         assertTrue(line.contains("poseAge=4t"), line);
-        // The projection and the origin: the evidence that the pose the client holds is perfectly good
-        // and the host was never offered to the renderer. Both keys are written, always.
+        // The projection and the origin: the evidence that the pose the client holds is good and the host was
+        // never offered to the renderer.
         assertTrue(line.contains("firstHostProjected=(40, -72, 90)"), line);
         assertTrue(line.contains("origin=(20481030, -79, 87)"), line);
     }
@@ -278,14 +253,13 @@ class CarrierSightLogTest {
     }
 
     /**
-     * <b>B2's line: the field names, and the set of values {@code ray=} may take.</b>
+     * B2's line: the field names, and the set of values {@code ray=} may take.
      *
-     * <p>The three shapes the round exists to tell apart, each asserted by its fields rather than by its
-     * sentence: no target at all ({@code drawnWorld=unknown}, {@code ray=unknown-target}), a ray that hit
-     * something else ({@code ray=hit(…)} with the hit's own coordinates so they can be compared against
-     * {@code target=}), and a ray that hit nothing ({@code ray=miss}). Each of the eight field names is
-     * asserted to appear <b>at most once</b>, which is the same invariant the frame row is held to: a
-     * field written twice is a line a reader cannot count from.
+     * <p>Three shapes have to be told apart, each asserted by its fields rather than by its sentence: no target
+     * at all, a ray that hit something else (with the hit's own coordinates, so they can be compared against
+     * {@code target=}), and a ray that hit nothing. Each of the eight field names is asserted to appear <b>at
+     * most once</b>, the same invariant the frame row is held to: a field written twice is a line a reader
+     * cannot count from.
      */
     @Test
     @DisplayName("the B2 line distinguishes unknown target, refused hit and miss, each field once")
@@ -325,7 +299,7 @@ class CarrierSightLogTest {
                         "'" + field + "' is written once per line: " + line);
             }
         }
-        // And the value of `ray=` is always one of the three shapes the round names, never a sentence.
+        // The value of `ray=` is always one of the three shapes, never a sentence.
         for (String line : new String[] { unknown, hit, miss, plot }) {
             assertTrue(isOneOfTheRayShapes(valueOf(line, "ray=")),
                     "ray= is miss, hit(...) or unknown-target, never anything else: " + line);
@@ -335,16 +309,12 @@ class CarrierSightLogTest {
     // ------------------------------------------------- the classification --
 
     /**
-     * <b>The classification agrees with the boolean it is given, in both directions.</b>
+     * The classification agrees with the boolean it is given, in both directions.
      *
-     * <p>This is the contract that lets the diagnostic be read as a report of the renderer's own decision:
-     * {@code accepted} always wins, because it <em>is</em> the decision. The corollary is the one that
-     * catches a naive implementation: a ray that hit the structure's own blocks is {@code accepted}, so it
-     * must classify as {@code DRAWN} and not as a refusal.
-     *
-     * <p>Both entry points are checked, because the renderer uses the pure one: {@code Sight#ofFacts} takes
-     * the three facts it already holds, and {@code Sight#of} takes the ray's result. They have to agree on
-     * every combination, or the line and the picture could be classified two ways.
+     * <p>{@code accepted} always wins, because it <em>is</em> the renderer's decision - so a ray that hit the
+     * structure's own blocks classifies as {@code DRAWN} and not as a refusal. Both entry points are checked,
+     * the pure one the renderer uses and the one that takes the ray's result, because they have to agree on
+     * every combination or the line and the picture could be classified two ways.
      */
     @Test
     @DisplayName("the sight classification never contradicts the decision it was given")
@@ -397,10 +367,8 @@ class CarrierSightLogTest {
     // ---------------------------------------------------- the counters --
 
     /**
-     * <b>The tally's arithmetic, and that it counts what it says it counts.</b>
-     *
-     * <p>Five counters, one per answer, and {@code sightChecked} is their sum: a counter that could drift
-     * from the classification would make the frame summary lie about the very thing it was added for.
+     * The tally's arithmetic: five counters, one per answer, with {@code sightChecked} as their sum, since a
+     * counter that could drift from the classification would make the frame summary lie about what it counts.
      */
     @Test
     @DisplayName("the sight tally adds up, one counter per answer")
@@ -431,12 +399,10 @@ class CarrierSightLogTest {
     }
 
     /**
-     * <b>B1's rollup, in the wording the acceptance procedure greps for.</b>
+     * B1's rollup, in the wording a reader greps for.
      *
-     * <p>{@code collected=M skippedOriginOnly=K} is the pair the finding rests on, and
-     * {@code skippedStale} / {@code skippedFar} have to be <b>separate</b> numbers: "the walk never offered
-     * it" and "the walk offered it and the renderer then refused it" are opposite conclusions and were the
-     * same silence before this round.
+     * <p>{@code skippedStale} and {@code skippedFar} have to be <b>separate</b> numbers: "the walk never
+     * offered it" and "the walk offered it and the renderer then refused it" are opposite conclusions.
      */
     @Test
     @DisplayName("the carrier rollup separates not-offered from offered-and-refused")
@@ -458,12 +424,9 @@ class CarrierSightLogTest {
     // ------------------------------------------------------- the settlement --
 
     /**
-     * <b>The gate compares the settlement, not the line.</b>
-     *
-     * <p>Two settlements that differ in any of the five numbers have to compare unequal, and the same five
-     * numbers have to compare equal - otherwise a change is missed (the finding never appears) or a
-     * non-change is reported (a line per frame). The carrier count is part of it, which is what makes a
-     * machine appearing count as a change even before the next walk.
+     * The gate compares the settlement, not the line: two settlements that differ in any of the five numbers
+     * have to compare unequal and the same five numbers have to compare equal, or a change is missed or a
+     * non-change is reported. The carrier count is part of it, so a machine appearing is a change at once.
      */
     @Test
     @DisplayName("the settlement signature and the walk-only guard are exact")
@@ -488,11 +451,9 @@ class CarrierSightLogTest {
     // ----------------------------------------------------------------- helpers --
 
     /**
-     * The value of one field of a line, or an empty string when it is not there.
-     *
-     * <p>Parenthesis aware, because a value may contain spaces: {@code ray=hit(2776, 78, -1394)} is one
-     * value, and a naive "up to the next space" reading would return {@code hit(2776,} and then report
-     * that the line does not name a hit shape - a test failure about the test rather than about the line.
+     * The value of one field of a line, or an empty string when it is not there. Parenthesis aware, because a
+     * value may contain spaces: a naive "up to the next space" reading would cut a hit shape in half and then
+     * report that the line names no hit.
      */
     private static String valueOf(String line, String field) {
         int at = line.indexOf(field);
@@ -508,7 +469,7 @@ class CarrierSightLogTest {
         return to < 0 ? line.substring(from) : line.substring(from, to);
     }
 
-    /** Whether a {@code ray=} value is one of the shapes this round names. */
+    /** Whether a {@code ray=} value is one of the shapes the line uses. */
     private static boolean isOneOfTheRayShapes(String value) {
         return "miss".equals(value) || "unknown-target".equals(value)
                 || "drawn".equals(value) || "refused-hit".equals(value)

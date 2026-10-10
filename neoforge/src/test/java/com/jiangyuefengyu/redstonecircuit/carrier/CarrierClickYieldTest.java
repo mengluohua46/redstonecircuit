@@ -34,94 +34,30 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.34 commit A: the world side stands down only for a click that is really ours - so an ordinary
- * block can be placed on a physicalised structure again. P1.35 adds the second half of the same defect:
- * the SNEAK KEY is part of "is this click ours".</b>
+ * The world side stands down only for a click that is really ours - and the sneak key is part of "is this click ours".
+ * Standing down for a whole coordinate stopped vanilla's own item use, so no piston, plank or lever could be placed on a
+ * carried block; a component in hand is a placement either way, and only the sneaking half is a store.
  *
- * <h2>The author's report, and the numbers behind it</h2>
- * <em>"仍然锁不到普通方块，物理方块上面活塞都不能放了"</em> - and the log counts it precisely:
- * {@code world insert declined} appears <b>38</b> times in one session, and by held item
- *
- * <pre>
- *   19x minecraft:piston x1        the author's report: an ordinary block that cannot be placed
- *   12x minecraft:grass_block x1   the same, one ordinary block earlier
- *    8x redstonecircuit:redstone_wrench x1
- *    8x empty (bare hand)
- *    3x minecraft:redstone x25     the only family that really is ours
- * </pre>
- *
- * <p>Every one of them set {@code useBlock=false useItem=false}, because {@code CarrierClickPriority#owner}
- * answered for the <b>coordinate</b> and the world read that as "nothing may happen here". Vanilla places
- * a block through {@code Item#useOn}, which those two fields stop - so a piston could not be put onto a
- * physicalised machine at all, and neither could the grass block the author was building with.
- *
- * <h2>P1.35: the next session's log, and the row the kind alone could not tell apart</h2>
- * <em>"活塞没问题了，但是……一个新问题，拉杆放不上去了"</em> - the piston half was fixed and the next log
- * has <b>41</b> declines, grouped by hand as
- *
- * <pre>
- *   21x redstonecircuit:redstone_wrench x1   the wrench's own shift-click: still ours, as it must be
- *   19x minecraft:lever x4  tool=component   the author's report, every one of them sneaking=false
- *    1x minecraft:redstone x30 tool=component the one legitimate family - and it is sneaking=true
- * </pre>
- *
- * <p>{@code CarrierGesture.Kind#PLACEMENT} is one kind for two halves: a component in hand is a placement
- * whether or not the sneak key is down, and the sneak state only chooses which half (store it in the
- * machine's record, or let vanilla put the item <b>down</b> as a block). The predicate read the kind and
- * not the sneak state, so all 19 lever clicks were stood down - and a lever, a torch and a repeater are
- * exactly the items a player places as blocks. That is this round's row.
- *
- * <h2>What is pinned here, and how the two halves are cross-checked</h2>
- * <ol>
- *   <li><b>the predicate itself, over a table</b> - the four things a hand can hold, both sneak states, the
- *       clicked cell's own contents and all four switch combinations, asserted row by row against the
- *       answer it must give. The rule has one home ({@code weOwnThisClick}) and the table is its
- *       definition;</li>
- *   <li><b>the cross-check with the carrier's own entry point</b> - the same table is also asserted against
- *       the switch each of the four gesture paths reads in {@code CarrierInteraction}
- *       ({@code handleToolClick}, {@code handlePlacementClick}, {@code handleSwitchClick}), so "the world
- *       yields" and "the carrier will act" cannot drift apart. A change to one side that is not made to the
- *       other fails here, which is the whole reason the judgement was asked to live in one place;</li>
- *   <li><b>the wiring, over the source</b> - the world side asks that one predicate with the gesture, the
- *       sneak state and the clicked cell's state, and returns before touching the event when the answer is
- *       "not ours";</li>
- *   <li><b>the ownership half, driven as production asks it</b> - with a live plot-owning structure the
- *       cell is the structure's and the world stands down for a component <b>while sneaking</b>, a tool and
- *       a bare hand on a host that holds one; with a piston in hand, and with a component in hand and no
- *       sneak key, it does <b>not</b>;</li>
- *   <li><b>the world's own coordinates, byte for byte</b> - an ordinary block, a plot-shaped coordinate no
- *       sub-level owns, a landed host and a dead sub-level all keep the event exactly as it arrived, so no
- *       coordinate outside the three positive answers changed behaviour at all.</li>
- * </ol>
- *
- * <h2>Why the new decision is asked by name</h2>
- * The whole defect is "the world side answered about the coordinate instead of the click", and the fix is a
- * <b>new</b> answer to a question that used to have only one form. So the test asks for it
- * <b>reflectively</b>: on the previous build the method does not exist, every call answers "not ours", and
- * every assertion about a piston / a component / a bare hand fails as a plain assertion failure against a
- * tree that compiles and runs. That is the red half of this round's evidence, measured rather than
- * remembered, and every failure message these tests print says which half is which.
- *
- * <p>P1.35 adds one argument to that signature rather than a new method, and the same reflective lookup
- * carries the red half: on the P1.34 tree the ten-argument form does not exist, so every row answers
- * {@code false} - including the ones that must yield - and the table below fails row by row.
+ * <p>Pinned here: the predicate over a table of hands, sneak states, cell contents and switch combinations; the
+ * cross-check against the switch each gesture path in {@code CarrierInteraction} reads, so "the world yields" and "the
+ * carrier will act" cannot drift apart; and the call site's shape, since a unit test has no player.
  */
 class CarrierClickYieldTest {
 
-    /** The author's own carrier, from {@code carrier s:e0677381}. */
+    /** The carrier every fixture in this file is filed under. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("e0677381-0000-0000-0000-000000000000"));
 
-    /** A cell of that structure: the coordinate the piston was aimed at, one block along from the log's. */
+    /** A cell of that structure. */
     private static final BlockPos PLOT = new BlockPos(20481034, 127, 20481032);
 
     /** A second cell of the same structure, used for the empty-record state. */
     private static final BlockPos EMPTY_CELL = new BlockPos(20481033, 127, 20481032);
 
-    /** Where the author's pose put those cells: {@code world=-2, -60, -10} in the log. */
+    /** Where the pose puts those cells. */
     private static final BlockPos VISIBLE = new BlockPos(-2, -60, -10);
 
-    /** The author's own {@code origin=} from the {@code filed the carrier host} line. */
+    /** The structure's origin. */
     private static final BlockPos ORIGIN = new BlockPos(-1, -60, -10);
 
     /** An ordinary world block, nowhere near any structure's plot region. */
@@ -196,7 +132,7 @@ class CarrierClickYieldTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's own is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos}: a translation and nothing else. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -208,11 +144,8 @@ class CarrierClickYieldTest {
     }
 
     /**
-     * The same machine, with the empty-record cell optional.
-     *
-     * <p>Without a record at {@link #EMPTY_CELL} that cell is a plot cell the index has never heard of,
-     * which is the one state that has to ask whether the structure is still there at all
-     * ({@code CarrierStore#ownedHostAtPlot} asks liveness only when the index holds no record).
+     * The same machine, with the empty-record cell optional: without a record there, that cell is a plot cell the index
+     * has never heard of - the one state that has to ask whether the structure is still there.
      */
     private void theAuthorsMachine(boolean withEmptyRecord) {
         plotOwners.put(PLOT.asLong(), AUTHOR);
@@ -243,10 +176,8 @@ class CarrierClickYieldTest {
     }
 
     /**
-     * The gesture a hand and a sneak state make, through the production rule rather than a literal.
-     *
-     * <p>Asked through {@code CarrierGesture} so this file cannot invent a gesture the entry point would
-     * never see: the two halves of "which click is this" have one implementation.
+     * The gesture a hand and a sneak state make, asked through {@code CarrierGesture} so this file cannot invent a
+     * gesture the entry point would never see.
      */
     private static CarrierGesture.Kind gestureOf(Hold hand, boolean sneaking) {
         return CarrierGesture.of(new CarrierGesture.Hold(hand.wrench(), hand.rod(), hand.component(),
@@ -254,12 +185,8 @@ class CarrierClickYieldTest {
     }
 
     /**
-     * {@code CarrierClickPriority#weOwnThisClick(...)}, asked by name.
-     *
-     * <p>The previous build has no such decision (and the one before this round has no sneak state in it),
-     * so the reflective lookup fails and this answers {@code false} - "the world does not stand down",
-     * which is the state the piston and the author's lever both need. Every assertion below then fails
-     * against a tree that really compiles and runs.
+     * {@code CarrierClickPriority#weOwnThisClick(...)}, asked by name: a build without that decision makes the reflective
+     * lookup fail and this answer {@code false}, so every assertion below fails against a tree that compiles and runs.
      */
     private static boolean weOwn(CarrierGesture.Kind gesture, Hold hand, boolean sneaking,
                                  boolean cellHoldsComponent, boolean insert, boolean wrench,
@@ -284,13 +211,8 @@ class CarrierClickYieldTest {
     }
 
     /**
-     * {@code CarrierClickPriority#standDown(Owned, Kind, Hold, boolean, boolean, boolean, boolean, boolean)},
-     * asked by name - the production form, with the sneak state this round adds to it.
-     *
-     * <p>A direct call would stop this file from compiling against the previous build, which is the one
-     * thing it must be able to do: the red half of this round's evidence is a real run on that tree. So it
-     * is asked reflectively, and the previous build's answer - the method does not exist - is the no-arg
-     * form below, which stands down for <b>every</b> owned coordinate and is exactly the defect.
+     * {@code CarrierClickPriority#standDown(Owned, Kind, Hold, boolean, boolean, boolean, boolean, boolean)}, asked by
+     * name; a build without the method falls back to the no-arg form below, which stands down for every owned coordinate.
      */
     private static CarrierClickPriority.StandDown standDown(CarrierClickPriority.Owned owned,
                                                             CarrierGesture.Kind gesture, Hold hand,
@@ -306,27 +228,38 @@ class CarrierClickYieldTest {
                     sneaking, cellHoldsComponent, true, true, true);
             return (CarrierClickPriority.StandDown) answer;
         } catch (ReflectiveOperationException absent) {
-            // The previous build: ownership of the coordinate is the whole question, so a piston in hand
-            // stands the world down exactly like a component does. That is the author's defect.
+            // A build without the click-named form: ownership of the coordinate is the whole question, so a piston
+            // in hand stands the world down exactly like a component does.
             return CarrierClickPriority.standDown(owned);
         }
     }
 
     /**
-     * <b>Whether the carrier's own entry point would act on this click - the gate each path opens with.</b>
-     *
-     * <p>Not a re-implementation of the rule: it is the <b>gate</b> each of the four paths in
-     * {@code CarrierInteraction} opens with, written out so the cross-check can compare it against the
-     * world side's answer. {@code handleToolClick} reads {@code carriedWrench} / {@code carriedRotationRod},
-     * {@code handlePlacementClick} reads {@code carriedInsert}, {@code handleSwitchClick} reads
-     * {@code carriedSwitches} <b>and</b> has to find something to work
-     * ({@code CarrierStore#hostHasComponent}), and a click no gesture owns never reaches the carrier layer
-     * at all.
-     *
-     * <p>The item half matters exactly where the gesture is a placement: a component in hand is stored
-     * against the cell's own contents <b>while sneaking</b> - the plain half is the world's own block
-     * placement, and {@code CarriedInsert#preview} answers {@code NOT_SNEAKING} for it - while an empty
-     * hand has nothing to take out of a cell that holds nothing.
+     * The same decision with the host rule stated:
+     * {@code CarrierClickPriority#standDown(Owned, Kind, Hold, boolean, boolean, boolean, boolean, boolean, boolean)}.
+     * Asked by name for the same reason, and a build without the nine-argument form falls back to the one-argument one.
+     */
+    private static CarrierClickPriority.StandDown standDown(CarrierClickPriority.Owned owned,
+                                                            CarrierGesture.Kind gesture, Hold hand,
+                                                            boolean sneaking, boolean cellHoldsComponent,
+                                                            boolean hostAcceptsComponent) {
+        try {
+            java.lang.reflect.Method method = CarrierClickPriority.class.getDeclaredMethod("standDown",
+                    CarrierClickPriority.Owned.class, CarrierGesture.Kind.class, CarrierGesture.Hold.class,
+                    boolean.class, boolean.class, boolean.class, boolean.class, boolean.class, boolean.class);
+            method.setAccessible(true);
+            Object answer = method.invoke(null, owned, gesture,
+                    new CarrierGesture.Hold(hand.wrench(), hand.rod(), hand.component(), hand.empty()),
+                    sneaking, cellHoldsComponent, hostAcceptsComponent, true, true, true);
+            return (CarrierClickPriority.StandDown) answer;
+        } catch (ReflectiveOperationException absent) {
+            return CarrierClickPriority.standDown(owned);
+        }
+    }
+
+    /**
+     * Whether the carrier's own entry point would act on this click: the gate each path in {@code CarrierInteraction}
+     * opens with, written out so the cross-check can compare it against the world side's answer.
      */
     private static boolean theCarrierWouldAct(CarrierGesture.Kind gesture, Hold hand, boolean sneaking,
                                              boolean cellHoldsComponent, boolean insert, boolean wrench,
@@ -347,30 +280,23 @@ class CarrierClickYieldTest {
     class TheRule {
 
         @Test
-        @DisplayName("holding an ORDINARY BLOCK - the author's piston - is never ours, whatever else is true")
+        @DisplayName("holding an ORDINARY BLOCK - a piston - is never ours, whatever else is true")
         void anOrdinaryBlockIsNeverOurs() {
             for (boolean sneaking : new boolean[] {false, true}) {
                 assertFalse(weOwn(CarrierGesture.Kind.NONE, Hold.PISTON, sneaking, false),
                         "a piston is not a component, not a tool, and not an empty hand: this is the click "
-                                + "the author could not make, and it must fall through to vanilla's own "
-                                + "placement (sneaking=" + sneaking + ")");
+                                + "that must fall through to vanilla's own placement (sneaking=" + sneaking + ")");
                 assertFalse(weOwn(CarrierGesture.Kind.NONE, Hold.PISTON, sneaking, true),
                         "and a cell that holds a component changes nothing about it: the item in hand "
                                 + "decides which gesture this is, and a piston owns no gesture of ours");
                 assertFalse(weOwn(CarrierGesture.Kind.NONE, Hold.GRASS_BLOCK, sneaking, true),
-                        "the same for the grass block the author was building with - P1.34's regression "
-                                + "assertion, kept: this row must never stand the world down again");
+                        "the same for the grass block: this row must never stand the world down again");
             }
         }
 
         /**
-         * <b>P1.35's row: the sneak key is part of "is this click ours".</b>
-         *
-         * <p>The author's "拉杆放不上去了", as a table: a lever, a torch and a repeater are all
-         * {@code Hold.COMPONENT} (the only fact the predicate has about the item - see
-         * {@code CarrierGesture.Hold#component}), the 19 declines in their log were all
-         * {@code snaking=false}, and the plain half of a placement is the world's own block placement.
-         * Both halves are asserted for both cell states, which is the four-row table this round is about.
+         * The sneak key is part of "is this click ours": a lever, a torch and a repeater are all {@code Hold.COMPONENT},
+         * the only fact the predicate has about the item, and the plain half of a placement is vanilla's own placement.
          */
         @Test
         @DisplayName("a component in hand is ours ONLY while sneaking: the plain click is vanilla's placement")
@@ -383,8 +309,7 @@ class CarrierClickYieldTest {
             for (boolean cell : new boolean[] {false, true}) {
                 assertFalse(weOwn(CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, false, cell),
                         "a lever / torch / repeater in hand with NO sneak key (cellHoldsComponent=" + cell
-                                + "): not ours - the author has to be able to put the block down, and this "
-                                + "is the 19-decline row of their log");
+                                + "): not ours - the player has to be able to put the block down");
                 assertEquals(true, weOwn(CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, true, cell),
                         "the same item while sneaking IS ours: it is stored in the carrier's own record "
                                 + "(cellHoldsComponent=" + cell + "; allowReplace decides replace-or-not, "
@@ -393,8 +318,7 @@ class CarrierClickYieldTest {
 
             assertEquals(true, weOwn(CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, true, false, true, true,
                             true),
-                    "and the legitimate family of the author's log - the single `redstone x30` click with "
-                            + "sneaking=true - still yields, which is what keeps the placement working");
+                    "a component in hand while sneaking still yields, which is what keeps the placement working");
             assertFalse(weOwn(CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, false, false, false, true, true),
                     "while the plain half is not ours even with the placement switched off: two independent "
                             + "reasons, and neither of them may turn into a stand-down");
@@ -427,7 +351,7 @@ class CarrierClickYieldTest {
                     "a bare-hand click on a host that holds a component is ours: that is the workable block");
             assertFalse(weOwn(CarrierGesture.Kind.SWITCH, Hold.BARE, false, false),
                     "and a cell that holds NOTHING is not: a piston, a lamp, a chest, a lever - the world "
-                            + "and vanilla keep the click, which is what the author asked for");
+                            + "and vanilla keep the click");
             assertEquals(true, weOwn(CarrierGesture.Kind.PLACEMENT, Hold.BARE, true, true),
                     "shift + empty hand on a host that holds a component takes it back out");
             assertFalse(weOwn(CarrierGesture.Kind.PLACEMENT, Hold.BARE, true, false),
@@ -450,8 +374,7 @@ class CarrierClickYieldTest {
                             + "carriedRotationRod and refuses by name, and the click is still ours to "
                             + "refuse rather than the world's to act on");
             assertFalse(weOwn(CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, false, false, true, true, true),
-                    "and with every switch ON, the sneak key alone still decides the plain half: this is "
-                            + "the row the author's 19 lever clicks were on");
+                    "and with every switch ON, the sneak key alone still decides the plain half");
         }
 
         @Test
@@ -469,17 +392,10 @@ class CarrierClickYieldTest {
         }
 
         /**
-         * <b>The cross-check the round asked for: the judgement has one home, and these two must agree.</b>
-         *
-         * <p>Walked over every combination of the four things a hand can hold, both sneak states, both cell
-         * states and all four switch combinations: 6 x 2 x 2 x 2 x 2 x 2 = 384 rows. If somebody changes one
-         * side - a new gesture in the rule, a new gate in an entry path - this fails with the exact row,
-         * instead of the two halves drifting silently apart the way they did when the world side answered
-         * about the coordinate and the carrier side about the click.
-         *
-         * <p>The sneak dimension is explicit and not folded into the gesture, which is the whole of P1.35:
-         * the same kind covers "shift + component = store it here" and "plain + component = vanilla puts the
-         * block down", and only the row that the carrier's own placement rule would act on may yield.
+         * The cross-check: the judgement has one home, so the world side's answer and the carrier's own gate must agree
+         * over every combination of hand, sneak state, cell state and switches - 6 x 2 x 2 x 2 x 2 x 2 = 384 rows. A change
+         * to one side fails here with the exact row, and the sneak dimension stays explicit: only the row the carrier's own
+         * placement rule would act on may yield.
          */
         @Test
         @DisplayName("the yield judgement and the carrier's own gates are the same table")
@@ -519,13 +435,10 @@ class CarrierClickYieldTest {
     }
 
     /**
-     * <b>The wiring, asserted over the source, because a unit test has no player.</b>
-     *
-     * <p>The rule above is only half of the fix: the decision is worth nothing unless the world side asks
-     * it. That call site is in {@code InnerRedstoneInteraction#onRightClickBlock}, which needs a
-     * {@code ServerPlayer} to run - so what is pinned here is the shape of the call: the gesture is read
-     * from the carrier-side rule's own production form, the cell's contents come from the same method the
-     * carrier entry point uses, and the answer is acted on by returning before the event is touched.
+     * The wiring, asserted over the source, because a unit test has no player: the decision is worth nothing unless the
+     * world side asks it, and that call site needs a player to run. What is pinned is the shape of the call - the gesture
+     * from the carrier-side rule's own production form, the cell's contents from the method the carrier entry point uses,
+     * and the answer acted on by returning before the event is touched.
      */
     @Nested
     @DisplayName("the production wiring: the world side asks this one predicate, with the click named")
@@ -546,8 +459,13 @@ class CarrierClickYieldTest {
             assertTrue(source.contains("CarrierStore.hostHasComponent(serverLevel, carrierOwns.carrier(),"),
                     "and the clicked cell's own contents are asked with the same method the carrier entry "
                             + "point asks before it acts");
+            assertTrue(source.contains("CarrierStore.hostAcceptsComponent(carrierOwns.carrier(),"),
+                    "and whether the block may hold a component at all is asked beside it, with the same "
+                            + "method the carrier's own placement asks - without this half the world stood down for a "
+                            + "click the carrier layer was then going to refuse, and the block the player was putting "
+                            + "down never appeared at all");
             assertTrue(source.contains("CarrierGesture.Hold.of(stack), player.isSecondaryUseActive(),"),
-                    "P1.35: and the SNEAK STATE is passed beside them, because the kind cannot carry it: a "
+                    "and the SNEAK STATE is passed beside them, because the kind cannot carry it: a "
                             + "component in hand is a placement either way, and only the sneaking half of it "
                             + "is a store");
         }
@@ -595,16 +513,14 @@ class CarrierClickYieldTest {
             CarrierClickPriority.StandDown standDown = standDown(owned,
                     CarrierGesture.Kind.NONE, Hold.PISTON, false, true);
 
-            assertTrue(standDown.useBlock(), "vanilla's own block use must run: this is the coordinate the "
-                    + "author could not place a block on");
+            assertTrue(standDown.useBlock(), "vanilla's own block use must run: this is a coordinate a block "
+                    + "could not be placed on");
             assertTrue(standDown.useItem(), "and the item's useOn, which is how a block is really placed");
             assertFalse(standDown.canceled(), "nothing is cancelled, so every listener still sees the click");
             assertEquals(new CarrierClickPriority.StandDown(true, true, false), standDown,
                     "the whole event is left exactly as it arrived");
 
-            // P1.35, and this is the author's lever: the SAME component-in-hand click the row below stands
-            // the world down for becomes the world's again the moment the sneak key is not held. Both cell
-            // states, because the cell's own contents must not be able to change it either.
+            // The same click becomes the world's again the moment the sneak key is not held, for both cell states.
             for (boolean cell : new boolean[] {false, true}) {
                 assertEquals(new CarrierClickPriority.StandDown(true, true, false),
                         standDown(owned, CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, false, cell),
@@ -650,7 +566,7 @@ class CarrierClickYieldTest {
             assertFalse(standDown(held, CarrierGesture.Kind.PLACEMENT, Hold.BARE, true, true).useBlock(),
                     "shift + bare hand: our retrieval");
             assertTrue(standDown(emptyHost, CarrierGesture.Kind.SWITCH, Hold.BARE, false, false).useBlock(),
-                    "and a bare hand on a host that holds NOTHING is not ours: the author's piston again, "
+                    "and a bare hand on a host that holds NOTHING is not ours: the block holds no component, "
                             + "which is why the cell's own contents are part of the question");
             assertTrue(standDown(emptyHost, CarrierGesture.Kind.PLACEMENT, Hold.BARE, true, false)
                             .useBlock(),
@@ -658,10 +574,37 @@ class CarrierClickYieldTest {
         }
 
         @Test
+        @DisplayName("a block that cannot hold a component does not make the click ours")
+        void aBlockThatCannotHostYieldsTheClick() {
+            theAuthorsMachine();
+            CarrierClickPriority.Owned owned = probe(PLOT, answeringLookup());
+            assertNotNull(owned, "the coordinate is the structure's; what the block IS is the second input");
+
+            assertTrue(standDown(owned, CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, true, true, false)
+                            .useBlock(),
+                    "the ghost was vanilla predicting a placement that never ran: this side had already stood down "
+                            + "for a store gesture, and then the carrier's own placement rule refused it because the "
+                            + "block may not hold a component (a physicalised pane of glass, a structure block, a "
+                            + "crafting table, a slab). With the block's own answer in front of it, the world keeps the "
+                            + "click and the block really is put down - the same thing that happens on a pane of glass "
+                            + "in the world");
+            assertTrue(standDown(owned, CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, true, true, false)
+                            .useItem(),
+                    "and the item's useOn is the half that actually places a block, so both fields have to be the "
+                            + "world's again");
+            assertFalse(standDown(owned, CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, true, true, true)
+                            .useBlock(),
+                    "while the same click on a block that MAY hold one is still ours: nothing that worked moved");
+            assertFalse(standDown(owned, CarrierGesture.Kind.PLACEMENT, Hold.BARE, true, true, false).useBlock(),
+                    "and a bare hand taking a component back OUT of that block stays ours even though the block "
+                            + "refuses to hold one - the world's own retrieval asks nothing about the host either, "
+                            + "so a component a player put in must always come back out");
+        }
+
+        @Test
         @DisplayName("the switch off is the escape hatch, and it is on by default")
         void theSwitchDefaultsOn() {
-            assertTrue(carriedInsertPriority(), "with it off the world keeps every click again, exactly as "
-                    + "it did before this class existed");
+            assertTrue(carriedInsertPriority(), "with it off the world keeps every click again");
         }
     }
 
@@ -679,8 +622,7 @@ class CarrierClickYieldTest {
                 CarrierClickPriority.StandDown standDown = standDown(null,
                         CarrierGesture.Kind.PLACEMENT, Hold.COMPONENT, sneaking, false);
 
-                assertTrue(standDown.useBlock(), "the world path decides this click, exactly as before "
-                        + "(sneaking=" + sneaking + ")");
+                assertTrue(standDown.useBlock(), "the world path decides this click (sneaking=" + sneaking + ")");
                 assertTrue(standDown.useItem());
                 assertFalse(standDown.canceled());
             }
@@ -705,9 +647,8 @@ class CarrierClickYieldTest {
 
             assertNull(probe(PLOT, answeringLookup()), "a put-down host is the world's");
 
-            // A cell with NO record, on a sub-level nothing stands on any more: this is the one path that
-            // has to ask the liveness question (a cell the index holds a record for does not need it - the
-            // record is the structure's own claim on that coordinate), and the answer must not be "mine".
+            // The one path that has to ask the liveness question: a record is the structure's own claim on the coordinate,
+            // and the answer here must not be "mine".
             index.clear();
             theAuthorsMachine(false);
             liveness = carrier -> false;
@@ -721,11 +662,10 @@ class CarrierClickYieldTest {
         void ownershipIsUnchangedAndNoLongerSufficient() {
             theAuthorsMachine();
 
-            // The same cell, the same ownership answer, three clicks: the sneaking component is stood down,
-            // the plain component and the piston are not. That is the whole of P1.34 + P1.35 - not a narrower
-            // ownership question, a narrower question about the CLICK.
+            // The same cell and ownership answer, three clicks: the sneaking component is stood down, the plain component
+            // and the piston are not - a narrower question about the click, not about ownership.
             CarrierClickPriority.Owned owned = probe(PLOT, answeringLookup());
-            assertNotNull(owned, "ownership answers for the cell exactly as it did before this round");
+            assertNotNull(owned, "ownership answers for the cell, unchanged");
             assertEquals(CarrierClickPriority.Probe.HOST, owned.probe(),
                     "and the tag is unchanged: there is a live record here");
             assertEquals(PLOT, owned.localPos(), "and the coordinate IS the structure's local coordinate");
@@ -740,7 +680,7 @@ class CarrierClickYieldTest {
 
     // ---------------------------------------------------------------- fixtures --
 
-    /** See {@code CarrierPlotOwnershipLevelTest}: a unit test has no {@code ServerLevel} to hand over. */
+    /** A unit test has no {@code ServerLevel} to hand over, so the plot level is null. */
     private static final ServerLevel PLOT_LEVEL = null;
 
     @Nullable
@@ -755,18 +695,18 @@ class CarrierClickYieldTest {
                     (CarrierStore.PoseSource) carrier -> poseOf(carrier), counted());
             return (CarrierClickPriority.Owned) result;
         } catch (ReflectiveOperationException absent) {
-            // The previous build has no such decision: answering null is "no structure owns this
-            // position" - the world keeps the click, which is the state this round repairs.
+            // A build without that decision answers null - "no structure owns this position" - so the world keeps
+            // the click.
             return null;
         }
     }
 
-    /** A lookup that answers whether or not it is handed a level - P1.30's own fixture shape. */
+    /** A lookup that answers whether or not it is handed a level. */
     private CarrierStore.PlotOwnerSource answeringLookup() {
         return (level, pos) -> plotOwners.get(pos.asLong());
     }
 
-    /** The pose the author's log printed for that structure, over the two cells of this fixture. */
+    /** The pose for that structure, over the two cells of this fixture. */
     @Nullable
     private CarrierPose poseOf(CarrierId carrier) {
         return AUTHOR.equals(carrier) ? moving(PLOT, VISIBLE) : null;

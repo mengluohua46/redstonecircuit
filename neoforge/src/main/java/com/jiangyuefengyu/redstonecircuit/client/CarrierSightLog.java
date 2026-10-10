@@ -8,58 +8,14 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierHostCheck;
 import net.minecraft.core.BlockPos;
 
 /**
- * <b>The throttle and the wording for the two diagnostics this round added: "the structure is not drawn
- * seven chunks from where it was placed" (B1) and "the component inside is visible through a wall" (B2).</b>
+ * The throttle and the wording for two diagnostics: "the structure is not drawn seven chunks from where it was
+ * placed" (B1) and "the component inside is visible through a wall" (B2).
  *
- * <h2>Why they are not behind {@code verboseRenderLog}</h2>
- * Both answer a question the author has to reproduce by hand: they put the structure somewhere, fly it
- * away, and look. A diagnostic that only speaks when a switch is already on is a diagnostic that arrives
- * after the reproduction, and the reproduction is the expensive part. So these two are written whenever
- * {@code debugLog=true} - which is on by default - and the size of the log is kept by <b>throttling</b>
- * rather than by a switch. The author's machine runs {@code debugLog=true} and
- * {@code verboseRenderLog=false}, which is the configuration every number below is stated for.
- *
- * <h2>The hard bounds, and the worst-case cost of a frame</h2>
- * <table border="1">
- *   <caption>Every line this class can write, and how often</caption>
- *   <tr><th>line</th><th>bound</th><th>worst case per frame</th></tr>
- *   <tr>
- *     <td>{@code carrier … originSection=… collected=…} (B1, one per problem carrier)</td>
- *     <td>at most {@link #CARRIER_PROBLEM_LINES_PER_WINDOW} per {@link #SWEEP_INTERVAL_TICKS} ticks
- *         <b>per dimension</b> - 8 per 100 ticks = 1.6 per second, 96 per minute; and at most
- *         {@code CARRIER_PROBLEM_LINES_PER_WINDOW} per carrier, since {@link ClientHostCache#carrierSweep}
- *         builds no line for a carrier it did not name</td>
- *     <td>zero: the window is tested first and the sweep's records are not even built until it is due</td>
- *   </tr>
- *   <tr>
- *     <td>{@code carriers=… collected=… skippedOriginOnly=…} (B1 rollup)</td>
- *     <td>one per {@link #SWEEP_INTERVAL_TICKS} ticks at the very most, and in practice <b>only when the
- *         numbers changed</b> (floored by {@link #SETTLEMENT_MIN_INTERVAL_TICKS}) or when the
- *         {@link #SWEEP_HEARTBEAT_TICKS} heartbeat is due - so a healthy machine writes one line and
- *         then nothing for two minutes</td>
- *     <td>zero in the common case: the gate is one string compare</td>
- *   </tr>
- *   <tr>
- *     <td>{@code carrier … local=… drawnWorld=… ray=…} (B2, one worked host)</td>
- *     <td>one per {@link #SIGHT_INTERVAL_TICKS} ticks <b>per dimension</b> - 1 per 100 ticks = 0.2 per
- *         second, 12 per minute - and never the same text twice</td>
- *     <td>zero: one call to {@link CarrierSightThrottle#windowExpired} and one string compare; the line
- *         itself was built by the collector</td>
- *   </tr>
- * </table>
- *
- * <h2>Where the arithmetic lives</h2>
- * Every "is it due" answer is <b>one call into {@link CarrierSightThrottle}</b>, which states the rule as
- * a function from a clock reading to a boolean. This class holds only the memory - when each line was
- * last written, and what settlement the last visit saw - so a test can assert the boolean sequence
- * itself instead of counting the lines a loop happened to produce. The previous round counted lines, and
- * every one of its expectations was off by one; see that class for the convention (in particular that a
- * window opens on {@code now - last >= window} rather than on {@code tick % window == 0}).
- *
- * <h2>What it is not</h2>
- * Nothing in this class is read by any judgement. It reads the client's own index and it writes lines;
- * the pose, the collection, the sight rule and the picture are all decided elsewhere and are unchanged
- * by whether a line was written.
+ * <p>Both are written whenever {@code debugLog=true}, because a diagnostic that only speaks when a switch is already
+ * on arrives after the reproduction, which is the expensive part; the log's size is kept by <b>throttling</b> rather
+ * than by a switch. Every "is it due" answer is one call into {@link CarrierSightThrottle}, which states the rule as
+ * a function from a clock reading to a boolean, and this class holds only the memory of when each line was last
+ * written. Nothing here is read by any judgement: it reads the client's own index and writes lines.
  */
 final class CarrierSightLog {
 
@@ -67,45 +23,32 @@ final class CarrierSightLog {
     static final int CARRIER_PROBLEM_LINES_PER_WINDOW = 8;
 
     /**
-     * How often the B1 sweep may run at its most frequent, in ticks.
-     *
-     * <p>Five seconds. The finding it exists for is a <em>state</em> - "this structure's blocks came from
-     * somewhere the walk does not look" - and a state does not need to be reported three times a second.
-     * It is deliberately longer than the frame summary's window: the per-carrier lines are the long ones,
-     * and one look at five seconds of a reproduction is already more than enough to see the difference
-     * between "collected" and "not collected".
+     * How often the B1 sweep may run at its most frequent, in ticks. Five seconds: the finding it exists for is a
+     * <em>state</em> - this structure's blocks came from somewhere the walk does not look - and a state does not need
+     * reporting three times a second.
      */
     static final int SWEEP_INTERVAL_TICKS = 100;
 
     /**
-     * How often the B1 rollup is re-written when its numbers have <b>not</b> changed, in ticks.
-     *
-     * <p>Two minutes, the same promise the frame summary's heartbeat makes: a diagnostic that cannot
-     * report its own absence is not a diagnostic, and an unchanged line that repeats every five seconds
-     * is the noise this class exists to avoid. Two minutes of an unchanged picture is one line.
-     *
-     * <p>Deliberately equal to {@code CarrierRenderTrace.SETTLED_HEARTBEAT_TICKS}: the two lines are
-     * written side by side on a parked machine, and a reader comparing them should not have to hold two
-     * different periods in their head.
+     * How often the B1 rollup is re-written when its numbers have <b>not</b> changed, in ticks: two minutes. A
+     * diagnostic that cannot report its own absence is not a diagnostic, and an unchanged line repeating every five
+     * seconds is the noise this class exists to avoid. Equal to
+     * {@code CarrierRenderTrace.SETTLED_HEARTBEAT_TICKS}, since the two lines are read side by side.
      */
     static final int SWEEP_HEARTBEAT_TICKS = 2400;
 
     /**
-     * How often the B2 line is written, in ticks.
-     *
-     * <p>Five seconds, for the same reason as the sweep and one more: the host it names is one worked
-     * example of a per-frame question, so a reader wants a handful of samples across a reproduction
-     * rather than a stream of the same coordinates.
+     * How often the B2 line is written, in ticks. Five seconds, for the same reason as the sweep and one more: the
+     * host it names is one worked example of a per-frame question, so a handful of samples across a reproduction is
+     * what a reader wants rather than a stream of the same coordinates.
      */
     static final int SIGHT_INTERVAL_TICKS = 100;
 
     /**
-     * How little time may pass between two B1 sweeps when the settlement has changed, in ticks.
-     *
-     * <p>Two seconds. This is the floor under the "a change is written at once" rule: a machine whose
-     * offered-carrier count flickers, or a player walking in and out of the walk's radius, changes the
-     * settlement on frame after frame, and without a floor that would be a line per frame - which is the
-     * exact shape of the 26,668-line defect this log has already paid for once.
+     * How little time may pass between two B1 sweeps when the settlement has changed, in ticks. This is the floor
+     * under the "a change is written at once" rule: a machine whose offered-carrier count flickers, or a player
+     * walking in and out of the walk's radius, changes the settlement on frame after frame, and without a floor that
+     * would be a line per frame.
      */
     static final int SETTLEMENT_MIN_INTERVAL_TICKS = 40;
 
@@ -113,12 +56,9 @@ final class CarrierSightLog {
     private static long lastSweepVisitTick = Long.MIN_VALUE;
 
     /**
-     * The settlement the last visit <b>saw</b>, whether or not it was written.
-     *
-     * <p>Kept apart from the settlement last <em>written</em>, because the two answer different questions
-     * and conflating them was the bug this field fixes: with only the written one remembered, a visit
-     * that was floored or suppressed left the memory empty, so every later window looked like a change
-     * and the gate opened 59 times in 40 seconds of a picture that never changed.
+     * The settlement the last visit <b>saw</b>, whether or not it was written, kept apart from the settlement last
+     * <em>written</em>: with only the written one remembered, a visit that was floored or suppressed left the memory
+     * empty, so every later window looked like a change.
      */
     @Nullable
     private static String lastSweepSeen;
@@ -141,36 +81,24 @@ final class CarrierSightLog {
     }
 
     /**
-     * <b>Whether the B1 sweep is due on this frame.</b>
+     * <b>Whether the B1 sweep is due on this frame.</b> Called every frame with numbers that are cheap to obtain -
+     * the carrier count, and the numbers the last sweep produced - so the comparison is one string equality.
      *
-     * <p>Called on every frame and given numbers that are cheap to obtain - the carrier count, and the
-     * numbers the last sweep produced. The comparison is one string equality, so an ordinary frame costs
-     * a few integer reads and one small compare; the walk itself is only paid for when this says yes.
-     * The rule is {@link CarrierSightThrottle#sweepDue}, stated once and asserted on its own.
-     *
-     * <p>The visit is <b>recorded here</b>, whenever a visit happens, whether or not the writer then
-     * finds anything worth a line: the memory the change rule is measured against has to be what the
-     * last look saw. The writer keeps its own, separate memory of what it last <em>wrote</em>.
-     *
-     * @param nowTicks the client's game time
-     * @param last the previous sweep, or {@code null} before the first one
-     * @param carriers how many carriers the client holds before this sweep runs
-     * @return true when the caller should build a sweep and offer it to {@link #writeSweep}
+     * <p>The visit is <b>recorded here</b> whenever a visit happens, whether or not the writer then finds anything
+     * worth a line: the memory the change rule is measured against has to be what the last look saw, while the writer
+     * keeps its own memory of what it last <em>wrote</em>.
      */
     static boolean sweepDue(long nowTicks, @Nullable ClientHostCache.CarrierSweep last, int carriers) {
         if (!RCConfig.debugLog()) {
             return false;
         }
         String seen = settlementOf(last, carriers);
-        // THE HEARTBEAT IS MEASURED FROM THE LAST TIME WE SPOKE <b>OR LOOKED</b>, whichever is later.
+        // The heartbeat is measured from the last time we SPOKE or LOOKED, whichever is later.
         //
-        // `lastSweepWriteTick` alone is "since the last line", and before the first line it is negative,
-        // which `windowExpired` reads as "never written, so due now" - so a caller that drives the gate
-        // without the writer (a test, or the first frames after a level change, when the writer has
-        // nothing new to say) would re-open the heartbeat on every window and produce one line per
-        // window where one line per two minutes is promised. Anchoring on the later of the two keeps the
-        // promise in both driving styles: the first visit sets the visit tick, and a write moves the
-        // anchor forward as well.
+        // `lastSweepWriteTick` alone is "since the last line", and before the first line it is negative, which
+        // `windowExpired` reads as "never written, so due now" - so a caller that drives the gate without the writer
+        // would re-open the heartbeat on every window and write one line per window where one per two minutes is
+        // promised. Anchoring on the later of the two keeps the promise in both driving styles.
         long spokenOrLooked = Math.max(lastSweepWriteTick, lastSweepVisitTick);
         boolean due = CarrierSightThrottle.sweepDue(lastSweepSeen != null,
                 lastSweepSeen == null || !seen.equals(lastSweepSeen),
@@ -184,10 +112,9 @@ final class CarrierSightLog {
     }
 
     /**
-     * Whether the settlement these numbers describe differs from the one the last visit saw.
-     *
-     * <p>Plain equality against a string of the five numbers, and deliberately the <b>same</b> string
-     * {@link #writeSweep} compares: two spellings of "did anything change" would be two answers.
+     * Whether the settlement these numbers describe differs from the one the last visit saw; deliberately the
+     * <b>same</b> string {@link #writeSweep} compares, because two spellings of "did anything change" would be two
+     * answers.
      */
     static boolean settlementChanged(String signature) {
         return !signature.equals(lastSweepSeen);
@@ -199,11 +126,8 @@ final class CarrierSightLog {
     }
 
     /**
-     * The settlement of one sweep, in the one spelling the gate and the writer share.
-     *
-     * @param sweep the last sweep's numbers, or {@code null} before the first one
-     * @param carriers the carrier count to state them against; the caller passes the <b>live</b> count
-     *     so that a machine appearing or leaving is a change even before the next walk
+     * The settlement of one sweep, in the one spelling the gate and the writer share. {@code carriers} is the
+     * <b>live</b> count, so that a machine appearing or leaving is a change even before the next walk.
      */
     static String settlementOf(@Nullable ClientHostCache.CarrierSweep sweep, int carriers) {
         if (sweep == null) {
@@ -233,23 +157,10 @@ final class CarrierSightLog {
     }
 
     /**
-     * Writes the B1 rollup, and one line per problem carrier, <b>if the state is worth a line</b>.
-     *
-     * <p>The rollup's numbers are the signature: while they are unchanged the line is suppressed, and
-     * once the heartbeat has passed since the last write it is re-written anyway so a reader can always
-     * tell "the sweep ran and found nothing" from "the sweep never ran".
-     *
-     * @param dimensionName the level's name, for the rollup's own line
-     * @param sweep what the client's index holds, or {@code null} when there is nothing to describe
-     * @param skippedStale carriers the walk offered whose pose had gone stale, as the renderer counted
-     *     them for this frame
-     * @param skippedFar carriers the walk offered that were past the draw distance from the camera, as
-     *     the renderer counted them for this frame
-     * @param nowTicks the client's game time
-     * @param cameraSection the section the camera is in, or {@code null}
-     * @param heartbeatTicks the rollup's heartbeat, passed in rather than read from the constant so the
-     *     arithmetic can be driven at any period by a test
-     * @return how many lines were written, for the caller's own reporting and for the unit tests
+     * Writes the B1 rollup, and one line per problem carrier, <b>if the state is worth a line</b>: while the numbers
+     * are unchanged the line is suppressed, and once the heartbeat has passed it is re-written anyway, so a reader can
+     * always tell "the sweep ran and found nothing" from "the sweep never ran". {@code heartbeatTicks} is passed in
+     * rather than read from the constant, so a test can drive the arithmetic at any period.
      */
     static int writeSweep(String dimensionName, @Nullable ClientHostCache.CarrierSweep sweep,
                           int skippedStale, int skippedFar, long nowTicks,
@@ -258,11 +169,9 @@ final class CarrierSightLog {
             return 0;
         }
         String signature = settlementOf(sweep, sweep.carriers());
-        // A LOOK IS A LOOK, whichever entry point made it. The writer has the settlement in hand, so it
-        // records it as seen as well as (below) as written: the change rule is measured against "what the
-        // last look saw", and a caller that drives the writer without the gate would otherwise leave that
-        // memory empty and make every later window look like a change - the same defect the two separate
-        // fields exist to fix, one entry point further out.
+        // A look is a look, whichever entry point made it: the writer records the settlement as seen as well as
+        // written, because a caller that drives the writer without the gate would otherwise leave that memory empty
+        // and make every later window look like a change.
         lastSweepSeen = signature;
         boolean changed = !signature.equals(lastSweepSignature);
         boolean heartbeat = rollupHeartbeatDue(nowTicks, lastSweepWriteTick, heartbeatTicks);
@@ -274,12 +183,10 @@ final class CarrierSightLog {
         if (changed || heartbeat) {
             lastSweepSignature = signature;
             lastSweepWriteTick = nowTicks;
-            // The counters, in the wording the acceptance procedure greps for. `collected` is the number
-            // of carriers the walk offered, which is what a reader compares against `skippedOriginOnly` -
-            // the carriers it did not offer for no reason but where their blocks came from.
-            // `skippedStale` and `skippedFar` are the renderer's own per-frame counters, so "the walk
-            // offered it and the renderer then refused it" stays distinguishable from "the walk never
-            // offered it", which is the whole of B1.
+            // The counters, in the wording a reader greps for. `collected` is the number of carriers the walk
+            // offered, which is what `skippedOriginOnly` is compared against - the carriers it did not offer for no
+            // reason but where their blocks came from. `skippedStale` and `skippedFar` are the renderer's own
+            // per-frame counters, so "offered and then refused" stays distinguishable from "never offered".
             RCConfig.LOGGER.info("[redstonecircuit] client: originWalk {} {} cameraSection={}",
                     dimensionName,
                     CarrierHostCheck.Tally.describeCarriers(sweep.carriers(), sweep.collected(),
@@ -297,20 +204,17 @@ final class CarrierSightLog {
     }
 
     /**
-     * Whether the B2 line is due on this frame; see {@link CarrierSightThrottle} for the convention.
-     *
-     * <p>Called once per frame from the same place the B2 example is recorded, so the line that is
-     * written is always a line some frame actually produced.
+     * Whether the B2 line is due on this frame. Called once per frame from the same place the B2 example is recorded,
+     * so the line that is written is always a line some frame actually produced.
      */
     static boolean sightDue(long nowTicks) {
         return sightDue(nowTicks, SIGHT_INTERVAL_TICKS);
     }
 
     /**
-     * The same, with the window stated rather than read, so a test can drive the arithmetic at any period.
-     *
-     * <p>The memory is still this class's: a due answer that comes back true moves the window's start
-     * forward, which is what makes the sequence a sequence rather than a function of one reading.
+     * The same, with the window stated rather than read, so a test can drive the arithmetic at any period. The memory
+     * is still this class's: a due answer moves the window's start forward, which is what makes the sequence a
+     * sequence rather than a function of one reading.
      */
     static boolean sightDue(long nowTicks, int windowTicks) {
         if (!RCConfig.debugLog()) {
@@ -324,11 +228,8 @@ final class CarrierSightLog {
     }
 
     /**
-     * Writes the B2 line if {@link #sightDue} said so and the line is not the one already written.
-     *
-     * @param line the render pass's own worked example, or {@code null} when this frame asked no sight
-     *     question at all
-     * @return true when a line was written
+     * Writes the B2 line if {@link #sightDue} said so and it is not the line already written; {@code line} is the
+     * render pass's own worked example, or {@code null} when this frame asked no sight question at all.
      */
     static boolean writeSight(@Nullable String line, boolean due) {
         if (!due || line == null || line.equals(lastSightLine)) {
@@ -346,11 +247,8 @@ final class CarrierSightLog {
     }
 
     /**
-     * Forgets every window's memory, so one test cannot suppress the next one's lines.
-     *
-     * <p>The throttle is process-lifetime by design - that is what makes it a throttle - so the only
-     * honest way to test it is to be able to state its starting condition. The same shape
-     * {@code CarrierRenderTrace#resetLogThrottleForTest} uses.
+     * Forgets every window's memory, so one test cannot suppress the next one's lines: the throttle is
+     * process-lifetime by design, so a test has to be able to state its starting condition.
      */
     static void resetForTest() {
         lastSweepVisitTick = Long.MIN_VALUE;

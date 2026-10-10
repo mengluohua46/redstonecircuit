@@ -16,25 +16,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.38's judgement line: "did the cross-structure read happen, and what did each source say".</b>
+ * The judgement line: "did the cross-structure read happen, and what did each source say".
  *
- * <h2>Why this exists as a class of its own</h2>
- * The author's last log could not answer the one question that decides whether a round of work is aimed
- * at the right defect: <b>was the other block's position ever asked about?</b> The counters that would
- * have said so lived behind the {@code /rc carrier} command, so a log with no command typed in it showed
- * nothing at all - which is how a whole round was spent on a read path that the world never walked. Two
- * properties make this line usable rather than merely present:
- *
- * <ul>
- *   <li><b>at most one line per level tick</b>, whatever the solver does. A machine with two hundred
- *       components asking two hundred times must cost one line, not two hundred - the counters carry the
- *       totals, and the line carries the named example;</li>
- *   <li><b>the line names the asker, the position, both sources' answers and the final value</b>, so
- *       "no read was attempted", "the read answered zero from a source that had a hit" and "the read
- *       answered correctly" are three different log lines rather than one ambiguous absence.</li>
- * </ul>
- *
- * <p>These tests drive the recorder offline: no level, no carrier container, no game.
+ * <p>At most one line per level tick, whatever the solver does - a machine with two hundred components asking
+ * twice each must cost one line, the counters carrying the totals - and the asker, the position, both sources'
+ * answers and the final value are all named, so "no read was attempted", "the read answered zero from a source
+ * that had a hit" and "the read answered correctly" are three different lines.
  */
 class SignalReadTraceTest {
 
@@ -44,8 +31,7 @@ class SignalReadTraceTest {
 
     @AfterEach
     void clearTheCounters() {
-        // The counters are process-wide on purpose (they describe a level's structures and are dropped
-        // with it), so a test that leaves them set would change the next one's summary line.
+        // The counters are process-wide because they describe a level's structures and are dropped with it.
         SignalReadTrace.reset();
     }
 
@@ -108,8 +94,7 @@ class SignalReadTraceTest {
     @Test
     @DisplayName("the counters reach the summary line, so no command has to be typed")
     void theCountersReachTheSummary() {
-        assertEquals("", SignalReadTrace.describe(),
-                "nothing read yet: the summary line is byte-for-byte what it was before P1.38");
+        assertEquals("", SignalReadTrace.describe(), "nothing read yet: the summary line is empty");
 
         SignalReadTrace.record(STRUCTURE_B, ASKED, false, "hit (local=0, 0, 0 carrier=s:b)",
                 "answered (own coordinate)", BlockSignalSources.Source.STRUCTURE_FRAME, 9);
@@ -126,7 +111,7 @@ class SignalReadTraceTest {
         assertTrue(summary.contains("worldProjection=0 via=world-projection"), summary);
         assertTrue(summary.contains("structureDeclines=1"), summary);
         assertTrue(summary.contains("suppressionBlocked=1"),
-                "and the count of queries the window hid, which is P1.38's own evidence: " + summary);
+                "and the count of queries the window hid: " + summary);
         assertTrue(summary.contains("lastRead="), summary);
 
         assertEquals(1, SignalReadTrace.structureReads());

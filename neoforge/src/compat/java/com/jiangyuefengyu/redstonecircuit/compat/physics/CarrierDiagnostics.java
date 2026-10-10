@@ -22,20 +22,16 @@ import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The "where is everything right now" half of {@code /rc physics} and {@code /rc carrier}: what the
- * carrier store is holding, where each structure is, and what happened to one particular block.
+ * The "where is everything right now" half of {@code /rc physics} and {@code /rc carrier}: what the carrier
+ * store is holding, where each structure is, and what happened to one particular block.
  *
- * <h2>Why this is part of the diagnostics rather than of the feature</h2>
- * The acceptance test for this stage is visual - "the component follows the machine" - so the
- * questions an operator actually asks when it does not are "did anything get picked up at all", "is
- * the block I am looking at carried or just empty", and "where does the mod think the machine is".
- * All three are answered from the server's own bookkeeping, with no reference to what is on screen,
- * and that is what makes them useful: the answer is either consistent with the picture or it is the
- * bug.
+ * <p>It answers the three questions an operator asks when "the component follows the machine" does not
+ * happen - did anything get picked up, is the block I am looking at carried or just empty, and where does the
+ * mod think the machine is - from the server's own bookkeeping rather than from what is on screen, which is
+ * what makes them useful: the answer is either consistent with the picture or it is the bug.
  *
- * <h2>Read-only, and never throws</h2>
- * Every entry point is a query. A diagnostic that can change state, or that can take the server down,
- * would be worse than the thing it is diagnosing.
+ * <p>Read-only, and never throws: a diagnostic that can change state or take the server down would be worse
+ * than the thing it diagnoses.
  */
 final class CarrierDiagnostics {
 
@@ -55,25 +51,22 @@ final class CarrierDiagnostics {
                 + " (carrierEnabled=" + RCConfig.carrierEnabled()
                 + ", freezeWorldIo=" + RCConfig.carrierFreezeWorldIo()
                 + ", traceCarrier=" + RCConfig.traceCarrier() + ")");
-        // P2, and the two lines the acceptance procedure reads first: is the in-structure solve
-        // switched on, and has it actually run. "carriers=0" with nothing in flight is an ordinary
-        // state, not a failure - the number to compare against is the one in "carried:" below.
+        // The two lines to read first: is the in-structure solve switched on, and has it actually run.
+        // "carriers=0" with nothing in flight is an ordinary state, not a failure - compare "carried:" below.
         out.add("carrierSolve=" + (RCConfig.carrierSolveEnabled() ? "on" : "off")
                 + " (maxComponentsPerTick=" + RCConfig.carrierSolveMaxComponentsPerTick()
                 + ", maxSeedsPerCarrier=" + RCConfig.carrierSolveMaxNodesPerCarrier()
                 + ", traceCarrierSolve=" + RCConfig.traceCarrierSolve() + ")");
         out.add("  " + CarrierStore.lastSolve(level).describe()
                 + "   (carriers>0 = a structure was solved on the last tick)");
-        // P4: is the bridge between the machine and the world open, and is anything actually standing
-        // at a world position because of it. "projected=0" with a carrier in flight is the first thing
-        // to look at when a machine refuses to light the lamp it is flying over.
+        // Is the bridge between the machine and the world open, and is anything actually standing at a
+        // world position because of it. "projected=0" with a carrier in flight is the first thing to look
+        // at when a machine refuses to light the lamp it is flying over.
         out.add("  " + CarrierStore.describeBridge(level));
         out.add(CarrierStore.describe(level));
 
-        // THE THREE STAGES, one line each, in the order they have to happen. This is the block a
-        // reader checks first when "the component does not follow the machine": the claim, then the
-        // wire, then the screen. Each line names the code that fills it, so a stage showing zero
-        // points at one place rather than at the whole feature.
+        // THE THREE STAGES, one line each, in the order they have to happen - the claim, the wire, then
+        // the screen. Each line names the code that fills it, so a zero points at one place.
         CarriedHostIndex index = CarrierStore.indexOf(level);
         int provisional = 0;
         int entityNamed = 0;
@@ -88,16 +81,14 @@ final class CarrierDiagnostics {
         }
         out.add("  --- three stages (claim -> sync -> render) ---");
         out.addAll(CarrierTrace.describe(level.dimension()));
-        // The "we drew it, but where" line, beside the stage counters that cannot tell the two apart.
-        // `drawnLastFrame` counts emitted geometry; this says whether the geometry was emitted where the
-        // structure is, which is the difference between "not drawn" and "drawn somewhere else".
+        // The "we drew it, but where" line, beside the stage counters that cannot tell the two apart:
+        // `drawnLastFrame` counts emitted geometry, this says whether it was emitted where the structure is.
         CarrierTrace.Render render = CarrierTrace.renderIfAny(level.dimension());
         out.add("  " + (render == null
                 ? "drawCheck: the client has not reported a frame yet (single-player: same game)"
                 : render.drawCheckSummary(level.dimension())));
-        // THE GEOMETRY HALF. `drawnLastFrame` counts collected hosts, and the author's "the log says it
-        // drew and I see nothing" is exactly a frame where that number is non-zero and no vertex was
-        // ever written. These two lines carry the gates that decided it and one worked host.
+        // THE GEOMETRY HALF. `drawnLastFrame` counts collected hosts, so a frame with a non-zero count and
+        // no vertex ever written is exactly "the log says it drew and I see nothing".
         out.add("  " + (render == null
                 ? "geometry: the client has not reported a frame yet"
                 : render.geometrySummary()));
@@ -109,14 +100,11 @@ final class CarrierDiagnostics {
                         : ""));
         out.add("  stage 1 is filled by CarrierStore.startMoving, stage 2 by HostSync.broadcastCarrier"
                 + "/broadcastPose, stage 3 by ClientHostCache + HostRenderPass");
-        // The single-exit rule, made visible. `sent` counts the "this carrier is gone" messages that
-        // actually went out, and `suppressed` the ones that were owed to nobody because the client had
-        // never been told about that carrier - the two are very different numbers and only one of them
-        // means "the client was left holding something".
+        // The single-exit rule, made visible: `sent` counts the "this carrier is gone" messages that went
+        // out, `suppressed` the ones owed to nobody because the client was never told about that carrier.
         out.add("  " + CarrierStore.describeRemovals(level));
-        // The world side of the two transfers. "a release happened but the client was never told the
-        // component is a world host again" is the shape of the defect that made a component invisible
-        // after a structure stopped, so the two counters are printed next to the removal notices.
+        // The world side of the two transfers: "a release happened but the client was never told the
+        // component is a world host again" made a component invisible after a structure stopped.
         out.add("  " + CarrierStore.describeWorldHostTransfer(level));
 
         if (index == null) {
@@ -209,7 +197,7 @@ final class CarrierDiagnostics {
         }
         out.add(locals.append(']').toString());
 
-        // P4: where those local coordinates are in the world right now. This is the line that answers
+        // Where those local coordinates are in the world right now. This is the line that answers
         // "the machine is drawn there, but where does the mod think its blocks are" - and the world
         // position is exactly where a lamp or a piece of wire has to be for the bridge to reach it.
         if (pose != null && riding > 0) {
@@ -223,9 +211,8 @@ final class CarrierDiagnostics {
         // delta is how far that somewhere is from the structure's own bounds.
         out.add("      " + CarrierStore.drawCheck(level, carrier, index).describe());
 
-        // P2: what the in-structure solve has made of this carrier. Read after "local=[...]" on
-        // purpose - the local coordinates are what the solve is *about*, so a reader compares the two
-        // lines against each other.
+        // What the in-structure solve has made of this carrier, read after "local=[...]": the local
+        // coordinates are what the solve is about, so a reader compares the two lines against each other.
         out.addAll(CarrierNetworks.describe(carrier, index));
         return out;
     }
@@ -233,10 +220,10 @@ final class CarrierDiagnostics {
     /**
      * Every solve failure this process has had, as lines for {@code /rc carrier}.
      *
-     * <p>Empty when nothing has failed, which is the ordinary state - so the section's absence is a
-     * positive statement rather than silence. When it is not empty it is the only place the <em>count</em>
-     * of a repeated failure can be read: the warning itself is written once per exception kind, so the
-     * "53 times" behind the author's one line is answered here and nowhere else.
+     * <p>Empty when nothing has failed, which is the ordinary state - so the section's absence is a positive
+     * statement rather than silence. When it is not empty it is the only place the <em>count</em> of a
+     * repeated failure can be read: the warning itself is written once per exception kind, so the count
+     * behind a single warning line is answered here and nowhere else.
      */
     static List<String> solveFailures() {
         List<String> out = new ArrayList<>();
@@ -252,9 +239,9 @@ final class CarrierDiagnostics {
     /**
      * "local->world TYPE out=N" for every host still riding, as one line for {@code /rc carrier}.
      *
-     * <p>The output strength is printed on purpose: it is the one number that changes when the bridge
-     * works, in either direction - the world lighting the machine shows up here, and it is the value
-     * the machine is offering the world at the coordinate on the left.
+     * <p>The output strength is printed because it is the one number that changes when the bridge works, in
+     * either direction - the world lighting the machine shows up here, and it is the value the machine is
+     * offering the world at the coordinate on the left.
      */
     private static String projected(CarrierPose pose, List<CarriedHost> hosts) {
         StringBuilder sb = new StringBuilder("[");
@@ -272,10 +259,8 @@ final class CarrierDiagnostics {
             }
             sb.append(host.localPos().toShortString()).append("->")
                     .append(CarrierProjection.project(pose, host.localPos()).toShortString())
-                    // AN EMPTY HOST SAYS SO. The structure carries the block and the block holds
-                    // nothing - the state a player leaves behind by taking the component out - and this
-                    // walk must not treat "no component" as an error: the world store has no entry for
-                    // such a block either, and this is the same answer.
+                    // AN EMPTY HOST SAYS SO. The structure carries the block and the block holds nothing -
+                    // not an error: the world store has no entry for such a block either.
                     .append(' ').append(host.slot() == null
                             ? "empty"
                             : host.slot().type + " out=" + host.slot().power);
@@ -294,7 +279,7 @@ final class CarrierDiagnostics {
                 + "   (true = its data is inside a moving structure)");
         out.add("      displaced here    : " + index.isDisplaced(pos)
                 + "   (true = this position is one the carrier store answers for)");
-        // P4: is a carried host virtually standing *here* - i.e. would a lamp placed on this block be
+        // Is a carried host virtually standing *here* - i.e. would a lamp placed on this block be
         // lit by a machine flying over it.
         CarrierProjection.ProjectedHost projected = CarrierStore.projectedHostAt(level, pos);
         out.add("      projected here    : " + (projected != null)

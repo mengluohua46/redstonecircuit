@@ -4,16 +4,31 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jiangyuefengyu.redstonecircuit.block.BlockPlacerBlock;
+import com.jiangyuefengyu.redstonecircuit.block.BlockPlacerBlockEntity;
+import com.jiangyuefengyu.redstonecircuit.block.ClockBlock;
+import com.jiangyuefengyu.redstonecircuit.block.ControllerBlock;
+import com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock;
+import com.jiangyuefengyu.redstonecircuit.block.LogicIntegratorBlock;
+import com.jiangyuefengyu.redstonecircuit.block.RedstoneStructureBlock;
+import com.jiangyuefengyu.redstonecircuit.block.RedstoneStructureBlockEntity;
+import com.jiangyuefengyu.redstonecircuit.block.StructureBlock;
+import com.jiangyuefengyu.redstonecircuit.block.StructureBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.block.SuperconductingWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.TransformerBlock;
+import com.jiangyuefengyu.redstonecircuit.block.TransmissionGateBlock;
 import com.jiangyuefengyu.redstonecircuit.block.VariableRepeaterBlock;
 import com.jiangyuefengyu.redstonecircuit.block.WeatherDetectorBlock;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneGogglesItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.RotationRodItem;
+import com.jiangyuefengyu.redstonecircuit.item.StructureBlockItem;
 import com.jiangyuefengyu.redstonecircuit.item.SuperconductingRedstoneItem;
+import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -30,6 +45,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
 import net.minecraft.world.level.material.MapColor;
@@ -184,12 +200,217 @@ public final class RCRegistry {
             BuiltInRegistries.ITEM, RedstoneCircuit.id("superconducting_redstone"),
             new SuperconductingRedstoneItem(SUPERCONDUCTING_WIRE, new Item.Properties()));
 
+    // -------------------------------------------------------- logic integrator --
+
+    /**
+     * 逻辑整合器 - a full cube with a front. {@code requiresCorrectToolForDrops} against the pickaxe tag
+     * only, so any pickaxe takes it; otherwise it is placed, broken and pushed like stone.
+     */
+    public static final LogicIntegratorBlock LOGIC_INTEGRATOR = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("logic_integrator"),
+            new LogicIntegratorBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.COLOR_RED)
+                            .strength(3.5F)
+                            .sound(SoundType.STONE)
+                            .requiresCorrectToolForDrops()));
+
+    public static final BlockItem LOGIC_INTEGRATOR_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("logic_integrator"),
+            new BlockItem(LOGIC_INTEGRATOR, new Item.Properties()));
+
+    // ----------------------------------------------------------- block placer --
+
+    /**
+     * 方块放置器 - a machine with a front, a nine-slot box and one action. Its values are the dispenser's
+     * own (stone map colour, strength 3.5) and its tool rule is the same pickaxe tag only.
+     */
+    public static final BlockPlacerBlock BLOCK_PLACER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("block_placer"),
+            new BlockPlacerBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.STONE)
+                            .strength(3.5F)
+                            .sound(SoundType.STONE)
+                            .requiresCorrectToolForDrops()));
+
+    public static final BlockItem BLOCK_PLACER_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("block_placer"),
+            new BlockItem(BLOCK_PLACER, new Item.Properties()));
+
+    // --------------------------------------------------------- transmission gate --
+
+    /**
+     * 传输门 - front face is the main input, back face the main output, and the other four faces are
+     * secondary inputs. Properties as 逻辑整合器's and 方块放置器's.
+     */
+    public static final TransmissionGateBlock TRANSMISSION_GATE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("transmission_gate"),
+            new TransmissionGateBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.STONE)
+                            .strength(3.5F)
+                            .sound(SoundType.STONE)
+                            .requiresCorrectToolForDrops()));
+
+    public static final BlockItem TRANSMISSION_GATE_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("transmission_gate"),
+            new BlockItem(TRANSMISSION_GATE, new Item.Properties()));
+
+    // ------------------------------------------------- the four plate devices --
+
+    /**
+     * 控制器 - a plate. No {@code requiresCorrectToolForDrops}, so a bare hand may take it, and a loot
+     * table beside it, so taking it gives one back.
+     *
+     * <p>{@code noOcclusion} is the plate's own half - one eighth of a block tall, so it must not block
+     * light or hide what is behind it - and it is also what keeps it from ever being a host: a component
+     * stored inside a plate would be a second owner of a cell the plate already answers from.
+     */
+    public static final ControllerBlock CONTROLLER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("controller"),
+            new ControllerBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.GOLD)
+                            .strength(1.0F)
+                            .sound(SoundType.STONE)
+                            .noOcclusion()));
+
+    public static final BlockItem CONTROLLER_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("controller"),
+            new BlockItem(CONTROLLER, new Item.Properties()));
+
+    /**
+     * 红石变压器 - the second of the four 带界面的红石元件. Properties identical to 控制器's; the map colour
+     * is the recipe's own - copper and quartz.
+     */
+    public static final TransformerBlock TRANSFORMER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("transformer"),
+            new TransformerBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.COLOR_ORANGE)
+                            .strength(1.0F)
+                            .sound(SoundType.STONE)
+                            .noOcclusion()));
+
+    public static final BlockItem TRANSFORMER_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("transformer"),
+            new BlockItem(TRANSFORMER, new Item.Properties()));
+
+    /** 时钟源 - a free-running clock, the third of the four; the map colour is the recipe's own gold. */
+    public static final ClockBlock CLOCK = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("clock"),
+            new ClockBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.COLOR_YELLOW)
+                            .strength(1.0F)
+                            .sound(SoundType.STONE)
+                            .noOcclusion()));
+
+    public static final BlockItem CLOCK_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("clock"),
+            new BlockItem(CLOCK, new Item.Properties()));
+
+    /** 信号延长器 - the fourth and last of the four; the map colour is the recipe's own lapis. */
+    public static final ExtenderBlock EXTENDER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("extender"),
+            new ExtenderBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.LAPIS)
+                            .strength(1.0F)
+                            .sound(SoundType.STONE)
+                            .noOcclusion()));
+
+    public static final BlockItem EXTENDER_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("extender"),
+            new BlockItem(EXTENDER, new Item.Properties()));
+
+    // -------------------------------------------------- redstone structure block --
+
+    /**
+     * 红石结构方块 - the controller: capture a region, or put one back.
+     *
+     * <p>Its properties are the vanilla structure block's - a block that only exists to be configured, so
+     * it is not supposed to be the interesting part of a build. It drops itself, like any block.
+     */
+    public static final RedstoneStructureBlock REDSTONE_STRUCTURE_BLOCK = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("redstone_structure_block"),
+            new RedstoneStructureBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.COLOR_PURPLE)
+                            .strength(3.5F)
+                            .sound(SoundType.METAL)
+                            .requiresCorrectToolForDrops()));
+
+    /**
+     * 结构 - the product: one captured structure, as a block.
+     *
+     * <p>{@code noOcclusion}: the block draws nothing, but an invisible block is still a full occluding
+     * cube, so every neighbour would cull the face it shares with it and the ground would read as a hole
+     * you can see the sky through. A block that draws nothing must not claim to hide what is behind it.
+     *
+     * <p>Not on offer in the creative tab - it is the block a captured structure is carried in, while the
+     * machine is the item a player is meant to hold. It stays registered because a release hands it back.
+     */
+    public static final StructureBlock STRUCTURE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("structure"),
+            new StructureBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.COLOR_PURPLE)
+                            .strength(3.5F)
+                            .sound(SoundType.METAL)
+                            .noOcclusion()
+                            // The indicator the block entity writes into its own state is the light it emits.
+                            // Declared here rather than as a method on the block, because how bright a state is
+                            // is one of the properties a block is built with, and the light engine reads it
+                            // there - so the emitted light follows the property with no second place to update.
+                            .lightLevel(state -> state.getValue(StructureBlock.LIGHT))
+                            .requiresCorrectToolForDrops()));
+
+    public static final BlockEntityType<RedstoneStructureBlockEntity> REDSTONE_STRUCTURE_BLOCK_ENTITY =
+            Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE,
+                    RedstoneCircuit.id("redstone_structure_block"),
+                    BlockEntityType.Builder.of(RedstoneStructureBlockEntity::new,
+                            REDSTONE_STRUCTURE_BLOCK).build(null));
+
+    public static final BlockEntityType<StructureBlockEntity> STRUCTURE_BLOCK_ENTITY =
+            Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RedstoneCircuit.id("structure"),
+                    BlockEntityType.Builder.of(StructureBlockEntity::new, STRUCTURE).build(null));
+
+    public static final BlockEntityType<BlockPlacerBlockEntity> BLOCK_PLACER_ENTITY =
+            Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RedstoneCircuit.id("block_placer"),
+                    BlockEntityType.Builder.of(BlockPlacerBlockEntity::new, BLOCK_PLACER).build(null));
+
+    public static final BlockItem REDSTONE_STRUCTURE_BLOCK_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("redstone_structure_block"),
+            new BlockItem(REDSTONE_STRUCTURE_BLOCK, new Item.Properties()));
+
+    /**
+     * 结构's payload as an item component: the structure's id and the few fields that describe it.
+     *
+     * <p>{@code networkSynchronized} because a client handed a structure item has to be able to name it
+     * and draw it: a component that is only persistent would arrive empty on the client, which reads as
+     * "the item lost its structure".
+     */
+    public static final DataComponentType<StructureProductData> STRUCTURE_DATA = Registry.register(
+            BuiltInRegistries.DATA_COMPONENT_TYPE, RedstoneCircuit.id("structure"),
+            DataComponentType.<StructureProductData>builder()
+                    .persistent(StructureProductData.CODEC)
+                    .networkSynchronized(StructureProductData.STREAM_CODEC)
+                    .cacheEncoding()
+                    .build());
+
+    /** Stacks to one: a structure block carries an identity, not a count. */
+    public static final StructureBlockItem STRUCTURE_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("structure"),
+            new StructureBlockItem(STRUCTURE, new Item.Properties().stacksTo(1)));
+
     /** Our own creative tab; the items sit in it next to a stack of redstone. */
     public static final CreativeModeTab MAIN_TAB = Registry.register(
             BuiltInRegistries.CREATIVE_MODE_TAB, RedstoneCircuit.id("main"),
             CreativeModeTab.builder(CreativeModeTab.Row.TOP, 0)
                     .title(Component.translatable("itemGroup.redstonecircuit"))
-                    .icon(() -> new ItemStack(Items.REDSTONE))
+                    .icon(() -> new ItemStack(REDSTONE_STRUCTURE_BLOCK_ITEM))
                     .displayItems((parameters, output) -> {
                         output.accept(REDSTONE_GOGGLES);
                         output.accept(REDSTONE_WRENCH);
@@ -199,6 +420,14 @@ public final class RCRegistry {
                         output.accept(DOUBLE_REPEATER_ITEM);
                         output.accept(DOUBLE_RETAINING_REPEATER_ITEM);
                         output.accept(WEATHER_DETECTOR_ITEM);
+                        output.accept(LOGIC_INTEGRATOR_ITEM);
+                        output.accept(BLOCK_PLACER_ITEM);
+                        output.accept(TRANSMISSION_GATE_ITEM);
+                        output.accept(CONTROLLER_ITEM);
+                        output.accept(TRANSFORMER_ITEM);
+                        output.accept(CLOCK_ITEM);
+                        output.accept(EXTENDER_ITEM);
+                        output.accept(REDSTONE_STRUCTURE_BLOCK_ITEM);
                     })
                     .build());
 
@@ -249,6 +478,18 @@ public final class RCRegistry {
     /** Convenience for the renderer, which only has the registry values. */
     public static ResourceLocation gogglesId() {
         return RedstoneCircuit.id("redstone_goggles");
+    }
+
+    /** A structure item for a captured structure - the form a player takes by hand. */
+    public static ItemStack structureStack(StructureProductData data) {
+        ItemStack stack = new ItemStack(STRUCTURE_ITEM);
+        stack.set(STRUCTURE_DATA, data);
+        return stack;
+    }
+
+    /** The structure a stack describes, or {@code null} when it is an empty or plain structure item. */
+    public static StructureProductData structureOf(ItemStack stack) {
+        return stack.isEmpty() ? null : stack.get(STRUCTURE_DATA);
     }
 
     /**

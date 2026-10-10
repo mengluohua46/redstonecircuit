@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "G": { "item": "minecraft:gold_ingot" },
+    "R": { "item": "minecraft:redstone" }
+  },
+  "pattern": [ "   ", " R ", "GGG" ],
+  "result": { "count": 1, "id": "redstonecircuit:controller" }
+}

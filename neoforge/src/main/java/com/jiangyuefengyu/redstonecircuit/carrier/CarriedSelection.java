@@ -12,34 +12,16 @@ import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>P1.20: which host a player's wrench has picked, when that host is riding a structure.</b>
+ * Which host a player's wrench has picked, when that host is riding a structure.
  *
- * <h2>Why the world's selection cannot be reused</h2>
- * {@code WrenchSelection} remembers a <b>world</b> position, and the highlight it sends to the client is
- * drawn at that world position. Both of those are the right thing for a host standing on the ground and
- * the wrong thing for one a structure is carrying: the block the player clicked is drawn at the
- * projected position, but the component - and therefore "which two hosts are next to each other" - lives
- * at the structure's own coordinate. A selection recorded at the world position would answer the second
- * half of the gesture in the wrong frame, and one recorded at the local coordinate would draw the
- * highlight in the wrong place on the client.
+ * <p>{@code WrenchSelection} remembers a <b>world</b> position, which is right for a host on the ground and
+ * wrong for a carried one: the component, and therefore "which two hosts are next to each other", lives at
+ * the structure's own coordinate. So both are kept - {@code localPos} is what {@code CarriedTool} compares
+ * when the second click arrives, and {@code worldPos} goes to the client so the highlight is drawn where the
+ * block actually is.
  *
- * <p>So both are kept, and each is used for what it is true of:
- *
- * <ul>
- *   <li>{@code localPos} is what {@code CarriedTool} compares when the second click arrives - adjacency
- *       in the structure's own frame, which is where the components are and which survives the machine
- *       turning;</li>
- *   <li>{@code worldPos} is what goes to the client, through the same payload the world's selection
- *       uses, so the highlight is drawn where the block actually is.</li>
- * </ul>
- *
- * <h2>Why it is here rather than in {@code WrenchSelection}</h2>
- * The world's selection class is on the world's path, and P1.18's withdrawal is the reason nothing
- * carrier-shaped may be added to it. This one is reached only from {@code CarrierInteraction}, which
- * exits immediately for any click that is not about a carried host.
- *
- * <p>Not saved, for the same reason the world's is not: a half-finished gesture is meaningless after a
- * relog, and a stale position is exactly what a later unrelated click must not be able to use.
+ * <p>Reached only from {@code CarrierInteraction}, and not saved: a stale position must not be usable by a
+ * later unrelated click.
  */
 public final class CarriedSelection {
 
@@ -47,12 +29,8 @@ public final class CarriedSelection {
     private static final Map<UUID, Selection> SELECTIONS = new HashMap<>();
 
     /**
-     * One player's pick, in both frames.
-     *
-     * @param dimension the level it was made in, so a pick cannot survive a dimension change
-     * @param carrier the structure that is carrying the host
-     * @param localPos its coordinate inside that structure - the frame adjacency is decided in
-     * @param worldPos where it currently is, which is what the client highlights
+     * One player's pick in both frames: {@code localPos} decides adjacency, {@code worldPos} is what the client
+     * highlights, and the dimension keeps a pick from surviving a dimension change.
      */
     public record Selection(ResourceKey<Level> dimension, CarrierId carrier, BlockPos localPos,
                             BlockPos worldPos) {
@@ -68,21 +46,14 @@ public final class CarriedSelection {
     }
 
     /**
-     * <b>The same pick, keyed by the two things that actually identify it: a player and a level.</b>
-     *
-     * <p>The production form above reaches this with {@code player.getUUID()} and
-     * {@code player.level().dimension()}. It is public, and takes those two values rather than a
-     * {@code ServerPlayer}, for one reason: the rule "a pick is per player, and it survives across
-     * ticks until the same player picks something else" has to be provable <b>without a game</b>, and a
-     * unit test cannot build a {@code ServerPlayer}. Everything the rule turns on is here, so the test
-     * drives the real code rather than a copy of it.
+     * The same pick, keyed by a player and a level. Free of {@code ServerPlayer} so the per-player rule - a
+     * pick survives across ticks until that player picks something else - is provable without a game.
      */
     public static void select(UUID playerId, ResourceKey<Level> dimension, CarrierId carrier,
                               BlockPos localPos, BlockPos worldPos) {
         if (playerId == null || dimension == null || carrier == null || localPos == null
                 || worldPos == null) {
-            // An incomplete pick is not a pick. Refused rather than stored, so a half-built record can
-            // never be read back by the second click of a gesture.
+            // An incomplete pick is refused rather than stored, so a half-built record cannot be read back.
             return;
         }
         SELECTIONS.put(playerId, new Selection(dimension, carrier, localPos.immutable(),
@@ -99,12 +70,8 @@ public final class CarriedSelection {
     }
 
     /**
-     * This player's pick in this level, or {@code null}.
-     *
-     * <p>The level is part of the key on purpose: a half-finished gesture is meaningless in another
-     * dimension, and a pick made before a dimension change must not be usable after it. See
-     * {@link #select(UUID, ResourceKey, CarrierId, BlockPos, BlockPos)} for why the player is a
-     * {@code UUID} here.
+     * This player's pick in this level, or {@code null}: the level is part of the key, so a pick made before a
+     * dimension change cannot be used after it. The player is a {@code UUID} for the reason {@link #select} is.
      */
     @Nullable
     public static Selection get(@Nullable UUID playerId, @Nullable ResourceKey<Level> dimension) {

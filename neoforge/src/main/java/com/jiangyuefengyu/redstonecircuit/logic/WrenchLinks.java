@@ -18,48 +18,11 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 
 /**
- * What the redstone wrench does to two neighbouring components (R7).
+ * What the redstone wrench does to two neighbouring components: plain right-click one, then
+ * shift-right-click the one next to it, and the same gesture cycles {@code AUTO -> ON -> OFF -> AUTO}.
  *
- * <h2>The rule</h2>
- * Pick a component with a plain right-click, then shift-right-click a component next to it. Repeating
- * that pair walks the link through its three states, so one gesture covers "this is the line",
- * "keep it cut" and "let the network decide again":
- *
- * <pre>
- *   AUTO --(wrench)--> ON --(wrench)--> OFF --(wrench)--> AUTO
- * </pre>
- *
- * <h2>Locking means "this line and nothing else"</h2>
- * A lock is not just a promise that the two stay connected - it is a statement about the whole block.
- * Once a component has any locked side, every side that is not locked is cut, so it is connected to the
- * locked neighbours and to nothing else: laying redstone against any other face afterwards cannot join
- * it (the design's "在旁边放红石也不会影响连接", taken literally).
- *
- * <p>Several sides can be locked, and locking one more takes a single click, because the cuts the lock
- * implies are <em>derived</em> rather than stored ({@code Slot#isClosed}). A route is therefore built
- * one hop at a time:
- *
- * <pre>
- *   lock A-B   A: locked towards B, everything else dead
- *              B: locked towards A, everything else dead
- *   lock B-C   B: locked towards A and towards C, everything else dead
- * </pre>
- *
- * <p>The other end of a line does not have to hold redstone of its own: a piston, a lamp, a door or a
- * plain block can be what a line is routed to, and then only the clicked end is pinned - there is
- * nowhere to write the other override. See {@link #link}.
- *
- * <p>Cutting a line again is the same gesture stepping to {@code OFF}, which is a real cut the player
- * asked for. A whole block goes back to automatic with {@link #clear}.
- *
- * <h2>Why the state is stored per direction</h2>
- * A host block holds one component, and its neighbours are exactly the six positions around it, so
- * "which components talk to each other" reduces to a per-direction override. {@code PowerSolver} reads
- * those overrides for both emitting and reading, and an explicit cut also stops a comparator's side
- * input, so the states mean the same thing everywhere.
- *
- * <p>Deliberately free of any player, item or packet: the wrench item, the interaction handler, the
- * {@code /rc connect} command and the game tests all go through this, so none of them can drift.
+ * <p>锁定意味着这一整块只连被锁的面，其余各面全部切断（切断由锁推出，见 {@code Slot#isClosed}），所以可以
+ * 锁多个方向；另一端不必带元件。状态按方向存，因为一个 host 只放一个元件，邻居就是周围六个位置。
  */
 public final class WrenchLinks {
 
@@ -94,18 +57,8 @@ public final class WrenchLinks {
         return Optional.empty();
     }
 
-    /**
-     * Pins the link between two neighbouring components, or moves it on to the next state.
-     *
-     * <p>The far end does <b>not</b> have to hold anything: a piston, a lamp, a door or a plain block of
-     * stone can be the thing a line is routed to, and it cannot be pinned back only because there is
-     * nowhere to write the override. Requiring a component on both ends - which is what this used to do
-     * - meant putting redstone inside a piston just to be allowed to point at it.
-     *
-     * <p>The clicked end must hold a component: there is nothing to route otherwise.
-     *
-     * @return what happened, for the message the player gets
-     */
+    /** Pins the link between two neighbouring components, or moves it on to the next state. The far end does
+     * <b>not</b> have to hold anything - requiring that would mean burying redstone in a piston to point at it. */
     public static Result link(ServerLevel level, BlockPos a, BlockPos b) {
         Optional<Direction> towards = directionBetween(a, b);
         if (towards.isEmpty()) {
@@ -128,8 +81,7 @@ public final class WrenchLinks {
         first.setConnection(direction, after);
         innerChanged(level, store, a, first);
         if (second != null) {
-            // A neighbour with a component of its own is pinned back, so neither end can be re-routed
-            // without the other being re-routed too.
+            // A neighbour with a component of its own is pinned back, so neither end can be re-routed alone.
             second.setConnection(direction.getOpposite(), after);
             innerChanged(level, store, b, second);
         }
@@ -141,12 +93,9 @@ public final class WrenchLinks {
         };
     }
 
-    /**
-     * Sets one direction's override on one component, and does the bookkeeping that follows.
-     *
-     * <p>The {@code /rc connect} command goes through here too, so "the wrench pinned it" and "the
-     * command pinned it" cannot end up meaning two different things.
-     */
+    /** Sets one direction's override on one component and does the bookkeeping that follows. The
+     * {@code /rc connect} command goes through here too, so "the wrench pinned it" and "the command pinned
+     * it" cannot end up meaning two different things. */
     public static void setState(ServerLevel level, BlockPos pos, Direction direction,
                                 ConnectionState state) {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
@@ -170,13 +119,9 @@ public final class WrenchLinks {
         return Result.CLEARED;
     }
 
-    /**
-     * The stored state of one direction, which is what the wrench's cycle steps through.
-     *
-     * <p>Deliberately the <em>stored</em> state and not {@code Slot#isConnected}: a side that a lock cut
-     * by implication has no override of its own, so it reads as automatic and one click locks it. That
-     * is what makes several locked directions possible.
-     */
+    /** The stored state of one direction, which is what the wrench's cycle steps through. The <em>stored</em>
+     * state and not {@code Slot#isConnected}: a side a lock cut by implication has no override of its own, so it
+     * reads as automatic - which is what makes several locked directions possible. */
     public static ConnectionState stateOf(Slot slot, Direction direction) {
         if (slot.forcedOn.contains(direction)) {
             return ConnectionState.ON;
@@ -196,14 +141,8 @@ public final class WrenchLinks {
         };
     }
 
-    /**
-     * A short description of what a component is, for the <b>log lines</b>.
-     *
-     * <p>Deliberately the enum's own words ({@code RETAINING_REPEATER facing south}): a log line is read
-     * against the code, and the type constant is the name every report and every test uses. It is
-     * <b>not</b> a player-facing string - see {@link #label} for that, and P1.29's rule that no
-     * player-visible sentence may contain an enum name, a registry name or a {@code toString()}.
-     */
+    /** A short description of what a component is, for the log lines: the enum's own words, because a log line
+     * is read against the code. Never a player-facing string - see {@link #label}. */
     public static String describe(@Nullable Slot slot) {
         if (slot == null) {
             return "nothing";
@@ -215,24 +154,8 @@ public final class WrenchLinks {
         return type.name();
     }
 
-    /**
-     * <b>The same description, as a player reads it: the component's translated name, and its facing in
-     * words.</b>
-     *
-     * <h2>Why this exists beside {@link #describe}</h2>
-     * The author's report was <em>"the prompt shows some English original name"</em>, and this is where it
-     * came from: {@code InnerRedstoneInteraction} filled {@code message.redstonecircuit.wrench.selected}
-     * with {@code Component.literal(WrenchLinks.describe(slot))}, so a player with a Chinese client was
-     * shown {@code RETAINING_REPEATER facing south} - the enum constant, in English, in the middle of a
-     * Chinese sentence. Two names for one thing is the correct answer rather than a compromise: the log
-     * keeps the constant a report can be grepped for, and the player gets
-     * {@code message.redstonecircuit.wrench.block_named_facing} over
-     * {@code CarrierMessages#componentName} and the {@code wrench.face.*} keys.
-     *
-     * <p>Answered as a {@link Component} built from translation keys only - never from
-     * {@code Block#toString}, {@code ComponentType#name} or a registry id - which is what
-     * {@code CarrierMessageTextTest} asserts.
-     */
+    /** The same description as a player reads it: the component's translated name and its facing in words.
+     * Built from translation keys only - never an enum name, a registry id or {@code Block#toString}. */
     public static Component label(@Nullable Slot slot) {
         if (slot == null) {
             return CarrierMessages.blockLabel((Component) null, (Direction) null);
@@ -240,14 +163,9 @@ public final class WrenchLinks {
         return CarrierMessages.blockLabel(slot, CarrierMessages.componentName(slot.type));
     }
 
-    /**
-     * The bookkeeping every override change needs, in one place.
-     *
-     * <p>An override changes which neighbours a component talks to, so the network has to be re-solved
-     * (which is what turns the pin into an actual signal), the surrounding world has to be told
-     * because no block state changed, and clients have to be told because the drawing shows the
-     * connections.
-     */
+    /** The bookkeeping every override change needs, in one place: an override changes which neighbours a
+     * component talks to, so the network is re-solved, the world is told because no block state changed, and
+     * clients are told because the drawing shows the connections. */
     private static void innerChanged(ServerLevel level, InnerRedstoneStore store, BlockPos pos,
                                      Slot slot) {
         store.markDirty();

@@ -30,54 +30,22 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.30 commit A: a coordinate a live sub-level owns is the structure's <em>whether or not the index
- * has a record for it</em>.</b>
+ * A coordinate a live sub-level owns is the structure's <em>whether or not the index has a record for it</em>.
  *
- * <h2>The defect this pins, and the log that shows it</h2>
- * The author's report (<em>"rc list is normal, but re-physicalising and putting it in is still the
- * same"</em> - the component is visible to Jade and the overlay draws nothing) comes with a log whose two
- * decisive facts look unrelated until they are read together:
- *
- * <pre>
- *   carrier claim = 0                                        the whole session
- *   placed RETAINING_REPEATER at 20481032, 127, 20481032     the component is in the WORLD store
- *   dropped RETAINING_REPEATER from broken host 20481032, 127, 20481032
- * </pre>
- *
- * <p>So the component is in the world store, keyed by a <b>plot coordinate</b> - a coordinate that is
- * simultaneously "a position in the level" and "a block inside a structure". The world's click handler
- * won that click because <b>the index held no record at that coordinate</b>, which is exactly the state a
- * structure loaded from a save is in: every claim is created by taking a component out of a <em>world</em>
- * position, and a sub-level whose blocks were already inside it when it was saved has no claims at all.
- *
- * <h2>What is asserted</h2>
- * The whole of commit A, with no game running:
- *
- * <ol>
- *   <li><b>the second identification</b> ({@code CarrierStore#ownedHostAtPlot}): a plot cell of a live
- *       sub-level is recognised with <b>an empty index</b>, which the previous build could not do;</li>
- *   <li><b>the distinction on the line</b>: {@code owner=sublevel} for that case and {@code owner=host}
- *       for a coordinate the index really holds, so the next log separates the two without anybody having
- *       to reason about which frame answered;</li>
- *   <li><b>the world is not widened</b>: an ordinary world block, a plot-shaped coordinate no sub-level
- *       owns, and a host the index has already put down are all still the world's, so commit B's migration
- *       is the only thing that changes and no ordinary click is ever swallowed;</li>
- *   <li><b>the dead sub-level is refused</b>: a plot coordinate whose sub-level is gone is not the
- *       structure's, so a removed structure cannot keep declining clicks on the ground it used to cover.</li>
- * </ol>
- *
- * <h2>Before the fix (the red half)</h2>
- * The round's own test files are written against the <b>previous</b> tree by reflection, so every
- * assertion about {@code ownedHostAtPlot} and {@code owner=sublevel} fails there with a plain, readable
- * message rather than a compile error. The expected red is seven assertions, all of them in this file:
- * they answer "not ours" on the previous tree and pass on this one.
+ * <p>A component can sit in the world store keyed by a <b>plot coordinate</b> - simultaneously "a position in the
+ * level" and "a block inside a structure" - and a sub-level whose blocks were already inside it when it was saved
+ * has no claims at all, so the world's click handler wins a click it should not. Asserted: a plot cell of a live
+ * sub-level is recognised with an empty index; {@code owner=sublevel} tells that case from {@code owner=host},
+ * where the index really holds the coordinate; an ordinary world block, a plot-shaped coordinate no sub-level owns
+ * and a host the index has put down are all still the world's; and a plot coordinate whose sub-level is gone is
+ * not the structure's.
  */
 class CarrierPlotOwnershipTest {
 
-    /** The coordinate from the author's log: a plot cell, printed by {@code placed … at}. */
+    /** The coordinate the misplaced component was reported at: a plot cell, printed by {@code placed … at}. */
     private static final BlockPos PLOT = new BlockPos(20481032, 127, 20481032);
 
-    /** Where the structure's pose puts that cell: the author's own claim frame. */
+    /** Where the structure's pose puts that cell: the claim frame. */
     private static final BlockPos VISIBLE = new BlockPos(-12, -60, -12);
 
     /** An ordinary world block, nowhere near any structure's plot region. */
@@ -86,7 +54,7 @@ class CarrierPlotOwnershipTest {
     /** A plot-shaped coordinate that <b>no</b> sub-level owns - the trap the previous test file names. */
     private static final BlockPos OTHER_PLOT = new BlockPos(20481032, 128, 20524040);
 
-    /** The author's carrier, from the log's {@code carrier claim s:d315200a}. */
+    /** The structure the misplaced component belongs to, from the log's {@code carrier claim s:d315200a}. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("d315200a-0000-0000-0000-000000000000"));
 
@@ -157,25 +125,22 @@ class CarrierPlotOwnershipTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's claim is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos}: the claim is a translation. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
     }
 
     /**
-     * A sub-level that was <b>loaded from a save</b>: it owns its plot cell, it has a readable pose, and
-     * the index holds nothing at all.
-     *
-     * <p>That is the whole of the author's state, and it is produced here by writing only the two things
-     * a reloaded sub-level really has - a pose and a plot cell - and never calling {@code claim}.
+     * A sub-level that was <b>loaded from a save</b>: it owns its plot cell, it has a readable pose, and the index
+     * holds nothing at all - produced here by writing only a pose and a plot cell, never calling {@code claim}.
      */
     private void loadedFromSave(CarrierId carrier, BlockPos plotCell, BlockPos visibleAt) {
         poses.put(carrier.uuid(), moving(plotCell, visibleAt));
         plotOwners.put(plotCell.asLong(), carrier);
     }
 
-    /** A sub-level whose plot cell the index really holds a live record for: the P1.26 case. */
+    /** A sub-level whose plot cell the index really holds a live record for. */
     private CarriedHost claimedHost(CarrierId carrier, BlockPos plotCell, BlockPos worldAt) {
         world.put(worldAt.asLong(), new Slot(ComponentType.RETAINING_REPEATER));
         index.claim(carrier, plotCell, worldAt, new MapWorld(world));
@@ -195,13 +160,13 @@ class CarrierPlotOwnershipTest {
         void anEmptyIndexStillOwnsThePlotCell() {
             loadedFromSave(AUTHOR, PLOT, VISIBLE);
             assertTrue(index.isEmpty(), "the setup is the point: this is a structure loaded from a save, "
-                    + "which has no claims at all - the author's `carrier claim = 0`");
+                    + "which has no claims at all");
 
             CarriedBlockRemoval.Hit owned = plotOwnership(PLOT, true);
 
             assertNotNull(owned, "the plot cell is the structure's by every physical fact; the index "
                     + "simply has not heard of it yet, and that must not hand the click to the world");
-            assertEquals("s:d315200a", owned.carrier().shortId(), "the author's own carrier");
+            assertEquals("s:d315200a", owned.carrier().shortId(), "the structure's own carrier id");
             assertEquals(PLOT, owned.localPos(), "the coordinate IS the host's coordinate inside the "
                     + "structure, which is the fact this whole exception rests on");
             assertEquals(VISIBLE, owned.worldPos(), "and the pose names where that block is in the world");
@@ -233,8 +198,8 @@ class CarrierPlotOwnershipTest {
 
             assertNotNull(owned, "a live index record is still the first and strongest answer");
             assertEquals(CarrierClickPriority.Probe.HOST, owned.probe(),
-                    "this is the state P1.26 could already handle: the carrier's resolver will find the "
-                            + "component and act on the click");
+                    "an index record is the first and strongest answer: the carrier's resolver finds the "
+                            + "component and acts on the click");
             assertTrue(owned.describe().contains("owner=host"),
                     "the word is on the judgement line: " + owned.describe());
         }
@@ -259,7 +224,7 @@ class CarrierPlotOwnershipTest {
         @DisplayName("the probe is on by default, and off means the world keeps every click")
         void theSwitchDefaultsOn() {
             assertTrue(prioritySwitch(), "the widened decision is the default; `false` is the escape hatch "
-                    + "back to the behaviour before P1.26");
+                    + "back to the behaviour without it");
         }
     }
 
@@ -303,12 +268,11 @@ class CarrierPlotOwnershipTest {
 
             assertNull(hostRecord(PLOT),
                     "the host-record question refuses a put-down host: `ownedHostAt` is what the world's "
-                            + "own placement path asks, and a block the structure has put down behaves "
-                            + "exactly as it did before this round");
+                            + "own placement path asks, and a block the structure has put down is the world's");
 
             assertNull(probe(PLOT, true),
                     "and the DECISION refuses it too - the world keeps the click on a block that has been "
-                            + "put down, exactly as before this round. What matters is *how* it refuses: the "
+                            + "put down. What matters is *how* it refuses: the "
                             + "answer must not be Probe.SUB_LEVEL, because that value means \"the index has "
                             + "no record here\" and the migration keys off it - a put-down host reported "
                             + "that way would be adopted a second time, over a host the player has already "
@@ -323,8 +287,8 @@ class CarrierPlotOwnershipTest {
 
             assertNull(plotOwnership(PLOT, true),
                     "a plot region no live structure is standing on is not anybody's coordinate: without "
-                            + "this, a removed structure would keep declining clicks on ground it used to "
-                            + "cover, and nothing would ever handle them");
+                            + "this, a removed structure would keep declining clicks on its old ground, and "
+                            + "nothing would ever handle them");
             assertTrue(asked.contains(AUTHOR), "and the liveness question was the thing that decided it");
         }
 
@@ -353,7 +317,7 @@ class CarrierPlotOwnershipTest {
 
             assertNull(plotOwnership(PLOT, false),
                     "the plot lookup is the only thing that can name a sub-level from a coordinate; "
-                            + "without it the answer is the P1.26 one");
+                            + "without it nothing is a plot cell");
         }
     }
 
@@ -373,8 +337,8 @@ class CarrierPlotOwnershipTest {
                     (CarrierStore.PoseSource) carrier -> poses.get(carrier.uuid()), counted());
             return (CarrierClickPriority.Owned) result;
         } catch (ReflectiveOperationException absent) {
-            // The previous build: there is no such decision, which is exactly the defect. Answering null
-            // is "no structure owns this position" - the world keeps the click.
+            // No such decision exists: answering null is "no structure owns this position", so the world
+            // keeps the click.
             return null;
         }
     }
@@ -453,9 +417,8 @@ class CarrierPlotOwnershipTest {
      * The plot-owner lookup, as an instance of {@code CarrierStore$PlotOwnerSource} <b>built at
      * runtime</b>.
      *
-     * <p>A lambda would name the interface in this file's bytecode, and the interface is what the fix
-     * adds - so a lambda would stop this test file from compiling against the previous build, which is the
-     * one thing it must be able to do. A dynamic proxy names it only as a string.
+     * <p>A lambda would name the interface in this file's bytecode, and an interface that does not exist
+     * cannot be referenced: a dynamic proxy names it only as a string, so this file still compiles.
      */
     private Object plotOwnerProxy() {
         return java.lang.reflect.Proxy.newProxyInstance(

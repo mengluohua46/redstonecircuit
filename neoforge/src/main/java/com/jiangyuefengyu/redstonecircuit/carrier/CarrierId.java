@@ -7,50 +7,26 @@ import net.minecraft.nbt.CompoundTag;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The <b>stable</b> identity of one moving structure that is carrying host blocks.
+ * The <b>stable</b> identity of one moving structure that is carrying host blocks: the first half of the key the carried
+ * data is stored under, the second half being the local coordinate inside that structure (see {@link CarriedHost}).
  *
- * <p>This is the first half of the key the carried data is stored under; the second half is the
- * local coordinate inside that structure (see {@link CarriedHost}).
+ * <p>The carrier has to survive things "the contraption object" does not - the four to five repeated
+ * {@code stopMoving} callbacks Create makes for one motion, a save taken in mid-flight, the gap between
+ * {@code startMoving} and {@code stopMoving} - so the identity is a plain serialisable value: {@code kind} (a Create
+ * contraption or a Sable sub-level, see {@link CarrierKind}) and {@code uuid} (the contraption <b>entity</b>'s UUID, or
+ * the sub-level's), both assigned once when the structure is created and alive until it is taken apart.
  *
- * <h2>Why an id and not "the contraption object"</h2>
- * The carrier has to survive things the object does not: the four to five repeated
- * {@code stopMoving} callbacks Create makes for one motion, a world save taken in mid-flight, and the
- * gap between {@code startMoving} and {@code stopMoving} during which nothing keeps a reference for
- * us. So the identity is a plain, serialisable value:
- *
- * <ul>
- *   <li>{@code kind} - a Create contraption or a Sable sub-level (see {@link CarrierKind});</li>
- *   <li>{@code uuid} - the contraption <b>entity</b>'s UUID, or the sub-level's UUID. Both are
- *       assigned once when the structure is created and stay the same until it is taken apart, which
- *       is exactly the lifetime the carried data needs.</li>
- * </ul>
- *
- * <h2>What was deliberately not used as the id</h2>
- * The contraption's <em>anchor</em> ({@code Contraption#anchor}). It looks like a natural key - it is
- * the world position the local coordinates are measured from - but it is a position, not an identity:
- * two contraptions assembled at the same anchor (a bearing that is taken apart and put back, a second
- * machine built on the same spot) would collide, and the whole point of the carried store is that its
- * entries cannot be confused with one another.
- *
- * @param kind which sort of structure this is
- * @param uuid the structure's own UUID, or the contraption entity's UUID
+ * <p>The contraption's <em>anchor</em> is deliberately not the id: it is a position, not an identity, and two
+ * contraptions assembled at the same anchor would collide, while the carried store's entries must never be confused.
  */
 public record CarrierId(CarrierKind kind, UUID uuid) {
 
-    /**
-     * The carrier a Create contraption entity stands for.
-     *
-     * @param entityUuid {@code AbstractContraptionEntity#getUUID()}
-     */
+    /** The carrier a Create contraption entity stands for, from {@code AbstractContraptionEntity#getUUID()}. */
     public static CarrierId contraption(UUID entityUuid) {
         return new CarrierId(CarrierKind.CONTRAPTION, entityUuid);
     }
 
-    /**
-     * The carrier a Sable sub-level stands for.
-     *
-     * @param subLevelUuid {@code SubLevel#getUniqueId()}
-     */
+    /** The carrier a Sable sub-level stands for, from {@code SubLevel#getUniqueId()}. */
     public static CarrierId subLevel(UUID subLevelUuid) {
         return new CarrierId(CarrierKind.SUB_LEVEL, subLevelUuid);
     }

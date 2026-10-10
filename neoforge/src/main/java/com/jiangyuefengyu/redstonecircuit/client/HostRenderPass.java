@@ -59,53 +59,33 @@ import net.neoforged.neoforge.client.model.data.ModelData;
 /**
  * Draws what a block hides: the frosted, framed cube, and the component inside it.
  *
- * <h2>Once per frame, not once per chunk</h2>
- * The previous build wrote the shell into the section's own vertex buffer through
- * {@code AddSectionGeometryEvent}. That was faster - sort, occlude and cull for free - but it made the
- * shell part of the world's geometry, and geometry cannot be switched off again without rebuilding the
- * section. The design needs exactly that switch (R6: the effect appears when the goggles go on and
- * disappears when they come off), and it needs the component drawn <em>on top</em> of the block, which
- * no section buffer can do. So the whole thing moved here: drawn every frame, from the client's cached
- * copy of what is where, and gated on the goggles without a packet or a rebuild.
+ * <p>Drawn every frame from the client's cached copy of what is where, rather than baked into the
+ * section's vertex buffer, because the overlay has to switch off with the goggles without a rebuild and
+ * the component has to be drawn <em>on top of</em> the block, which no section buffer can do.
  *
- * <h2>What is drawn, and in what order</h2>
- * <ol>
- *   <li>For every host in range that the player can see: the shell, from {@link HostShell}, in vanilla's
- *       own {@link RenderType#translucent()} - the very type glass and water use, fetched from the
- *       vanilla buffer source so the game flushes it in its usual translucent pass. The line of sight is
- *       checked first so a host behind a wall is not drawn at all - without that, a translucent shell
- *       would be visible through the mountain in front of it.</li>
- *   <li>The component itself, in the depth-ignoring {@link HostRenderTypes#CONTENTS} type, so it shows
- *       through the block's own face. See {@link InnerComponentModel} for the shapes.</li>
- *   <li>The wrench highlight: the frame of the block the wrench has picked, and of the one being
- *       pointed at.</li>
- * </ol>
- *
- * <h2>Why the shell is not one of our own render types</h2>
- * It used to be, with the same state vanilla's translucent type has, and shader packs treated it as a
- * stranger: Complementary Unbound drew the components and dropped the shell entirely. Iris picks a
- * program - and the extra vertex attributes a pack's shaders expect - from the render type it is handed,
- * by identity, so a type that merely looks like vanilla's is not enough. Glass and water came through
- * untouched, which is the whole argument for using that instance rather than a copy of it.
+ * <p>Order, per host in range the player can see: the shell from {@link HostShell}, in vanilla's own
+ * {@link RenderType#translucent()} - the very instance glass and water use, fetched from the vanilla
+ * buffer source, because a shader pack picks its program from the render type's identity and a copy that
+ * merely looks like vanilla's is not enough. The line of sight is checked first, or a translucent shell
+ * would be visible through the mountain in front of it. Then the component itself, in the depth-ignoring
+ * {@link HostRenderTypes#CONTENTS} type so it shows through the block's own face. Then the wrench
+ * highlight: the frame of the block the wrench has picked, and of the one being pointed at.
  */
 @EventBusSubscriber(modid = RedstoneCircuit.MODID, value = Dist.CLIENT)
 public final class HostRenderPass {
 
     /**
-     * How far hosts are looked for, in sections.
-     *
-     * <p>Six sections is ninety-six blocks, which is past the point where a block's inside is legible;
-     * the loop itself is a walk over the occupied sections, so this only bounds how much is drawn.
+     * How far hosts are looked for, in sections. Six is ninety-six blocks, past the point where a block's
+     * inside is legible; the loop walks only the occupied sections, so this bounds how much is drawn.
      */
     private static final int SECTION_RADIUS = 6;
 
     /**
      * How far a carried host is drawn, in blocks; a little past the section radius above.
      *
-     * <p>A carried host has to be measured from where it actually is, and that is the carrier's
-     * position - not its origin, which may be anywhere. The number is the section radius in blocks
-     * with a block of slack, so the two paths reach roughly as far as each other and neither surprises
-     * the player by drawing further than the other.
+     * <p>A carried host is measured from where it actually is - the carrier's position, not its origin,
+     * which may be anywhere. The number is the section radius in blocks with a block of slack, so the two
+     * paths reach roughly as far as each other.
      */
     private static final double DRAW_DISTANCE = SECTION_RADIUS * 16.0 + 16.0;
 
@@ -120,9 +100,9 @@ public final class HostRenderPass {
     /**
      * The slice of the wire sprite that holds the line itself.
      *
-     * <p>The sprite is a 16x16 canvas with a one-pixel jogged line down the middle and nothing else, so
-     * taking the whole width would spread that line across a sixteenth of a bar - a hairline. Narrowing
-     * the slice to the columns the line actually uses is what gives a line of a believable thickness.
+     * <p>The sprite is a 16x16 canvas with a one-pixel jogged line down the middle and nothing else, so the
+     * whole width would spread that line across a sixteenth of a bar - a hairline. Narrowing the slice to
+     * the columns the line actually uses is what gives it a believable thickness.
      */
     private static final float WIRE_U0 = 5F / 16F;
     private static final float WIRE_U1 = 11F / 16F;
@@ -135,28 +115,16 @@ public final class HostRenderPass {
     /**
      * <b>The stage names this build PRINTS - and why dispatch must never key on them.</b>
      *
-     * <h2>The regression these two constants caused, and the rule that replaces it</h2>
-     * An earlier revision of this file dispatched on {@code event.getStage().toString()} compared with
-     * these strings - and the whole overlay vanished: no world shell, no components, no carried path, and
-     * <b>no frame summary either</b>, because {@code onRenderLevel} returned on its first line of every
-     * call. The two names are <em>not</em> the dispatch tokens, because
-     * {@code RenderLevelStageEvent.Stage} is built through a {@code ResourceLocation}:
-     *
-     * <pre>
-     *   private static Stage register(String name, RenderType t) { return register(ResourceLocation.parse(name), t); }
-     *   private static Stage register(ResourceLocation name, RenderType t) { new Stage(name.toString()); }
-     *   public String toString() { return this.name; }
-     * </pre>
-     *
-     * <p>{@code ResourceLocation.parse("after_entities")} has no namespace, so it gains the default one
-     * and {@code toString()} is <b>{@code "minecraft:after_entities"}</b>. Comparing that with
-     * {@code "after_entities"} is false for every frame, forever - a silent, total failure that no
-     * in-game diagnostic could report, because the diagnostic was behind the same comparison.
+     * <p>{@code RenderLevelStageEvent.Stage} is built through a {@code ResourceLocation} whose string form
+     * carries the default namespace, so a stage registered as {@code after_entities} prints
+     * <b>{@code "minecraft:after_entities"}</b>. Comparing that with {@code "after_entities"} is false for
+     * every frame, forever - a silent, total failure that no in-game diagnostic can report, because the
+     * diagnostic sits behind the same comparison.
      *
      * <p><b>So these constants are for the log and for unit tests only.</b> Dispatch is
-     * {@link #isStage}, which compares the {@code Stage} object itself: {@code Stage} is a plain class
-     * with identity equality, so that is exact and free. The {@code minecraft:} prefix is included in the
-     * constants so that the printed line is the literal string a reader will see in the game's own code.
+     * {@link #isStage}, which compares the {@code Stage} object itself: it is a plain class with identity
+     * equality, so that is exact and free. The {@code minecraft:} prefix is included so the printed line is
+     * the literal string a reader will see in the game's own code.
      */
     static final String WORLD_STAGE_NAME = "minecraft:after_entities";
 
@@ -166,8 +134,8 @@ public final class HostRenderPass {
      * Whether a dispatched stage is the one we meant, <b>by object</b> - never by name.
      *
      * <p>{@code RenderLevelStageEvent.Stage} does not override {@code equals}, so this is identity, which
-     * is what makes it immune to the spelling trap above. A {@code null} target gives {@code false}
-     * rather than throwing, so a caller that could not load the stage is simply "not our stage".
+     * makes it immune to the spelling trap above. A {@code null} target gives {@code false} rather than
+     * throwing, so a caller that could not load the stage is simply "not our stage".
      */
     static boolean isStage(Object dispatched, Object wanted) {
         return wanted != null && wanted.equals(dispatched);
@@ -176,11 +144,11 @@ public final class HostRenderPass {
     /**
      * Whether the names above still describe the stage objects this build dispatches on.
      *
-     * <p>Called from the render pass itself, once per frame, where loading
-     * {@code RenderLevelStageEvent} is free - a running game has long since loaded it. This is what stops
-     * the printed copy from becoming a lie: if NeoForge renames a stage, the next frame logs a warning
-     * naming both spellings. It is deliberately <b>not</b> a gate on anything: the pass draws whether or
-     * not this returns true, because a diagnostic must never be able to switch the feature off.
+     * <p>Called once per frame from the render pass, where loading {@code RenderLevelStageEvent} is free: a
+     * running game has long since loaded it. This is what stops the printed copy from becoming a lie - if
+     * NeoForge renames a stage, the next frame logs a warning naming both spellings. It is <b>not</b> a gate
+     * on anything: the pass draws whether or not this returns true, because a diagnostic must never be able
+     * to switch the feature off.
      */
     static boolean stageNamesMatchTheDispatcher() {
         boolean matches = WORLD_STAGE_NAME.equals(RenderLevelStageEvent.Stage.AFTER_ENTITIES.toString())
@@ -203,10 +171,9 @@ public final class HostRenderPass {
      * The fact that the world path's translucent shell is <b>not</b> flushed by us, and by whom instead.
      *
      * <p>Printed beside the two stages we do own, because a reader who finds {@code worldShellQuads} and
-     * looks for a matching "flushed at" has to be told that there is none: the world shell deliberately
-     * keeps vanilla's translucent render type identity, so the level renderer's own translucent section
-     * layer flushes it, after the two stages below. Quoted from {@code LevelRenderer.renderLevel}'s
-     * profiler push rather than from the enum, because the level renderer is what actually does it.
+     * looks for a matching "flushed at" has to be told there is none: the world shell keeps vanilla's
+     * translucent render type identity, so the level renderer's own translucent section layer flushes it,
+     * after both of ours.
      */
     static final String WORLD_SHELL_STAGE = "handed to LevelRenderer, which flushes it in the same frame; "
             + "type identity kept for Iris, NOT flushed by us and never alarmed on";
@@ -217,11 +184,9 @@ public final class HostRenderPass {
     /**
      * The client's own tick, which is where the carried picture is allowed to decay.
      *
-     * <p>Registered on the <b>game</b> bus rather than the mod bus because it is a game event. It does
-     * one thing: {@link ClientHostCache#tickCarriers()} lets go of any carrier whose pose the server
-     * has stopped refreshing, and hands its hosts back to the world path. Twenty times a second is
-     * plenty for something whose threshold is measured in seconds, and it costs a walk over the
-     * carriers the client knows about - a handful - only when one of them is actually stale.
+     * <p>Registered on the <b>game</b> bus rather than the mod bus because it is a game event. It does one
+     * thing: {@link ClientHostCache#tickCarriers()} lets go of any carrier whose pose the server has stopped
+     * refreshing and hands its hosts back to the world path.
      */
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
@@ -234,35 +199,22 @@ public final class HostRenderPass {
     /**
      * <b>Where the pass runs, and why the carried path runs somewhere else.</b>
      *
-     * <p>Both stages are dispatched from {@code LevelRenderer.renderLevel} itself, which is the one
-     * place that runs the same way with and without a modded chunk renderer (Sodium included).
+     * <p>Both stages are dispatched from {@code LevelRenderer.renderLevel} itself - the one place that runs
+     * the same way with and without a modded chunk renderer (Sodium included). The world path
+     * ({@code Stage.WORLD} = {@code AFTER_ENTITIES}) writes shell and contents together, and <b>must not be
+     * moved</b>: that stage is before the translucent chunk layer, so water in front of a host still blends
+     * over it, and before the block-entity pass, so a component is not painted over a chest beside it.
      *
-     * <pre>
-     *   Stage.WORLD    = AFTER_ENTITIES
-     *   Stage.CARRIED  = AFTER_TRANSLUCENT_BLOCKS
-     * </pre>
-     *
-     * <p><b>The world path stays at {@code AFTER_ENTITIES} and must not be moved.</b> That stage is
-     * before the translucent chunk layer, so water in front of a host still blends over it, and it is
-     * before the block-entity pass, so a component is not painted over a chest it is standing next to.
-     * The whole world path - shell and contents - is written there.
-     *
-     * <p><b>The carried path is written after everything the structure itself draws.</b> A contraption
-     * is drawn through Flywheel: {@code VisualizationManager.RenderDispatcher.afterEntities} is invoked
-     * from {@code LevelRendererMixin.flywheel$beforeBlockEntities}, i.e. immediately <em>after</em>
-     * {@code AFTER_ENTITIES} has been dispatched and before the {@code blockentities} section, and a
-     * Sable sub-level is drawn even earlier, by
-     * {@code SubLevelRenderDispatcher.renderAfterSections} injected just before
-     * {@code LevelRenderer.renderLevel} calls {@code DimensionSpecialEffects.constantAmbientLight()}.
-     * Both are therefore after {@code AFTER_ENTITIES}, and geometry flushed there for a host riding a
-     * structure is covered by that structure's own opaque blocks - which is the defect this split fixes.
+     * <p>The carried path ({@code Stage.CARRIED} = {@code AFTER_TRANSLUCENT_BLOCKS}) is written after
+     * everything the structure itself draws - a contraption through Flywheel, a Sable sub-level even
+     * earlier - so that its geometry is not covered by the structure's own opaque blocks.
      */
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
         // BY OBJECT, NEVER BY NAME. See WORLD_STAGE_NAME: the Stage's `toString` carries a
-        // `minecraft:` namespace, and an earlier revision dispatched on that string, matched nothing,
-        // and silently switched the whole overlay off - including its own diagnostics. This comparison
-        // cannot fail that way: `Stage` has no `equals` override, so it is identity.
+        // `minecraft:` namespace, so dispatching on that string matches nothing and silently switches the
+        // whole overlay off, its own diagnostics included. `Stage` has no `equals` override, so this is
+        // identity and cannot fail that way.
         Stage stage = isStage(event.getStage(), RenderLevelStageEvent.Stage.AFTER_ENTITIES) ? Stage.WORLD
                 : isStage(event.getStage(), RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS)
                         ? Stage.CARRIED
@@ -270,8 +222,8 @@ public final class HostRenderPass {
         if (stage == null) {
             return;
         }
-        // The canary: the two names the log prints really are what NeoForge's Stage reports. Free
-        // here - a running game has loaded that class long ago - and it cannot switch anything off.
+        // The canary: the names the log prints really are what NeoForge's Stage reports. Free here, and it
+        // cannot switch anything off.
         stageNamesMatchTheDispatcher();
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
@@ -283,12 +235,11 @@ public final class HostRenderPass {
         boolean goggles = wearingGoggles(player);
         CarrierGeometry.Gates gates = CarrierGeometry.Gates.of(RCConfig.overlayMode(), goggles);
         boolean active = gates.active();
-        // The gates go into the trace before anything is collected, so the frame summary - which is
-        // written while collecting - names this frame's configuration rather than the last one's.
+        // The gates go into the trace before anything is collected, so the frame summary names this frame's
+        // configuration rather than the last one's.
         CarrierRenderTrace.gates(level.dimension(), gates.describeWithVerdict() + effectiveColours(gates));
-        // ONE log line when the pass is off, and only on the transition. A player who is not wearing
-        // the goggles and a player whose config says OFF see the same empty screen, and neither of them
-        // is a rendering bug - but until this line existed the log could not tell them from one.
+        // One log line when the pass is off, and only on the transition: a player not wearing the goggles
+        // and a player whose config says OFF see the same empty screen, and neither is a rendering bug.
         logInactiveOnce(level.dimension(), gates);
 
         Camera camera = event.getCamera();
@@ -297,12 +248,10 @@ public final class HostRenderPass {
     }
 
     /**
-     * <b>P1.57: which pose a carrier is being drawn from, written when that changes and never per frame.</b>
+     * Which pose a carrier is being drawn from, written when that changes and never per frame.
      *
-     * <p>The two sources are indistinguishable on screen until a machine moves - which is why the round
-     * that first asked Sable for its render pose could fail silently for the whole session while the log
-     * filled with 3625 per-frame reflections warnings elsewhere. One line per carrier per transition
-     * answers "is the fix in effect at all" without measuring anything.
+     * <p>The two sources are indistinguishable on screen, so one line per carrier per transition is what
+     * makes "the pose really used" checkable without measuring anything.
      */
     private static final java.util.Set<com.jiangyuefengyu.redstonecircuit.carrier.CarrierId>
             LIVE_POSE_CARRIERS = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -323,29 +272,21 @@ public final class HostRenderPass {
     }
 
     /**
-     * One of the two stages, with everything that differs between them decided here.
+     * One of the two stages, with everything that differs between them decided here: each stage collects
+     * exactly what it draws, and the only state carried between them is the counter the frame summary needs.
      *
-     * <p>The alternative - one method that collects both lists and draws whichever halves its stage
-     * owns - would have to keep the carried list alive across two callbacks and would answer "which
-     * stage is this" in five places. Splitting the method means each stage collects exactly what it
-     * draws, and the only state carried between them is the counter the frame summary needs.
-     *
-     * <h2>Which stage the carried geometry is submitted at, and why it depends on the shader path</h2>
-     * See {@link CarrierGeometry.StagePlan}: without a shader pack the carried path keeps the late stage
-     * it has always used (so that a machine's own opaque blocks cannot cover a host riding it), and with
-     * one it is submitted here, with the world path, because our contents are written with a vanilla -
-     * therefore depth-<em>testing</em> - render type and the late stage is after the carried block's own
-     * faces are in the depth buffer. The whole of the "without a shader pack nothing changes" claim is
-     * that this branch is taken only when {@code vanillaTypes} is true; when it is false, not one stage,
-     * type, buffer or submission order differs from the build before this decision existed.
+     * <p>Where the carried geometry is submitted depends on the shader path - see
+     * {@link CarrierGeometry.StagePlan}. Without a shader pack it keeps the late stage it has always used,
+     * so a machine's own opaque blocks cannot cover a host riding it. With one it is submitted here, with
+     * the world path, because our contents are then written with a vanilla - therefore depth-<em>testing</em>
+     * - render type and the late stage is after the carried block's own faces are in the depth buffer.
      */
     private static void runStage(Stage stage, Minecraft minecraft, ClientLevel level, LocalPlayer player,
                                  RenderLevelStageEvent event, Vec3 cameraPos,
                                  CarrierGeometry.Gates gates, boolean active) {
         // With a shader pack drawing, the block itself has to leave the chunk mesh and everything the
         // overlay draws has to use vanilla's own render types: a pack picks its program, and the extra
-        // vertex attributes its shaders expect, from the render type it is handed, and it applies its
-        // own depth state per program. See ShaderCompat and the two mixins.
+        // vertex attributes its shaders expect, from the render type it is handed. See ShaderCompat.
         boolean vanillaTypes = ShaderCompat.vanillaGeometry();
         CarrierGeometry.StagePlan plan = CarrierGeometry.StagePlan.of(vanillaTypes);
         if (!stage.collectsEverything()) {
@@ -354,31 +295,26 @@ public final class HostRenderPass {
         }
 
         List<Visible> visible = active ? collect(level, player, cameraPos) : List.of();
-        // BOTH COLLECTIONS HAPPEN HERE, AND SO DOES THE FRAME SUMMARY.
-        //
-        // The summary used to be written from the carried stage, which made it depend on a second
-        // callback arriving - and when dispatch was keyed on a stage name that never matched, the
-        // *diagnostic* went silent along with the feature, so the log could not report its own failure.
-        // A diagnostic must hang on the unconditional path: this stage is dispatched once per frame
-        // whenever the level renders, carries the heartbeat in CarrierRenderTrace#frameSummary, and is
-        // therefore the only place a summary can be written from and still be trusted to appear.
-        //
-        // The carried list costs one walk over the occupied sections and is the same list the carried
-        // stage draws, so collecting it here changes nothing about the picture.
+        // BOTH COLLECTIONS HAPPEN HERE, AND SO DOES THE FRAME SUMMARY. A diagnostic must hang on the
+        // unconditional path: this stage is dispatched once per frame whenever the level renders and carries
+        // the heartbeat in CarrierRenderTrace#frameSummary, so a summary written anywhere else can go silent
+        // along with the feature it reports. The carried list costs one walk over the occupied sections and
+        // is the same list the carried stage draws, so collecting it here changes nothing about the picture.
+        // The frame's partial tick, taken once: the carried collection interpolates the poses with it, and so
+        // does the selection when the pick is inside a machine.
+        double partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         CarriedResult collected = active
-                ? collectCarried(level, player, cameraPos, event.getPartialTick().getGameTimeDeltaPartialTick(false))
+                ? collectCarried(level, player, cameraPos, partialTick)
                 : CarriedResult.empty();
         lastCarried = collected;
         reportFrame(level, collected, gates, active);
 
-        // The mesher has to know exactly which blocks the overlay draws: one that is hidden from the
-        // mesh and then not drawn is a hole in the world, and one that is drawn while still in the mesh
-        // fights it. Publishing every frame also covers the overlay being switched off, which is what
-        // puts the blocks back.
-        // Without shaders nothing leaves the mesh, so nothing is published: tracking the drawn set then
-        // would only mark sections dirty as the player looks around.
-        // Only world hosts are published: a carried host's block is not in the chunk mesh at all (its
-        // chunk has no such block any more), so there is nothing to hide.
+        // The mesher has to know exactly which blocks the overlay draws: one hidden from the mesh and then
+        // not drawn is a hole in the world, and one drawn while still in the mesh fights it. Publishing every
+        // frame also covers the overlay being switched off, which is what puts the blocks back. Without
+        // shaders nothing leaves the mesh, so nothing is published - tracking the drawn set would only mark
+        // sections dirty as the player looks around. Only world hosts are published: a carried host's block
+        // is not in the chunk mesh at all, so there is nothing to hide.
         List<BlockPos> drawn = new ArrayList<>();
         if (vanillaTypes) {
             for (Visible host : visible) {
@@ -388,47 +324,42 @@ public final class HostRenderPass {
         ShaderCompat.publishHosts(drawn, vanillaTypes);
 
         // THE CARRIED HALF, when the plan says this is its stage. Collected above; drawn here, before
-        // anything this stage submits, so that whatever submits first is not disturbed by geometry
-        // written into another source.
+        // anything this stage submits, so nothing is disturbed by geometry written into another source.
         CarriedResult carriedHere = carriedFor(plan, active, collected);
         boolean carriedDrawnHere = plan.withWorld();
 
+        // THE PICK IS A BORDER COLOUR, NOT A SECOND BOX, so all this stage does is name the picked block and
+        // the shell pass paints it: a world pick names a world block, a pick inside a machine names a
+        // structure and a local block, and the two are told apart by the payload.
+        BlockPos selected = selectedWorldBlock(minecraft);
         if (visible.isEmpty() && !carriedDrawnHere) {
-            // The world half of this frame is empty. There is nothing for this stage to flush, so the
-            // carried types must NOT be ended here: their vertices have not been written yet, and an
-            // endBatch now would throw the frame's carried geometry away.
+            // The world half of this frame is empty, so there is nothing for this stage to flush and the
+            // carried types must NOT be ended here: their vertices have not been written yet.
             //
-            // The readings are still RECORDED, with a zero counter, and that is not tidiness: leaving the
-            // previous frame's numbers in place made `worldEmittedQuads` (42) disagree with a freshly
-            // flushed ledger (0) on every frame in which only the carried path had anything to draw, and
-            // the module then reported its own stale bookkeeping as "WORLD STAGE WROTE NOTHING INTO ITS
-            // OWN BUFFER" 305 times. A per-frame reading must be written every frame or it is not a
-            // reading.
+            // The readings are still RECORDED, with a zero counter, and that is not tidiness: a per-frame
+            // reading must be written every frame or the alarm reports the previous frame's numbers as this
+            // frame's defect.
             recordWorldStage(new Counter());
             return;
         }
-
-        BlockPos selected = WrenchClientState.selection();
         BlockPos hovered = hoveredHost(minecraft, player);
 
         AtlasUv uv = atlasUv();
         PoseStack pose = event.getPoseStack();
-        // The pose the stage was entered on. Everything below runs inside a try/finally that puts the
-        // stack back on exactly this object, because vanilla's own LevelRenderer#checkPoseStack throws
-        // "Pose stack not empty" at the end of a frame whose stack is crooked - and that is how placing
-        // a torch inside a block crashed the game: the first frame with a host reached this push, and its
-        // pop had been lost when the readings were extracted into recordWorldStage. Identity, not a
-        // guess at the depth: a pose is only ever shared between a push and its matching pop.
+        // The pose the stage was entered on. Everything below runs inside a try/finally that puts the stack
+        // back on exactly this object, because vanilla's own LevelRenderer#checkPoseStack throws "Pose stack
+        // not empty" at the end of a frame whose stack is crooked, and that ends the game. Identity, not a
+        // guessed depth: a pose is only ever shared between a push and its matching pop.
         PoseStack.Pose entry = pose.last();
         pose.pushPose();
         pose.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
         PoseStack.Pose last = pose.last();
 
-        // WHAT WAS ACTUALLY EMITTED, counted where it is emitted. Every one of these numbers used to be
-        // inferred from `carried.size()`, which counts collected hosts - see CarrierGeometry.
+        // WHAT WAS ACTUALLY EMITTED, counted where it is emitted - not inferred from how many hosts were
+        // collected. See CarrierGeometry.
         Counter counter = new Counter();
-        // The carried half's own counter, when this stage owns it. Declared out here because the
-        // readings are written after the pose is unwound, exactly as the late stage writes them.
+        // The carried half's own counter, when this stage owns it. Declared out here because the readings
+        // are written after the pose is unwound, exactly as the late stage writes them.
         Counter carriedHereCounter = new Counter();
 
         try {
@@ -440,8 +371,10 @@ public final class HostRenderPass {
             if (gates.drawsContents()) {
                 drawContents(pose, level, visible, uv, counter);
             }
-            drawShells(last, level, visible, uv, gates, counter);
-            drawHighlight(last, level, selected, SELECTED_FRAME, uv);
+            drawShells(last, level, visible, uv, gates, counter, selected);
+            // Only the hover frame is a box of its own. The pick is not: it is the colour `drawShells` just
+            // used for the picked host's own border, and drawing a box here as well would put two frames at
+            // the same depth - which blend into a third colour and flicker.
             drawHighlight(last, level, hovered, HOVER_FRAME, uv);
 
             if (carriedDrawnHere) {
@@ -492,11 +425,8 @@ public final class HostRenderPass {
     }
 
     /**
-     * The carried collection the world stage should draw, when the plan makes it that stage's job.
-     *
-     * <p>One answer, and the reason it is a method rather than an expression at the call site: the list
-     * is only ever non-empty when the pass is active, and "the overlay is switched off" has to reach the
-     * drawing code as an empty list rather than as "the list that happened to be collected last frame".
+     * The carried collection the world stage should draw, when the plan makes it that stage's job. Always an
+     * empty list while the pass is off, never the list that happened to be collected last frame.
      */
     private static CarriedResult carriedFor(CarrierGeometry.StagePlan plan, boolean active,
                                             CarriedResult collected) {
@@ -507,14 +437,10 @@ public final class HostRenderPass {
     }
 
     /**
-     * <b>Submits the world source and records this frame's world readings - always, from one place.</b>
-     *
-     * <p>One method because the readings are a per-frame statement: {@code worldEmittedQuads} is what the
-     * drawing loops handed out <em>this</em> frame and the flushed numbers are what the source held at
-     * <em>this</em> frame's submission. Writing them from two call sites is how they came apart - the
-     * empty-world path submitted the batch but left last frame's emitted count behind, and the alarm read
-     * the difference as a defect. There is now exactly one place that can set them, and it is called on
-     * every path through the world stage.
+     * <b>Submits the world source and records this frame's world readings - always, from one place.</b> The
+     * emitted numbers are what the drawing loops handed out <em>this</em> frame and the flushed ones are what
+     * the source held at <em>this</em> frame's submission; writing them from two call sites is how they came
+     * apart, since the empty-world path submits the batch too.
      */
     private static void recordWorldStage(Counter counter) {
         HostRenderTypes.endWorldBatch();
@@ -540,20 +466,12 @@ public final class HostRenderPass {
     /**
      * Puts the pose stack back on the pose a stage was entered on, whatever happened in between.
      *
-     * <p>Vanilla's {@code LevelRenderer#checkPoseStack} throws {@code IllegalStateException("Pose stack
-     * not empty")} at the end of a frame whose pose stack is not back to its base, and that check is not
-     * a warning: it takes the game down. The world stage pushed a pose and lost its pop when the
-     * per-frame readings were extracted into {@link #recordWorldStage}, so the first frame that actually
-     * had a host to draw - the frame a redstone torch is placed inside a block - crashed on the spot.
-     *
-     * <p>The try/finally at both stage call sites is the fix; this is the guarantee behind it. The stack
-     * is walked back until the top <em>is</em> the pose the stage entered on, which is identity rather
-     * than a count of pushes, so a draw call that throws mid-way - or a future edit that adds a push
-     * without a pop - cannot leave the frame crooked. Anything beyond the single push a stage is allowed
-     * is reported, because a stage that had to pop more than once did something it should not have.
-     *
-     * <p>The rule itself lives in {@link PoseStackGuard} - a class free of this package's other types so
-     * that it can be tested without a game running. This wrapper is only here to report.
+     * <p>Vanilla's {@code LevelRenderer#checkPoseStack} throws {@code IllegalStateException("Pose stack not
+     * empty")} at the end of a frame whose pose stack is not back to its base, and that check takes the game
+     * down rather than warning. The stack is walked back until the top <em>is</em> the pose the stage entered
+     * on - identity, not a count of pushes - so a draw call that throws mid-way cannot leave the frame
+     * crooked. The rule itself lives in {@link PoseStackGuard}, a class free of this package's other types so
+     * that it can be tested without a game running; this wrapper is only here to report.
      */
     private static void restorePose(PoseStack pose, PoseStack.Pose entry) {
         int popped = PoseStackGuard.restore(pose, entry);
@@ -568,25 +486,20 @@ public final class HostRenderPass {
     /**
      * The carried stage: the hosts riding a moving structure, drawn and flushed as one frame.
      *
-     * <p>Deliberately thin about reporting: the frame summary is written by the <b>world</b> stage (see
-     * {@code runStage}), so that it appears whether or not this stage ever runs. All this stage adds is
-     * the flush counts, which only exist once it has drawn.
-     *
-     * <h2>When this stage is only a flush</h2>
-     * With a shader pack the carried geometry was already drawn and submitted by the world stage - see
-     * {@link CarrierGeometry.StagePlan} - and the reason this stage must then still <b>run</b> is that a
-     * flush line is a per-frame reading: a stage that silently stopped writing its readings when the
-     * shader path came on would be the same class of defect as the diagnostic that went silent with the
-     * feature it reported (see {@code CarrierRenderTrace}). So it writes the same lines with the same
-     * numbers, which is exactly what makes {@code carriedQuadsFlushedAt} trustworthy in both modes.
+     * <p>Thin about reporting, by design - the frame summary is written by the <b>world</b> stage (see
+     * {@code runStage}), so that it appears whether or not this stage ever runs. All this stage adds is the
+     * flush counts. With a shader pack the carried geometry was already drawn and submitted by the world
+     * stage ({@link CarrierGeometry.StagePlan}), and this stage still <b>runs</b> because a flush line is a
+     * per-frame reading: a stage that stopped writing its readings when the shader path came on would be the
+     * same class of defect as a diagnostic that goes silent with the feature it reports.
      */
     private static void runCarriedStage(ClientLevel level, LocalPlayer player,
                                         RenderLevelStageEvent event, Vec3 cameraPos,
                                         CarrierGeometry.Gates gates, boolean active,
                                         CarrierGeometry.StagePlan plan) {
-        // THE EARLY MODE: the world stage already drew and flushed this frame's carried geometry, so
-        // there is nothing left to draw and drawing it again would put a second copy of every component
-        // into a batch that has been submitted.
+        // THE EARLY MODE: the world stage already drew and flushed this frame's carried geometry, so there is
+        // nothing left to draw and drawing it again would put a second copy of every component into a batch
+        // that has been submitted.
         if (plan.withWorld()) {
             CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
             CarrierRenderTrace.matrixProbe(level.dimension(), carriedCounter.matrixProbeLine(),
@@ -594,9 +507,9 @@ public final class HostRenderPass {
             return;
         }
 
+        double partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         CarriedResult collected = lastCarried == null
-                ? (active ? collectCarried(level, player, cameraPos, event.getPartialTick().getGameTimeDeltaPartialTick(false))
-                        : CarriedResult.empty())
+                ? (active ? collectCarried(level, player, cameraPos, partialTick) : CarriedResult.empty())
                 : lastCarried;
         List<Carried> carried = collected.hosts();
 
@@ -605,6 +518,10 @@ public final class HostRenderPass {
             // disappeared must not leave the previous frame's vertices queued for the next endBatch. The
             // readings are recorded here too, for the same reason the world stage records them on its
             // empty path - a per-frame reading that is only written sometimes is not a reading.
+            //
+            // A picked host is IN this list when it is drawn at all (it is a host riding a structure like any other,
+            // and the pick is now a colour on its own border - see `drawCarriedShellsInto`), so a frame that reaches
+            // this line has no box of its own to draw either.
             recordCarriedStage(new Counter());
             CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
             return;
@@ -620,15 +537,14 @@ public final class HostRenderPass {
         CarrierGeometry.RenderPlan render = CarrierGeometry.RenderPlan.of(ShaderCompat.vanillaGeometry());
         try {
             // The shell is drawn first so that its own call site can take the matrix probe before the
-            // contents do - see Counter.probe, which takes the first probe from the contents call site
-            // when it gets there. A frame drawn the other way round would report the contents' matrix
-            // with no shell matrix to compare it against, and the shellContentGap line would go quiet
-            // exactly when the two call sites disagreeing is the thing worth knowing.
+            // contents do. A frame drawn the other way round would report the contents' matrix with no shell
+            // matrix to compare it against, and the shellContentGap line would go quiet exactly when the two
+            // call sites disagreeing is the thing worth knowing.
             drawCarriedShellsInto(pose, level, carried, uv, gates, counter, cameraPos, render);
             if (gates.drawsContents()) {
-                // Both carried types ignore depth, so their order in the buffer is their order on
-                // screen: drawing the contents last keeps the component crisp instead of washing it out
-                // under the frosted panel that is there to frame it.
+                // Both carried types ignore depth, so their order in the buffer is their order on screen:
+                // drawing the contents last keeps the component crisp instead of washing it out under the
+                // frosted panel that is there to frame it.
                 drawCarriedContentsInto(pose, level, carried, uv, counter, cameraPos, render);
             }
         } finally {
@@ -642,13 +558,11 @@ public final class HostRenderPass {
         counter.hostsDrawn = Math.max(counter.hostsWithShell, counter.hostsWithContent);
         counter.acceptProbe();
 
-        // THE FLUSH ITSELF, and the reason the carried path has a stage of its own: everything the
-        // structure draws is already in the frame by now, so these quads land on top of it instead of
-        // under it. Content first, shell second - both types ignore depth, so this order is the whole of
-        // the answer to "which of the two is visible where they overlap". See HostRenderTypes.
+        // THE FLUSH ITSELF, and the reason the carried path has a stage of its own: everything the structure
+        // draws is already in the frame by now, so these quads land on top of it instead of under it.
         recordCarriedStage(counter);
-        // Recorded after the submission, so the line the next frame summary carries describes this
-        // frame's flush rather than the one before it.
+        // Recorded after the submission, so the line the next frame summary carries describes this frame's
+        // flush rather than the one before it.
         CarrierRenderTrace.flushStages(level.dimension(), flushStageReport());
 
         CarrierRenderTrace.matrixProbe(level.dimension(), counter.matrixProbeLine(),
@@ -670,11 +584,10 @@ public final class HostRenderPass {
     /**
      * <b>The compact numbers, plus the guidance only when this frame's shape differs from the last.</b>
      *
-     * <p>The one call the renderer makes. {@link #flushStageLine()} is the per-frame half;
-     * {@link #flushStageExplanation()} is the three paragraphs of guidance, appended here only when
-     * {@link #frameExplanationDue()} says the frame's shape changed - the first frame of a session, a frame
-     * whose stage or flush state moved, or any frame with an alarm. The author's 5.8 MB session was mostly
-     * those paragraphs, byte-identical, re-printed every frame the counters moved.
+     * <p>The one call the renderer makes: {@link #flushStageLine()} is the per-frame half and
+     * {@link #flushStageExplanation()} is the guidance, appended only when {@link #frameExplanationDue()}
+     * says the frame's shape changed - the first frame of a session, a frame whose stage or flush state
+     * moved, or any frame with an alarm.
      */
     static String flushStageReport() {
         return flushStageLine() + (frameExplanationDue() ? flushStageExplanation() : "");
@@ -683,33 +596,22 @@ public final class HostRenderPass {
     /**
      * <b>The answer to "was the carried geometry flushed after the structure was drawn".</b>
      *
-     * <p>Built from the numbers this pass recorded at each {@code endBatch}, and naming the NeoForge
-     * stage each one ran at. A reader compares the carried stage against the world stage: the carried
-     * one must be the later, or a host riding a machine is covered by the machine's own blocks however
-     * many quads it emitted.
+     * <p>Built from the numbers this pass recorded at each {@code endBatch}, naming the NeoForge stage each
+     * one ran at. A reader compares the carried stage against the world stage: the carried one must be the
+     * later, or a host riding a machine is covered by the machine's own blocks however many quads it
+     * emitted. Which stage that is depends on the shader path, and the line reports the one really used -
+     * with a pack the carried geometry is submitted with the world path ({@link CarrierGeometry.StagePlan}),
+     * so {@code carriedQuadsFlushedAt} reads {@code minecraft:after_entities}; without one it reads the late
+     * stage.
      *
-     * <p><b>Which stage that is depends on the shader path</b>, and this line reports the one that was
-     * really used: with a pack the carried geometry is submitted with the world path (see
-     * {@link CarrierGeometry.StagePlan}), so {@code carriedQuadsFlushedAt} reads
-     * {@code minecraft:after_entities} and the fix is confirmed from the log rather than from the
-     * picture. Without one it reads the late stage, exactly as before.
-     *
-     * <p><b>Numbers only, and that is deliberate.</b> This line is written for every frame summary - once
-     * a second in the author's session - so it carries nothing that does not change between frames. The
-     * three paragraphs of {@code *** … ***} guidance that used to be appended here (the carried-stage
-     * ordering rule, the equality rule, the world-shell exception) are how to <em>read</em> these numbers;
-     * they live in {@link #flushStageExplanation()} and are appended only when
-     * {@link #frameExplanationDue()} says the frame's shape changed. Those paragraphs, unchanged and
-     * re-printed every second, were the bulk of a 5.8 MB log.
-     *
-     * <p>The stage names are properties of the build and are printed whether or not the stage has run;
-     * the counts and one word, {@code flushed=fresh|carried-over}, are properties of the frame. A stage
-     * that has not run since the client started says so rather than printing a zero that reads exactly
-     * like "it ran and wrote nothing" - which is the misreading this whole diagnostic exists to prevent.
-     *
-     * <p>The world shell has no stage of ours to name, and says so rather than looking like a stage that
-     * never ran: it keeps vanilla's translucent render type identity on purpose, so the level renderer's
-     * own translucent section layer flushes it - after both of ours.
+     * <p><b>Numbers only, and that is deliberate</b>: the line is written for every frame summary, so it
+     * carries nothing that does not change between frames. The stage names are properties of the build and
+     * are printed whether or not the stage has run; the counts and one word,
+     * {@code flushed=fresh|carried-over}, are properties of the frame, and a stage that has not run since
+     * the client started says so rather than printing a zero that reads like "it ran and wrote nothing". The
+     * world shell has no stage of ours to name, and says so rather than looking like a stage that never ran:
+     * it keeps vanilla's translucent render type identity, so the level renderer's own translucent section
+     * layer flushes it, after both of ours.
      */
     static String flushStageLine() {
         CarrierGeometry.StagePlan plan =
@@ -734,21 +636,12 @@ public final class HostRenderPass {
      * <b>The guidance, as one string, printed when the frame's shape changes rather than every frame.</b>
      *
      * <p>Three facts a reader needs in order not to misread the line above, none of which changes between
-     * two frames of one session:
-     *
-     * <ul>
-     *   <li>the carried stage must be the <b>later</b> of the two unless a shader pack is drawing, in
-     *       which case it is the same stage on purpose;</li>
-     *   <li>{@code worldOwnQuads} must equal {@code worldOwnEmittedQuads}, and {@code carriedQuads} must
-     *       equal {@code carriedEmittedQuads} - where they differ, the geometry went into a batch that had
-     *       already been submitted;</li>
-     *   <li>the world <b>shell</b> is deliberately outside that equation: it is handed to
-     *       {@code LevelRenderer}, so it has a handed-over count and no flush of ours.</li>
-     * </ul>
-     *
-     * <p>Appended by the caller only when {@link #frameExplanationDue()} says so - the first frame of a
-     * session, a frame whose shape differs from the previous one, and any frame with an alarm
-     * ({@link #flushAlarms()} is never gated).
+     * two frames of one session: the carried stage must be the <b>later</b> of the two unless a shader pack
+     * is drawing, in which case it is the same stage as the world path; {@code worldOwnQuads} must equal
+     * {@code worldOwnEmittedQuads} and {@code carriedQuads} must equal {@code carriedEmittedQuads}, because
+     * where they differ the geometry went into a batch that had already been submitted; and the world
+     * <b>shell</b> is outside that equation, being handed to {@code LevelRenderer} with a handed-over count
+     * and no flush of ours.
      */
     static String flushStageExplanation() {
         CarrierGeometry.StagePlan plan =
@@ -764,12 +657,12 @@ public final class HostRenderPass {
     }
 
     /**
-     * Whether this frame's explanation has to be printed: the first frame of a session, a frame whose
-     * shape differs from the previous one, or a frame carrying an alarm.
+     * Whether this frame's explanation has to be printed: the first frame of a session, a frame whose shape
+     * differs from the previous one, or a frame carrying an alarm.
      *
-     * <p>One string comparison per frame in the ordinary case, and a bounded one: the shape string is a
-     * handful of names and booleans the renderer already has. The state is process-lifetime and
-     * fixed-size, so nothing here grows with the session.
+     * <p>One bounded string comparison per frame: the shape string is a handful of names and booleans the
+     * renderer already has, and the state is process-lifetime and fixed-size. {@link #flushAlarms()} is
+     * never gated.
      */
     static boolean frameExplanationDue() {
         String shape = frameShape();
@@ -782,9 +675,8 @@ public final class HostRenderPass {
      * The part of a frame the explanation is about: which stage each half reached, whether each half has
      * flushed at all this session, and the alarm signature.
      *
-     * <p>Deliberately <b>not</b> the quad counts: a machine turning on the spot changes its quad counts
-     * every frame, and a gate keyed on those would print the guidance at frame rate - the defect this
-     * exists to fix, in the other direction.
+     * <p>The quad counts are <b>not</b> in it: a machine turning on the spot changes them every frame, and a
+     * gate keyed on those would print the guidance at frame rate.
      */
     private static String frameShape() {
         return Stage.WORLD.stageName() + '|' + Stage.CARRIED.stageName()
@@ -796,7 +688,7 @@ public final class HostRenderPass {
     /** The last frame shape the explanation was printed for; see {@link #frameExplanationDue()}. */
     private static String lastFrameShape = "";
 
-    /** Forgets the gate, so a test (or a new session) explains itself from the first frame again. */
+    /** Forgets the gate, so the next frame explains itself from the first frame again. */
     static void resetFrameLogForTest() {
         lastFrameShape = "";
     }
@@ -804,9 +696,6 @@ public final class HostRenderPass {
     /**
      * The gate's seam: makes the previous frame look like a different verdict, so a test can drive the
      * transition without a render thread.
-     *
-     * <p>A changed stage or an alarm is what really re-opens the gate, and both are produced by the
-     * renderer; this stands in for "the previous frame's verdict was different" and nothing else.
      */
     static final java.util.function.Consumer<String> NOTE_FOR_TEST =
             shape -> lastFrameShape = shape == null ? "" : shape;
@@ -814,16 +703,10 @@ public final class HostRenderPass {
     /**
      * <b>The alarms: geometry that was emitted and never submitted.</b>
      *
-     * <p>Two independent facts, either of which is a defect on its own, and which together name the
-     * parent defect exactly:
-     *
-     * <ul>
-     *   <li>a stage emitted quads and flushed none of its own - {@link HostBufferTally#nothingFlushedWhileEmitting};</li>
-     *   <li>vertices were written into a source <em>after</em> that source was flushed, which is the
-     *       signature of a draw point aiming at a finished batch.</li>
-     * </ul>
-     *
-     * <p>Empty on every healthy frame, so its presence in a log is the finding rather than a hint.
+     * <p>Two independent facts, either of which is a defect on its own: a stage emitted quads and flushed
+     * none of its own ({@link HostBufferTally#nothingFlushedWhileEmitting}), and vertices written into a
+     * source <em>after</em> that source was flushed, which is the signature of a draw point aiming at a
+     * finished batch. Empty on every healthy frame, so its presence in a log is the finding.
      */
     static String flushAlarms() {
         StringBuilder sb = new StringBuilder();
@@ -832,9 +715,8 @@ public final class HostRenderPass {
         if (carriedAlarm != null) {
             sb.append(' ').append(carriedAlarm);
         }
-        // The wrong-buffer detector, for either of our sources. A draw point writing into a source we have
-        // already submitted is the §17 defect, and this catches it even on a frame where the stage also
-        // submitted something of its own.
+        // The wrong-buffer detector, for either of our sources: a draw point writing into a source we have
+        // already submitted is caught even on a frame where the stage also submitted something of its own.
         if (HostBufferTally.postFlushWrites(HostBufferTally.Sink.WORLD) > 0) {
             sb.append(" *** WRONG BUFFER: vertices were written into the WORLD source after this build "
                     + "submitted it at ").append(Stage.WORLD.stageName()).append(", which is where a draw "
@@ -846,9 +728,8 @@ public final class HostRenderPass {
                     + "submitted it at ").append(Stage.CARRIED.stageName()).append(" ***")
                     .append(HostBufferTally.postFlushSentence());
         }
-        // ONLY the world geometry this build submits. The world shell is excluded by construction - the
-        // pair passed here is contents+interiors against the same two kinds' flush - so a frame that drew
-        // only the shell can no longer be read as a defect. See HostBufferTally.Sink#RENDERER.
+        // ONLY the world geometry this build submits: the world shell is excluded by construction, so a
+        // frame that drew only the shell cannot be read as a defect. See HostBufferTally.Sink#RENDERER.
         String worldAlarm = HostBufferTally.nothingFlushedWhileEmitting(HostBufferTally.Sink.WORLD,
                 worldOwnEmittedQuads, worldOwnFlushedQuads);
         if (worldAlarm != null) {
@@ -860,9 +741,9 @@ public final class HostRenderPass {
     /**
      * Submits the carried source and records this frame's carried readings; see {@link #recordWorldStage}.
      *
-     * <p>Both kinds in this source are ours to submit, so the pair here covers the whole carried picture:
-     * {@code carriedEmittedQuads} is what the loops handed out and {@code carriedOwnFlushedQuads} is what
-     * the source held when it was submitted. They agree on every healthy frame.
+     * <p>Both sink kinds in this source are ours to submit, so the pair here covers the whole carried
+     * picture: {@code carriedEmittedQuads} is what the loops handed out and {@code carriedOwnFlushedQuads}
+     * is what the source held when it was submitted.
      */
     private static void recordCarriedStage(Counter counter) {
         HostRenderTypes.endCarriedBatch();
@@ -881,21 +762,19 @@ public final class HostRenderPass {
     }
 
     /**
-     * The frame counters, recorded from the carried stage where the carried hosts are known.
+     * The frame counters, recorded where the hosts and their skip reasons are known.
      *
-     * <p>Split out of {@code collectCarried} so that the collection pass has no logging side effect:
-     * a collector that also writes the frame summary cannot be called twice in a frame, which is
-     * exactly what the two-stage split requires.
+     * <p>Split out of {@code collectCarried} so that the collection pass has no logging side effect: a
+     * collector that also writes the frame summary cannot be called twice in a frame, which is exactly what
+     * the two-stage split requires.
      */
     private static void reportFrame(ClientLevel level, CarriedResult collected,
                                     CarrierGeometry.Gates gates, boolean active) {
         if (!active) {
-            // THE PASS IS OFF, AND THE LOG SAYS SO. This used to return in silence, which made "the
-            // overlay is switched off" and "the overlay is on and nothing reaches the screen" the same
-            // log: a session with no frame summary at all. The author's 2026-09-28 log is that shape -
-            // the machine was carried for twelve seconds with no summary written - so it could not say
-            // which of the two it was. Same throttle, same clock, zeros, and the gates' own sentence,
-            // which names the mode, the goggles and which of them closed the pass.
+            // The pass is off, and the log says so: returning in silence would make "the overlay is switched
+            // off" and "the overlay is on and nothing reaches the screen" the same log - a session with no
+            // frame summary at all. Same throttle, same clock, zeros, and the gates' own sentence, which
+            // names the mode, the goggles and which of them closed the pass.
             CarrierRenderTrace.frameSummaryInactive(level.dimension(),
                     gates.describeWithVerdict() + effectiveColours(gates), level.getGameTime());
             return;
@@ -903,8 +782,7 @@ public final class HostRenderPass {
         int drawn = collected.hosts().size();
         // THE CLIENT'S OWN CLOCK, passed down so the diagnostics can space their lines out in ticks rather
         // than in frames: "at most one line per second" has to mean a second whatever frame rate the
-        // player's machine runs at, and the frame-counted throttle this class used to rely on is what
-        // turned one parked machine into 26,668 identical log lines (see CarrierRenderTrace).
+        // player's machine runs at.
         long nowTicks = level.getGameTime();
         CarrierRenderTrace.frame(level.dimension(), drawn, collected.skippedNoPose(),
                 collected.skippedFar(), collected.skippedStalePose(), collected.landedWorldHost(),
@@ -915,31 +793,26 @@ public final class HostRenderPass {
                 collected.skippedFar(), collected.skippedStalePose(), collected.landedWorldHost(),
                 collected.landedDeferred(), collected.carriedWorldHost(),
                 collected.worstPoseAgeTicks(), nowTicks);
-        // The worked example, logged on a change and otherwise at most once a second - the same
-        // throttle the frame summary uses. See CarrierDrawCheck for how to read the pair of positions,
-        // and `poseAge` for whether the pose they were computed from is current.
+        // The worked example, logged on a change and otherwise at most once a second. See CarrierDrawCheck
+        // for how to read the pair of positions.
         CarrierRenderTrace.drawCheck(level.dimension(), collected.example(),
                 collected.drawnOffStructure(), collected.plotSpaceHosts(),
                 collected.worstPoseAgeTicks(), nowTicks);
-        // The worked B2 example: recorded every frame, written when the window opens. The line is built
-        // by the collector (see CarriedResult#sight), so a frame that asked no sight question records
-        // nothing rather than reusing the last line it did ask.
+        // The B2 example: built by the collector (see CarriedResult#sight), so a frame that asked no sight
+        // question records nothing rather than reusing the last line it did ask.
         CarrierRenderTrace.sightDetail(level.dimension(), collected.sight().describe());
         CarrierRenderTrace.sight(level.dimension(), nowTicks);
-        // B1 LAST, and never before the two calls above: the origin walk's rollup reports the renderer's
-        // own skippedStalePose/skippedFar, which the `frame` call has just recorded, so the rollup and
-        // the frame summary it sits beside are two views of one frame rather than two frames.
+        // The origin sweep LAST, never before the two calls above: its rollup reports the renderer's own
+        // skippedStalePose/skippedFar, which the `frame` call has just recorded.
         CarrierRenderTrace.originSweep(level.dimension(), nowTicks, SECTION_RADIUS,
                 sweepShift(collected));
     }
 
     /**
-     * The point the origin walk's radius is measured from, for the B1 sweep.
+     * The point the origin walk's radius is measured from.
      *
-     * <p>The renderer's own answer is {@code BlockPos.containing(cameraPos)}, and the eye the sight
-     * question was asked from is the same point - so the sweep is handed the eye the frame already
-     * recorded rather than a fresh camera read that could be a frame newer. A frame that asked no sight
-     * question (nothing was carried) has no eye to hand and the sweep falls back to the camera entity's
+     * <p>The eye the sight question was asked from is handed over rather than a fresh camera read that
+     * could be a frame newer; a frame that asked no sight question falls back to the camera entity's
      * position, which is what the collector would have used.
      */
     @Nullable
@@ -982,10 +855,10 @@ public final class HostRenderPass {
     /**
      * The carried collection the world stage made this frame, for the carried stage to draw.
      *
-     * <p>The world stage collects both lists so that the frame summary - the diagnostic - hangs on the
-     * one stage that is certain to run; the carried stage then draws that same list rather than
-     * collecting a second, possibly different, one. Null only before the first frame of a session, in
-     * which case the carried stage collects for itself.
+     * <p>The world stage collects both lists so that the frame summary - the diagnostic - hangs on the one
+     * stage that is certain to run; the carried stage then draws that same list rather than collecting a
+     * second, possibly different, one. Null only before the first frame of a session, in which case the
+     * carried stage collects for itself.
      */
     @Nullable
     private static CarriedResult lastCarried;
@@ -995,10 +868,9 @@ public final class HostRenderPass {
      *
      * <p>The pair that must agree. {@code worldOwnEmittedQuads} counts the world <b>contents</b> (and the
      * block interiors under a shader pack) - everything the loops wrote into our own source - and
-     * {@code worldOwnFlushedQuads} is what that source held when we submitted it. The world <b>shell</b>
-     * is deliberately not in either: without a shader pack it goes into the level renderer's source,
-     * which we never submit, and holding it to this equation is what produced 305 false alarms in one
-     * session. See {@link HostBufferTally.Sink}.
+     * {@code worldOwnFlushedQuads} is what that source held when we submitted it. The world <b>shell</b> is
+     * not in either: without a shader pack it goes into the level renderer's source, which we never submit.
+     * See {@link HostBufferTally.Sink}.
      */
     private static int worldOwnEmittedQuads;
     private static int worldOwnFlushedQuads;
@@ -1011,7 +883,7 @@ public final class HostRenderPass {
      *
      * <p>Reported as its own pair because its submitter is not this build. Without a shader pack the
      * handed-over count is what we gave {@code LevelRenderer}; with one, the shell is in our own source
-     * after all, and the handed-over count is zero while the shell's quads appear in the flushed figure
+     * after all, so the handed-over count is zero while the shell's quads appear in the flushed figure
      * above.
      */
     private static int worldShellEmittedQuads;
@@ -1020,11 +892,9 @@ public final class HostRenderPass {
     /**
      * The stage the world path <em>is</em> flushed at, and whether it has run yet.
      *
-     * <p>Two separate facts on purpose. The stage name is a property of the build - the pass always runs
-     * at {@code after_entities} - so a diagnostic can print it before the first frame; the quad count
-     * and the "already flushed" flag are properties of the frame. Collapsing them into one string made
-     * the line unable to say "this is where it will flush" and "this is what it flushed" at the same
-     * time, which is the pair a reader needs on the very first frame of a session.
+     * <p>Two separate facts: the stage name is a property of the build - the pass always runs at
+     * {@code after_entities} - so a diagnostic can print it before the first frame, while the quad count and
+     * the "already flushed" flag are properties of the frame.
      */
     private static boolean worldFlushedThisSession;
 
@@ -1045,15 +915,14 @@ public final class HostRenderPass {
     private static boolean carriedFlushedThisSession;
 
     /**
-     * The two stages this pass draws in, and the only place that knows which event belongs to which.
+     * The two stages this pass draws in, and the mapping from event to stage.
      *
-     * <p>A small enum rather than two comparisons at the call site because the tests have to be able to
-     * ask the same question without a {@code RenderLevelStageEvent}, which cannot be constructed
-     * outside the game: the mapping is the contract, and it is checked by name.
+     * <p>A small enum rather than two comparisons at the call site because the tests have to ask the same
+     * question without a {@code RenderLevelStageEvent}, which cannot be constructed outside the game.
      *
-     * <p>Deliberately <b>without</b> the NeoForge constants as enum arguments: an enum's arguments are
-     * evaluated in the class initialiser, and reading {@code RenderLevelStageEvent.Stage} there drags
-     * in {@code RenderType} and the whole vanilla registry bootstrap. See {@link #stageNamesMatchTheDispatcher()}.
+     * <p><b>Without</b> the NeoForge constants as enum arguments: an enum's arguments
+     * are evaluated in the class initialiser, and reading {@code RenderLevelStageEvent.Stage} there drags in
+     * {@code RenderType} and the whole vanilla registry bootstrap. See {@link #stageNamesMatchTheDispatcher()}.
      */
     enum Stage {
 
@@ -1104,8 +973,8 @@ public final class HostRenderPass {
     /**
      * Why the shell could not be drawn, for the diagnostics; {@code null} when it could.
      *
-     * <p>The same gates the drawing loop consults, asked once more so the frame summary's zero can be
-     * read without guessing which of them did it.
+     * <p>The same gates the drawing loop consults, asked once more so the frame summary's zero can be read
+     * without guessing which of them did it.
      */
     @Nullable
     private static String gateReason(CarrierGeometry.Gates gates, boolean shell) {
@@ -1149,11 +1018,9 @@ public final class HostRenderPass {
     /**
      * What one frame actually wrote into the vertex buffers.
      *
-     * <p>The distinction this type exists for: {@code hostsCollected} is what the old
-     * {@code drawnLastFrame} counted, and {@code shellQuads}/{@code contentQuads} are what reached the
-     * buffers. A frame with the first non-zero and the second zero is a host that was handled and drew
-     * nothing, which is exactly the picture the author reported - and it is now impossible for the log
-     * to leave that unsaid.
+     * <p>The distinction this type exists for: {@code hostsCollected} is a host that was handled, and
+     * {@code shellQuads}/{@code contentQuads} are what reached the buffers. A frame with the first non-zero
+     * and the second zero is a host that drew nothing, which the log must never leave unsaid.
      */
     static final class Counter {
         int shellQuads;
@@ -1162,8 +1029,8 @@ public final class HostRenderPass {
         /**
          * Quads of the block's own inside-out model, which only the shader path draws.
          *
-         * <p>Counted because they share our world source and therefore belong in the "did we submit what
-         * we drew" equation; kept apart from {@code contentQuads} because no config gate controls them.
+         * <p>Counted because they share our world source and therefore belong in the "did we submit what we
+         * drew" equation; kept apart from {@code contentQuads} because no config gate controls them.
          */
         int interiorQuads;
         int hostsWithShell;
@@ -1174,16 +1041,12 @@ public final class HostRenderPass {
         /**
          * <b>Shell quads the per-quad colour rule refused, and the one fact that explains a zero.</b>
          *
-         * <p>{@link CarrierGeometry#shellQuadArgb} returns {@code 0} for exactly two reasons: the
-         * resolved colour is zero, or the shader pack's solid-frame rule drops the centre panel while
-         * the four rims are still drawn. The second can never empty a whole host, so a host that emitted
-         * <b>nothing</b> while its host-level gates were all open was refused by a colour of zero.
-         *
-         * <p>Counted here because the author's log has exactly one such frame - {@code shellQuads=0
-         * contentQuads=0} beside {@code tint=0x5A9FB6FF}, {@code showInnerComponents=true}, all gates
-         * open - and the old {@code *** NOTHING EMITTED ***} sentence left the reader choosing between
-         * "a setting is zero", "the renderer is broken" and "a one-frame transient". With this counter
-         * the next such frame says which, and the frame after it says whether it recovered.
+         * <p>{@link CarrierGeometry#shellQuadArgb} returns {@code 0} for exactly two reasons: the resolved
+         * colour is zero, or the shader pack's solid-frame rule drops the centre panel while the four rims
+         * are still drawn. The second can never empty a whole host, so a host that emitted <b>nothing</b>
+         * while its host-level gates were all open was refused by a colour of zero. Counted so the frame
+         * summary can say which of those it was instead of leaving the reader to guess between "a setting is
+         * zero", "the renderer is broken" and "a one-frame transient".
          */
         int shellQuadsRefusedByColour;
 
@@ -1191,20 +1054,19 @@ public final class HostRenderPass {
          * Hosts collected with no slot at all.
          *
          * <p>A host with no slot has no component to draw and no border colour, so it emits nothing by
-         * construction - and it is worth naming, because it is the one shape of "collected and drew
-         * nothing" that is neither a setting nor a renderer fault.
+         * construction - the one shape of "collected and drew nothing" that is neither a setting nor a
+         * renderer fault.
          */
         int hostsWithoutSlot;
 
         /**
-         * The matrix probes taken this frame: one from the contents call site and one from the
-         * shell's, for the same host.
+         * The matrix probes taken this frame: one from the contents call site and one from the shell's, for
+         * the same host.
          *
-         * <p>Two, because the check is two-sided and the two sides are known at different moments. The
-         * contents probe is taken while the contents path's pose is on the stack - the only place the
-         * anchor translation is known - and the shell probe while the shell's is, which additionally
-         * compares the two call sites' offsets with each other. A frame whose contents were switched off
-         * still takes the shell probe, so the matrix question is answered either way.
+         * <p>Two, because the check is two-sided and the two sides are known at different moments: the
+         * contents probe while the contents path's pose is on the stack - the only place the anchor
+         * translation is known - and the shell probe while the shell's is, which additionally compares the
+         * two call sites' offsets with each other.
          */
         private final List<CarrierMatrixProbe> probes = new ArrayList<>();
         @Nullable
@@ -1226,25 +1088,18 @@ public final class HostRenderPass {
         /**
          * <b>Record the matrix the next vertex is handed, and the offsets it is used with.</b>
          *
-         * <p>The matrix is copied, not referenced: a {@code PoseStack.Pose} is mutated in place for the
-         * rest of the frame, so a reference would report whatever it had become by the time the line was
-         * written. The copy is the only honest record of "this is what the vertex consumer was handed".
+         * <p>The matrix is copied, not referenced: a {@code PoseStack.Pose} is mutated in place for the rest
+         * of the frame, so a reference would report whatever it had become by the time the line was written.
          *
-         * <h2>The offsets, and the defect this signature was fixed for</h2>
-         * A block's local coordinate names its <b>corner</b>, so a block model's vertices are the usual
+         * <p>A block's local coordinate names its <b>corner</b>, so a block model's vertices are the usual
          * {@code 0..1} measured from it: the model's corner sits at {@code local} and its centre at
-         * {@code local + 0.5} on each axis. Both call sites emit at that same base - the shell's unit
-         * cube and the model's {@code 0..1} cube are literally the same cube - and the only difference
-         * between them is how that base reaches the vertices: the shell adds it to each vertex itself,
-         * the contents path pushes it as a pose translation and emits at the origin.
-         *
-         * <p>The old version of this method took only {@code extraTranslation} and added
-         * {@link CarrierPose#BLOCK_CENTRE} to the centre probe <em>unconditionally</em>. That is right
-         * for the shell, whose base is not yet in the matrix, and wrong for the contents, whose base is:
-         * the contents' "centre" probe then measured the block's <b>corner</b>, and the line read
-         * {@code shellContentGap=1.7321} - the corner-to-centre diagonal, {@code sqrt(3)/2 * 2} - while
-         * the geometry was in fact exactly on the block. The gap is now zero by construction, whatever
-         * {@code R}, {@code local} or {@code pivot} is.
+         * {@code local + 0.5} on each axis. The shell's unit cube and the model's {@code 0..1} cube are
+         * literally the same cube, and the only difference between the two call sites is how that base
+         * reaches the vertices - the shell adds it to each vertex itself, the contents path pushes it as a
+         * pose translation and emits at the origin. So the centre offset belongs to the shell's probe only;
+         * adding it unconditionally measures the contents' <b>corner</b> and reports a non-zero gap on
+         * geometry that lies exactly on the block. The gap is zero by construction, whatever {@code R},
+         * {@code local} or {@code pivot} is.
          *
          * @param label {@code contents} or {@code shell}: which call site this matrix belongs to
          * @param base the offset that site writes its geometry at, in frame space, measured from the
@@ -1268,12 +1123,10 @@ public final class HostRenderPass {
         }
 
         /**
-         * Turns the probes into one line, once the frame is over.
-         *
-         * <p>Called after the draw paths rather than from inside them, because printing from inside the
-         * loop would write a line per host per frame. When both call sites were probed for the same host,
-         * the distance between them is appended: that is the number that catches the shell and the
-         * contents being drawn in different frames.
+         * Turns the probes into one line, once the frame is over - called after the draw paths, because
+         * printing from inside the loop would write a line per host per frame. When both call sites were
+         * probed for the same host, the distance between them is appended: that is the number that catches
+         * the shell and the contents being drawn in different frames.
          */
         void acceptProbe() {
             if (probes.isEmpty()) {
@@ -1308,11 +1161,7 @@ public final class HostRenderPass {
         }
 
         /**
-         * One host to name in the log: the first whose geometry was refused.
-         *
-         * <p>The interesting host is the one that emitted nothing, not the first one that worked - the
-         * log line about a healthy host is a line nobody needs, and the line about the broken one is
-         * the whole reason the reader opened the file.
+         * One host to name in the log: the first whose geometry was refused, not the first that worked.
          */
         @Nullable
         private String example(List<Visible> visible, List<Carried> carried,
@@ -1361,10 +1210,9 @@ public final class HostRenderPass {
         /**
          * Why a frame that emitted shell quads emitted none, in the sentence the frame summary carries.
          *
-         * <p>The counterpart of {@link #describe()} for the case it exists for. A {@code shellQuads=0}
-         * beside open gates used to be reported as "the host was collected but every quad was skipped",
-         * which is true and useless: it cannot distinguish a colour of zero from a transient. This
-         * appends the count that does.
+         * <p>A {@code shellQuads=0} beside open gates is true and useless on its own: it cannot distinguish
+         * a colour of zero from a transient. This appends the count that does - see
+         * {@link #shellQuadsRefusedByColour} and {@code hostsWithoutSlot}.
          */
         String zeroShellReason() {
             if (shellQuads > 0) {
@@ -1392,23 +1240,17 @@ public final class HostRenderPass {
     }
 
     /**
-     * One host riding a moving structure: where the block came from, what is inside it, and the frame
-     * that carries it.
+     * One host riding a moving structure: where the block came from, what is inside it, and the frame that
+     * carries it.
      *
-     * <p>{@code origin} is kept for the light query and for the world half of the neighbour question -
-     * the drawing itself happens at {@code local}, transformed by {@code pose}.
+     * <p>{@code origin} is kept for the light query and for the world half of the neighbour question - the
+     * drawing itself happens at {@code local}, transformed by {@code pose}. {@code riding} says which frames
+     * the neighbour question may be asked in: only a host drawn inside its carrier's pose is <em>in</em> the
+     * structure, and only such a host has neighbours in the structure's own coordinates; a fallback drawn at
+     * a world block asks the world index alone.
      *
-     * <p>{@code riding} says which frames the neighbour question may be asked in (P1.42): only a host
-     * drawn inside its carrier's pose is <em>in</em> the structure, and only such a host has neighbours
-     * in the structure's own coordinates. A fallback - a host drawn at a world block because its
-     * carrier's pose went stale - is back in the world and asks the world index alone.
-     *
-     * <p>{@code frame} is built once here, from the pose and the local coordinate, and handed to
-     * <b>both</b> draw paths. That is not a convenience: the shell and the component inside it have to
-     * be measured from the same point, and the defect this round fixed was exactly one of them being
-     * measured from the block and the other from the structure's origin - a whole {@code local} apart,
-     * which is nothing for a Create contraption and two thousand blocks for a Sable sub-level. One
-     * frame per host means the two cannot come apart, whatever either of them does with it.
+     * <p>{@code frame} is built once here and handed to <b>both</b> draw paths, so the shell and the
+     * component inside it are measured from the same point whatever either of them does with it.
      */
     private record Carried(CarrierId carrier, BlockPos origin, BlockPos local, Slot slot,
                            CarrierPose pose, CarrierFrame frame, boolean riding) {
@@ -1418,8 +1260,8 @@ public final class HostRenderPass {
      * What one carried collection found: the hosts to draw, and why the others were not drawn.
      *
      * <p>The skip counts travel with the list rather than being written into the trace from inside the
-     * collector, because the collector now runs at the carried stage and the counters have to be the
-     * ones belonging to the frame that is being reported - see {@link #reportFrame}.
+     * collector, because the collector runs at the carried stage and the counters have to be the ones
+     * belonging to the frame that is being reported - see {@link #reportFrame}.
      *
      * @param hosts the hosts this frame will draw
      * @param skippedNoPose carriers the client was never given a position for
@@ -1449,9 +1291,8 @@ public final class HostRenderPass {
     /**
      * The sight half of one frame: the five counters, and the one worked host the B2 line names.
      *
-     * <p>Carried out of the collector with the hosts rather than written into the trace from inside it,
-     * for the same reason the skip counts are: the collector has to stay repeatable, and the frame the
-     * summary describes is the frame these numbers belong to.
+     * <p>Carried out of the collector with the hosts for the same reason the skip counts are: the collector
+     * has to stay repeatable, and the summary describes the frame these numbers belong to.
      *
      * @param tally how many hosts were asked, and how the ray answered
      * @param example the host the B2 line names, or {@code null} when the frame asked nothing
@@ -1461,10 +1302,8 @@ public final class HostRenderPass {
         /** No sight question was asked this frame. */
         private static final SightStats NONE = new SightStats(CarrierHostCheck.Tally.NONE, null);
 
-        // `example()` is the record's own accessor: the round that wrote this record also wrote a private
-        // method of the same name and return type, which the compiler rejects as an invalid accessor - one
-        // of the two had to go, and the generated one cannot drift from the component list, so that is the
-        // one kept.
+        // `example()` is the record's own accessor, and it is the only one kept: the generated accessor
+        // cannot drift from the component list.
 
         /** The B2 line for this frame, or {@code null} when there is nothing to name. */
         @Nullable
@@ -1492,38 +1331,25 @@ public final class HostRenderPass {
     }
 
     /**
-     * The hosts riding a moving structure, with the pose of the structure carrying them - plus the ones
-     * that have fallen back to their original world blocks.
+     * The hosts riding a moving structure, with the pose of the structure carrying them - plus the ones that
+     * have fallen back to their original world blocks.
      *
-     * <p>Filters, in this order:
+     * <p>Filters, in this order: <b>the carrier's own position</b> against the camera, because a carried
+     * host's origin can be a hundred blocks behind a machine that has flown over the horizon, and <b>line of
+     * sight from where the component actually is</b> - the ray goes to the transformed position, not to the
+     * origin, which is empty world where the block came from.
      *
-     * <ol>
-     *   <li><b>The carrier's own position</b>, measured against the camera. A carried host's origin
-     *       can be a hundred blocks behind a machine that has flown over the horizon, so the section
-     *       walk that found it says nothing about whether it is worth drawing.</li>
-     *   <li><b>Line of sight, from where the component actually is.</b> The ray goes to the
-     *       transformed position, not to the origin, because the origin is empty world where the
-     *       block used to be.</li>
-     * </ol>
+     * <p>Three things can stop a host being drawn, each with its own counter because each means something
+     * different: {@code skippedNoPose} (the client was never told where the carrier is), {@code skippedFar},
+     * and {@code skippedStalePose} (it was told, but not recently enough to trust).
      *
-     * <p>Three things can stop a host being drawn, and each has its own counter because each means
-     * something different: {@code skippedNoPose} - the client was never told where the carrier is;
-     * {@code skippedFar} - it is simply too far away; {@code skippedStalePose} - the client was told,
-     * but not recently enough to trust. The third used to be counted by nothing at all, which is how a
-     * permanently invisible component could report {@code drawn=0} with every skip reason at zero.
-     *
-     * <p>A host that has fallen back (see {@code ClientHostCache}) takes the same route as a carried
-     * one, with a pose that puts its block back exactly where it came from. That is deliberate: the
-     * fallback has to be drawn through the identical code path, or it would be a second renderer with
-     * its own bugs, and it has to be visible even where the world block is now air - which is the
-     * difference between "drawn on the world path" and "drawn by the world path".
-     *
-     * <p><b>A fallback yields only when the world path really draws.</b> That is a stronger question
-     * than "a block is standing there": it is {@link HostPathOwnership#owner}, the same judge
-     * {@link #collect} uses for its own gate, and it asks for <em>both</em> a block and a world host
-     * the client knows about. Yielding to a world path that is itself refusing to draw - which is what
-     * "the block has not come back yet" looks like - left the component drawn by nothing at all, and
-     * now cannot: the fallback draws itself, and {@code landedDeferred} counts the frames it had to.
+     * <p>A host that has fallen back (see {@code ClientHostCache}) takes the same route as a carried one,
+     * with a pose that puts its block back exactly where it came from, so the fallback cannot become a
+     * second renderer with its own bugs. <b>A fallback yields only when the world path really draws</b> -
+     * {@link HostPathOwnership#owner}, the same judge {@link #collect} uses, which asks for <em>both</em> a
+     * block and a world host the client knows about; yielding to a world path that is refusing to draw would
+     * leave the component drawn by nothing at all, and {@code landedDeferred} counts the frames that
+     * would have been.
      */
     private static CarriedResult collectCarried(ClientLevel level, LocalPlayer player, Vec3 cameraPos,
                                                  double partialTick) {
@@ -1532,67 +1358,57 @@ public final class HostRenderPass {
         double reachSquared = reach * reach;
         List<Carried> out = new ArrayList<>();
         Vector3d world = new Vector3d();
-        // Why a host in range was not drawn, kept apart from "was drawn": with no pose the honest
-        // answer is "the client was never told where the carrier is", with a carrier past the draw
-        // distance it is "it is simply too far", and with a stale pose it is "the client stopped
-        // trusting where it was told". Those are three different bugs and the counters say which.
+        // Why a host in range was not drawn, kept apart from "was drawn": no pose means the client was never
+        // told where the carrier is, a carrier past the draw distance is simply too far, and a stale pose
+        // means the client stopped trusting where it was told. Three different bugs, and these say which.
         int[] skipped = new int[3];
-        // Landed hosts (put down, carrier gone) that this frame passed over because a real block is
-        // standing at the landing position: the world path draws those, and drawing the landed
-        // candidate as well would put two shells on one block.
+        // Landed hosts (put down, carrier gone) passed over because a real block stands at the landing
+        // position: the world path draws those, and drawing the candidate as well would put two shells on one
+        // block.
         int[] landedWorldHost = new int[1];
-        // Landed hosts drawn at their landing position *because the world path cannot draw there yet*:
-        // the sync has announced the host but the block has not come back. This is the window that used
-        // to be drawn by neither path; the landed record draws it now, and this number is the evidence.
+        // Landed hosts drawn at their landing position because the world path cannot draw there yet: the sync
+        // has announced the host but the block has not come back.
         int[] landedDeferred = new int[1];
-        // Hosts whose carrier went stale mid-flight that this frame passed over because the world path
-        // really draws their origin block. The same decision as the landed one, on the other fallback
-        // position, and counted apart from it because "put down" and "let go of" are different facts.
+        // Hosts whose carrier went stale mid-flight that this frame passed over because the world path really
+        // draws their origin block. The same decision as the landed one on the other fallback position, and
+        // counted apart from it because "put down" and "let go of" are different facts.
         int[] carriedWorldHost = new int[1];
-        // THE DRAW CHECK, counted per frame. `drawn` counts emitted geometry and cannot tell "drawn
-        // here" from "drawn a million blocks away"; these two can. `offStructure` is the one that
-        // matters - a drawn host whose computed world point is nowhere near its carrier's own position
-        // is the shape of "the log says it drew, and the player sees nothing", which is what the Sable
-        // path reported. `plotSpace` is the fact that explains it: local coordinates in the Sable plot
-        // range, which are correct when the pose that came with them is Sable's own.
+        // The draw check, counted per frame: `drawn` counts emitted geometry and cannot tell "drawn here"
+        // from "drawn a million blocks away", while these two can. `offStructure` is the shape of "the log
+        // says it drew and the player sees nothing"; `plotSpace` is the fact that explains it, since local
+        // coordinates in the Sable plot range are correct when the pose that came with them is Sable's own.
         int[] drawnOffStructure = new int[1];
         int[] plotSpaceHosts = new int[1];
-        // HOW OLD THE POSE BEHIND THIS FRAME IS, in client ticks, worst case among the hosts actually
-        // drawn. This is the number the author's report needed and the log did not have: "the bearing
-        // turns and the component does not turn with it" produced a log full of `delta=0.000 OK`,
-        // because the pose arithmetic is perfectly self-consistent about a stale pose as well as about a
-        // current one. A zero delta says nothing about freshness; this does.
+        // How old the pose behind this frame is, in client ticks, worst case among the hosts actually drawn:
+        // the pose arithmetic is perfectly self-consistent about a stale pose as well as about a current one,
+        // so a zero distance between the two positions says nothing about freshness and this does.
         long[] worstPoseAge = new long[1];
-        // One worked example, kept so a single `drawCheck carrier=闁炽儺娉?line can be logged with both
-        // coordinates rather than only the counts. First host of the frame, not the worst one: the
-        // point is to show the reader two numbers they can compare, and every host of one carrier
-        // shares the same pose.
+        // One worked example, so a single `drawCheck` line can be logged with both coordinates rather than
+        // only the counts. First host of the frame, not the worst one: every host of one carrier shares the
+        // same pose.
         CarrierDrawCheck[] example = new CarrierDrawCheck[1];
-        // THE SIGHT HALF OF THE FRAME. Five counters and one worked example, all of them read out of the
-        // ray the sight rule already casts - see `castSightRay`. The counters accumulate in one array
-        // slot rather than a local because the lambda below reassigns them, and they travel out in the
-        // CarriedResult, so nothing about the collector becomes per-frame state.
+        // The sight half of the frame: five counters and one worked example, all read out of the ray the
+        // sight rule already casts - see `castSightRay`. They accumulate in one array slot because the lambda
+        // below reassigns them, and travel out in the CarriedResult, so the collector stays stateless.
         CarrierHostCheck.Tally[] sightTally = { CarrierHostCheck.Tally.NONE };
         // The example the B2 line prints: the first host whose ray was refused if there is one, because
-        // "something is in the way" is the report this line exists for, and otherwise the first host
-        // asked about. Both are real frames rather than a synthesised worst case.
+        // "something is in the way" is the report this line exists for, and otherwise the first host asked
+        // about.
         CarrierHostCheck[] sightExample = new CarrierHostCheck[1];
         // How many carried hosts this frame asked about and how many it collected, so the B2 line's
-        // `hosts=collected/asked` is the frame's own count rather than a second measurement.
+        // `hosts=collected/asked` is the frame's own count.
         int[] hostsAsked = new int[1];
         int[] hostsCollected = new int[1];
-        // The eye block the sight question is asked from, computed once per frame - from the same Vec3
-        // the ray is cast with, so the coordinate the line prints and the ray that was cast cannot come
-        // from two different eyes.
+        // The eye block the sight question is asked from, computed once per frame from the same Vec3 the ray
+        // is cast with, so the coordinate the line prints and the ray cannot come from two different eyes.
         final BlockPos eyeBlock = BlockPos.containing(cameraPos);
-        // P1.56: SABLE'S OWN RENDER POSE, ASKED ONCE PER CARRIER PER FRAME. Sable samples its own
-        // snapshot buffer to draw a structure, and the poses the server sends us come through our own
-        // channel - two timelines that beat against each other, which is what the author saw as the
-        // components flickering between the leading position and the block's. `ClientSubLevel#renderPose`
-        // is the pose Sable draws with, so asking for it makes the two the same number. A carrier Sable
-        // cannot answer for (a Create contraption, no Sable, a sub-level the client does not hold) keeps
-        // the interpolated network pose P1.55 added - so the fallback is better than it was, and no path
-        // is left with no pose at all.
+        // SABLE'S OWN RENDER POSE, ASKED ONCE PER CARRIER PER FRAME. Sable samples its own snapshot buffer to
+        // draw a structure, and the poses the server sends us come through our own channel - two timelines
+        // that beat against each other, which is what the components flickering between the leading position
+        // and the block's is. `ClientSubLevel#renderPose` is the pose Sable draws with, so asking for it makes
+        // the two the same number; a carrier Sable cannot answer for (a Create contraption, no Sable, a
+        // sub-level the client does not hold) keeps the interpolated network pose, so no path is left with no
+        // pose at all.
         final java.util.Map<com.jiangyuefengyu.redstonecircuit.carrier.CarrierId, CarrierPose>
                 liveRenderPoses = new java.util.HashMap<>();
         ClientHostCache.forEachDrawable(level.dimension(), near, SECTION_RADIUS, partialTick, drawable -> {
@@ -1677,24 +1493,21 @@ public final class HostRenderPass {
             pose.blockCentre(new Vector3d(view.localPos().getX(), view.localPos().getY(),
                     view.localPos().getZ()), world);
             Vec3 target = new Vec3(world.x, world.y, world.z);
-            // THE SIGHT QUESTION, ANSWERED AND COUNTED. The ray is the rule's own and the decision is the
-            // rule's own; what is new is that the answer is kept, because "refused because the ray hit a
-            // wall in front" and "there was no point to aim at" were the same empty screen and the same
-            // silent log. The counters are per frame and mean nothing to the picture. See
-            // `CarrierHostCheck.Sight`.
+            // THE SIGHT QUESTION, ANSWERED AND COUNTED: the ray and the decision are the rule's own, and the
+            // answer is kept because "refused because the ray hit a wall in front" and "there was no point to
+            // aim at" would otherwise be the same empty screen and the same silent log. The counters are per
+            // frame and mean nothing to the picture. See `CarrierHostCheck.Sight`.
             //
-            // THE TARGET IS THE RENDERER'S OWN PROJECTION (`pose.blockCentre`, above), not a second call
-            // to `CarrierProjection.project`: the two are the same arithmetic, and using the value the
-            // decision was made from is what makes `drawnWorld=` and the picture the same point.
+            // THE TARGET IS THE RENDERER'S OWN PROJECTION (`pose.blockCentre`, above), not a second call to
+            // `CarrierProjection.project`: the two are the same arithmetic, and using the value the decision
+            // was made from is what makes `drawnWorld=` and the picture the same point.
             BlockPos targetBlock = BlockPos.containing(world.x, world.y, world.z);
-            // THE SAME BLOCK, IN THE FRAME THE RAY REPORTS HITS IN. A Sable host's block lives at its
-            // local coordinate - a plot coordinate, which is a real coordinate in the same level - and
-            // Sable's own ray tracing reports hits on its geometry in that frame. So the question "did the
-            // ray meet the component's own block" has two possible answers and both must be accepted, or
-            // the machine becomes its own occluder: the author's log (2026-09-28 08:45) shows
-            // `ray=hit(20481032, 127, 20483080)` beside `local=(20481032, 127, 20483080)` on a frame the
-            // decision called `refused-hit`. Only a plot-space coordinate can be compared this way - an
-            // anchor-relative local coordinate is a small number that a world hit could coincide with.
+            // THE SAME BLOCK, IN THE FRAME THE RAY REPORTS HITS IN. A Sable host's block lives at its local
+            // coordinate - a plot coordinate, which is a real coordinate in the same level - and Sable's own
+            // ray tracing reports hits on its geometry in that frame, so "did the ray meet the component's
+            // own block" has two possible answers and both must be accepted or the machine becomes its own
+            // occluder. Only a plot-space coordinate can be compared this way: an anchor-relative local
+            // coordinate is a small number a world hit could coincide with.
             BlockPos ownBlockInItsOwnFrame = CarrierDrawCheck.plotSpace(view.localPos())
                     ? view.localPos()
                     : null;
@@ -1720,7 +1533,7 @@ public final class HostRenderPass {
             if (!visible) {
                 return;
             }
-            // THE DRAW CHECK. `world` is where this host is about to be drawn and `pose.position()` is
+            // THE DRAW CHECK. `world` is where this host is about to be drawn and the pose's own position is
             // where its structure says it is, so the distance between them is the one number that
             // distinguishes "we drew the component where the machine is" from "we drew it somewhere
             // else entirely". The structure's own bounds centre would be a better anchor, but it is not
@@ -1754,8 +1567,8 @@ public final class HostRenderPass {
         // A stale carrier is counted here from the frame that first sees it: the client tick that turns
         // it into fallbacks runs twenty times a second, so the window in which a stale carrier has not
         // been swept is at most a frame or two - and during it this counter is what explains a frame
-        // that drew nothing. There is deliberately no second pass over the carriers to catch hosts
-        // outside the section radius: a host the player cannot see is not one the counter is about.
+        // that drew nothing. There is no second pass over the carriers to catch hosts outside the section
+        // radius: a host the player cannot see is not one the counter is about.
         //
         // The counts are RETURNED rather than recorded here. This collector is called from the carried
         // stage, and the trace has to be written with the counters of the frame the summary describes;
@@ -1825,21 +1638,13 @@ public final class HostRenderPass {
     /**
      * Whether the eye can reach an arbitrary point, for a component that is not at a world block.
      *
-     * <p>Only used for carried hosts. Their position is inside a contraption, so the structure's own
-     * blocks can legitimately be the first thing a ray hits - which is not a wall between the player
-     * and the component, it is the machine the component is part of. Requiring a clear line would make
-     * every component in a machine invisible from most angles, so this asks the weaker question: is
-     * there solid geometry strictly in front of the target? Anything at or beyond it is the structure
-     * itself and does not count.
+     * <p>The boolean face of {@link #castSightRay}, which holds the rule and the four shapes behind it.
      */
     private static boolean canSeePoint(ClientLevel level, LocalPlayer player, Vec3 eye, Vec3 target) {
-        // The boolean face of the one sight rule; see `castSightRay`, where the shapes behind the
-        // boolean are named. Delegating rather than repeating the arithmetic is what makes "the ray the
-        // diagnostic reports" and "the ray the picture depends on" the same ray by construction.
-        //
-        // The ordinary question, because every caller of this form aims at a real world point (its block
-        // is the block at that position). The carried path's own frame - the plot coordinate its block
-        // really lives at - is asked there, where that coordinate is in hand.
+        // Delegating rather than repeating the arithmetic is what makes "the ray the diagnostic reports" and
+        // "the ray the picture depends on" the same ray by construction. The ordinary question, because every
+        // caller of this form aims at a real world point; the carried path's own frame - the plot coordinate
+        // its block really lives at - is asked there, where that coordinate is in hand.
         return castSightRay(level, player, eye, target, BlockPos.containing(target), null,
                 new SightRay());
     }
@@ -1847,28 +1652,25 @@ public final class HostRenderPass {
     /**
      * <b>The sight rule, and the four shapes behind its answer.</b>
      *
-     * <p>A boolean says one of three things was true - "nothing was in the way", "the ray hit a wall in
-     * front of the component", "no point could be aimed at" - and those are three different findings the
-     * log could not tell apart. This method casts the ray and records which one produced the decision,
-     * so the value {@link #canSeePoint} used to return and the value the diagnostic reports cannot
-     * disagree: there is one ray.
+     * <p>A boolean says one of three things was true - "nothing was in the way", "the ray hit a wall in front
+     * of the component", "no point could be aimed at" - and those are three different findings the log cannot
+     * tell apart. This method casts the ray and records which one produced the decision, so the value
+     * {@link #canSeePoint} returns and the value the diagnostic reports cannot disagree: there is one ray.
      *
-     * <p>Only used for carried hosts. Their position is inside a contraption, so the structure's own
-     * blocks can legitimately be the first thing a ray hits - which is not a wall between the player
-     * and the component, it is the machine the component is part of. Requiring a clear line would make
-     * every component in a machine invisible from most angles, so this asks the weaker question: is
-     * there solid geometry <b>strictly in front of</b> the target? Anything at or beyond it is the
-     * structure itself and does not count.
+     * <p>Only used for carried hosts. Their position is inside a contraption, so the structure's own blocks
+     * can legitimately be the first thing a ray hits - which is not a wall between the player and the
+     * component, it is the machine the component is part of. Requiring a clear line would make every
+     * component in a machine invisible from most angles, so the question is the weaker one: is there solid
+     * geometry <b>strictly in front of</b> the target? Anything at or beyond it is the structure itself.
      *
-     * @param target the point to reach, or {@code null} when the projection produced nothing - in which
-     *     case no ray is cast and the answer is {@code false}: an unaimable point is never drawn
+     * @param target the point to reach, or {@code null} when the projection produced nothing - in which case
+     *     no ray is cast and the answer is {@code false}: an unaimable point is never drawn
      * @param targetBlock the block the target is in, for the classification; may be {@code null}
-     * @param ownBlockInItsOwnFrame the block the component is in, in the frame the ray reports its hits
-     *     in, or {@code null} when that is the same frame as {@code target}'s; see
-     *     {@code CarriedSight#isVisible}
+     * @param ownBlockInItsOwnFrame the block the component is in, in the frame the ray reports its hits in,
+     *     or {@code null} when that is the same frame as {@code target}'s; see {@code CarriedSight#isVisible}
      * @param out filled in with the decision and the shape behind it; caller-owned so the collector's hot
      *     path allocates nothing it does not have to
-     * @return the decision, i.e. what {@code canSeePoint} used to answer
+     * @return the decision, i.e. the boolean the picture depends on
      */
     private static boolean castSightRay(ClientLevel level, LocalPlayer player, Vec3 eye,
                                         @Nullable Vec3 target, @Nullable BlockPos targetBlock,
@@ -1877,18 +1679,12 @@ public final class HostRenderPass {
         out.targetBlock = targetBlock;
         if (target == null) {
             // No point to aim at. This branch is unreachable from the renderer (both call sites compute a
-            // point), and the answer here is settled by the two rules this project has already written
-            // down rather than by convenience:
+            // point), and the answer is settled by two rules this project has already written down rather
+            // than by convenience: an uncomputable point is visible, and a render-visibility judgement may
+            // only widen what the previous one drew - narrowing it twice rendered nothing at all.
             //
-            //   * specification S1' (the round's own fix spec) says "an uncomputable point is visible";
-            //   * the union principle says a render-visibility judgement may only widen what the previous
-            //     one drew, and the round that made this question a per-host one exists because narrowing
-            //     it twice rendered nothing at all;
-            //   * and the project's own precedent is the same: "rather draw one shell too many than have
-            //     nobody draw at all" (the landed-host window, §11.8.3).
-            //
-            // So: drawn, with the honest label. UNKNOWN_TARGET still says "we could not work out where
-            // this is", and sightUnknownTarget still counts it, so the line does not claim a clean ray.
+            // So: drawn, with the honest label. UNKNOWN_TARGET still says "we could not work out where this
+            // is" and is still counted, so the line does not claim a clean ray.
             out.accepted = true;
             out.outcome = CarrierHostCheck.Sight.UNKNOWN_TARGET;
             return true;
@@ -1898,17 +1694,13 @@ public final class HostRenderPass {
             out.outcome = CarrierHostCheck.Sight.DRAWN;
             return true;
         }
-        // THE DECISION IS `CarriedSight`'S, NOT A SECOND COPY OF IT. The rule used to be written out here
-        // as a comparison between the squared distance to the hit point and the squared distance to the
-        // aim point, with a quarter-block slack subtracted from the latter - the "strictly in front"
-        // question asked in the wrong currency. It is the same question the world path asks as
-        // `hit.getBlockPos().equals(pos)`, and the distance form refuses a component whose own block the
-        // ray reached. `CarriedSight` holds the rule as four named cases with its own table test, so this
-        // method keeps only the two things it is for: cast the ray, and label the answer. The block the
-        // aim point is in comes from the caller when it has it and is `BlockPos.containing` otherwise -
-        // the game's own floor either way. (The old form is described in words rather than quoted because
-        // the wiring test asserts this body holds no such arithmetic, comments included, and a comment is
-        // not a place to smuggle a constant back in.)
+        // THE DECISION IS `CarriedSight`'S, NOT A SECOND COPY OF IT. Writing the rule out here as a comparison
+        // between the squared distance to the hit point and the squared distance to the aim point, with a
+        // quarter-block slack subtracted from the latter, asks the "strictly in front" question in the wrong
+        // currency and refuses a component whose own block the ray reached. `CarriedSight` holds the rule as
+        // four named cases, so this method keeps only the two things it is for: cast the ray, and label the
+        // answer. The block the aim point is in comes from the caller when it has it and is
+        // `BlockPos.containing` otherwise - the game's own floor either way.
         BlockPos aimedAt = targetBlock != null ? targetBlock : BlockPos.containing(target);
         BlockHitResult hit = level.clip(new ClipContext(eye, target, ClipContext.Block.COLLIDER,
                 ClipContext.Fluid.NONE, player));
@@ -1972,33 +1764,109 @@ public final class HostRenderPass {
         return ClientHostCache.slotAt(minecraft.level.dimension(), pos) != null ? pos : null;
     }
 
+    /**
+     * Whether this <b>world</b> block is the block the wrench picked.
+     *
+     * <p>The pick is a border colour rather than a box of its own: the picked block is drawn with the selection
+     * colour in the frame it already has, so one frame per block is drawn by the path that was always drawing
+     * it, and the selection needs no geometry, no buffer, no stage and no pose of its own. Both shell passes
+     * ask this, and the pair of facts they compare differs - a world host is identified by its world
+     * position, a carried host by its structure and its local block, because that is the pair that names one
+     * block of one machine.
+     *
+     * <p>A pick inside a machine names a structure instead, and must not colour a world host that happens to
+     * sit at the position the pick is drawn at - which is why the carried identity has to be null here too.
+     */
+    private static boolean isThePick(BlockPos pos) {
+        return WrenchClientState.isLiveHost() && WrenchClientState.carriedCarrier() == null
+                && pos.equals(WrenchClientState.selection());
+    }
+
+    /** Whether this host riding a structure is the block the wrench picked; see {@link #isThePick(BlockPos)}. */
+    private static boolean isThePick(CarrierId carrier, BlockPos local) {
+        return WrenchClientState.isLiveHost() && carrier != null && local != null
+                && carrier.equals(WrenchClientState.carriedCarrier())
+                && local.equals(WrenchClientState.carriedLocal());
+    }
+
+    /**
+     * <b>The world block this frame's pick names, or {@code null}.</b>
+     *
+     * <p>The pick arrives as "this block, and the server's answer to whether it still holds a component", and
+     * the local checks that could be added on top of it all disagree with it about the same two cases: the
+     * position a carried pick names is where the machine <em>draws</em> the block and the world has air there
+     * by construction, a carried host has no world host record, and the server's flag alone is computed when
+     * the pick is sent, so a pick whose block was taken by a structure afterwards stays "live". A stale pick
+     * and a live carried host are the same coordinate, the same air and the same absence of a record, so the
+     * decision is the server's, recomputed every tick ({@code WrenchSelection#refresh}).
+     *
+     * <p>The chunk check stays, and is not a second opinion: there is nothing to draw in a chunk the client has
+     * not got, and asking the level about one is how a renderer crashes on a position it was never sent the
+     * world for.
+     */
+    @Nullable
+    private static BlockPos selectedWorldBlock(Minecraft minecraft) {
+        BlockPos picked = WrenchClientState.selection();
+        ClientLevel level = minecraft.level;
+        if (picked == null || level == null || WrenchClientState.carriedCarrier() != null) {
+            return null;
+        }
+        return liveSelection(picked, WrenchClientState.isLiveHost(), level.hasChunkAt(picked));
+    }
+
+    /**
+     * The rule above, as a pure function - the whole of it, so it is a unit test rather than a game.
+     *
+     * @param picked the position the server named, or {@code null}
+     * @param liveHost the server's answer: this pick still points at a block that holds a component
+     * @param loaded whether the client has the chunk, which is a fact about this client and not about the
+     *     pick
+     * @return the position, or {@code null} when it is not drawn
+     */
+    @Nullable
+    static BlockPos liveSelection(@Nullable BlockPos picked, boolean liveHost, boolean loaded) {
+        return picked == null || !liveHost || !loaded ? null : picked;
+    }
+
     // -------------------------------------------------------------- drawing --
 
     /** The frosted cube: a translucent panel per face plus a border around it. */
     private static void drawShells(PoseStack.Pose pose, ClientLevel level, List<Visible> hosts,
-                                   AtlasUv uv, CarrierGeometry.Gates gates, Counter counter) {
+                                   AtlasUv uv, CarrierGeometry.Gates gates, Counter counter,
+                                   @Nullable BlockPos selected) {
         int tint = gates.effectiveTint();
         int frame = gates.frame();
         int wireFrame = gates.wireFrame();
-        if (tint == 0 && frame == 0 && wireFrame == 0) {
+        // The pick, which is a border colour and not a second box: the block the wrench picked is drawn with
+        // the selection colour in the frame it already has, so a list that holds the pick is drawn even when
+        // every colour resolves to nothing - otherwise a player whose overlay colours are all zero would have
+        // no way to see which block the wrench has picked. (With the overlay off the pass collects nothing,
+        // so there is no frame to colour; the pick is shown BY the overlay's border.)
+        boolean holdsThePick = false;
+        for (Visible host : hosts) {
+            if (isThePick(host.pos())) {
+                holdsThePick = true;
+                break;
+            }
+        }
+        if (tint == 0 && frame == 0 && wireFrame == 0 && !holdsThePick) {
             return;
         }
-        // Under a shader pack the type is opaque cutout, so the frosted centre panel would be a solid
-        // plate over the block and hide everything inside it. Only the frame is drawn then. The debug
-        // override switches the rule off as well: the point of that switch is to find out whether the
-        // geometry reaches the buffer at all, and a rule that quietly drops a sixth of it would blur
-        // that answer.
+        // Under a shader pack the type is opaque cutout, so the frosted centre panel would be a solid plate
+        // over the block and hide everything inside it - only the frame is drawn then. The debug override
+        // switches the rule off as well, so what reaches the buffer can be seen.
         boolean solidFrames = gates.solidFrames() && !gates.forceEmit();
         VertexConsumer buffer = worldShellBuffer();
         float[] normal = new float[3];
         float[] point = new float[3];
 
         for (Visible host : hosts) {
-            // A block holding superconducting wire gets its own border colour. The wire inside is small,
-            // and "which of these two blocks is the lossless one" is the first thing a player asks, so
-            // the border - the part that reads from a distance - answers it. `effectiveFrame` also
-            // supplies the debug switch's substitute when there is no border colour at all.
-            int hostFrame = gates.effectiveFrame(host.slot());
+            // A block holding superconducting wire gets its own border colour: the wire inside is small, and
+            // "which of these two blocks is the lossless one" is the first thing a player asks, so the border
+            // - the part that reads from a distance - answers it. The pick outranks all of that: this block is
+            // the one the wrench's near end names, and forcing `withFrame` on makes the border exist even for
+            // a host whose own colour resolves to nothing, while the panel stays out of it.
+            int hostFrame = isThePick(host.pos()) ? SELECTED_FRAME : gates.effectiveFrame(host.slot());
             boolean withFrame = hostFrame != 0;
             int light = lightFor(level, host.pos());
             float baseX = host.pos().getX();
@@ -2012,8 +1880,8 @@ public final class HostRenderPass {
                     int argb = CarrierGeometry.shellQuadArgb(withFrame, quad, tint, hostFrame,
                             solidFrames);
                     if (argb == 0) {
-                        // Counted, because a host that emits nothing at all has to name its own cause:
-                        // see Counter#shellQuadsRefusedByColour.
+                        // Counted, because a host that emits nothing at all has to name its own cause: see
+                        // Counter#shellQuadsRefusedByColour.
                         counter.shellQuadsRefusedByColour++;
                         continue;
                     }
@@ -2031,17 +1899,14 @@ public final class HostRenderPass {
     /**
      * The same shell, for hosts that are riding a moving structure.
      *
-     * <p>Structurally a mirror of {@link #drawShells}, with one difference that is the whole point of
-     * the carried path: every host is drawn inside its carrier's own frame. The pose stack is pushed,
-     * the frame's rotation and scale are applied, and the shell is then emitted at an offset from the
-     * frame's reference - which is what turns the block with the machine rather than leaving it
-     * axis-aligned in the world.
+     * <p>Structurally a mirror of {@link #drawShells}, with the one difference that is the whole point of the
+     * carried path: every host is drawn inside its carrier's own frame, so the block turns with the machine
+     * instead of staying axis-aligned in the world.
      *
-     * <p><b>Every number handed to the pose stack here is an offset from the centre of the host block,
-     * never a plot coordinate.</b> That is the difference between a shell that is a one-block cube and
-     * one that collapses to a point: at a Sable plot coordinate the {@code float} spacing is 2, so
-     * {@code 20481032.0f + 0.5f} is {@code 20481032.0f} and all thirty vertices of a face land on top
-     * of each other. See {@link CarrierFrame}.
+     * <p><b>Every number handed to the pose stack here is an offset from the centre of the host block, never a
+     * plot coordinate</b> - at a Sable plot coordinate the {@code float} spacing is 2, so {@code 20481032.0f +
+     * 0.5f} is {@code 20481032.0f} and all thirty vertices of a face land on top of each other. See
+     * {@link CarrierFrame}.
      */
     private static void drawCarriedShellsInto(PoseStack pose, ClientLevel level, List<Carried> hosts,
                                               AtlasUv uv, CarrierGeometry.Gates gates, Counter counter,
@@ -2052,13 +1917,21 @@ public final class HostRenderPass {
         if (hosts.isEmpty()) {
             return;
         }
-        if (tint == 0 && frame == 0 && wireFrame == 0) {
+        // The same rule as the world path's shell: a host the wrench picked is drawn with the selection colour
+        // in its own border, and it is drawn whether or not any colour gate is open - see `drawShells`.
+        boolean holdsThePick = false;
+        for (Carried host : hosts) {
+            if (isThePick(host.carrier(), host.local())) {
+                holdsThePick = true;
+                break;
+            }
+        }
+        if (tint == 0 && frame == 0 && wireFrame == 0 && !holdsThePick) {
             return;
         }
         boolean solidFrames = gates.solidFrames() && !gates.forceEmit();
-        // THE CARRIED SOURCE, NOT THE WORLD ONE. This line read `shellBuffer()` - the world path's
-        // consumer - and wrote into a batch that `AFTER_ENTITIES` had already submitted two stages
-        // earlier. Every quad was counted and none was submitted. See HostRenderTypes and §17.
+        // THE CARRIED SOURCE, NOT THE WORLD ONE: the world source's batch was already submitted two stages
+        // earlier, so every quad written there would be counted and none submitted. See HostRenderTypes.
         VertexConsumer buffer = carriedShellBuffer(plan);
         float[] normal = new float[3];
         float[] point = new float[3];
@@ -2066,7 +1939,11 @@ public final class HostRenderPass {
         Vector3d world = new Vector3d();
 
         for (Carried host : hosts) {
-            int hostFrame = gates.effectiveFrame(host.slot());
+            // The pick, exactly as on the world path - and it is named by the structure and the local block, because
+            // that pair is what identifies one block of one machine (see WrenchSelectionPayload#carried).
+            int hostFrame = isThePick(host.carrier(), host.local())
+                    ? SELECTED_FRAME
+                    : gates.effectiveFrame(host.slot());
             boolean withFrame = hostFrame != 0;
             if (host.slot() == null) {
                 // A host with no slot has no component and no border colour, so it emits nothing by
@@ -2079,7 +1956,7 @@ public final class HostRenderPass {
             carrierFrame.blockCentre(world);
             int light = lightAt(level, world);
             // A block's local coordinate names its CORNER, so the shell's unit cube is measured from
-            // `local - pivot` - computed in double, small, and the only place `local` appears at all.
+            // `local - pivot` - computed in double, and the only place `local` appears at all.
             carrierFrame.cornerOffset(base);
 
             pose.pushPose();
@@ -2116,26 +1993,21 @@ public final class HostRenderPass {
     }
 
     /**
-     * Pushes a carrier's frame onto the stack: <b>{@code T(position) 路 R 路 S}, in that order.</b>
+     * Pushes a carrier's frame onto the stack: <b>{@code T(position) · R · S}, in that order.</b>
      *
-     * <h2>The order is the contract, and getting it backwards is invisible for one frame per turn</h2>
-     * A {@code PoseStack} right-multiplies. The old code called
-     * {@code translate(-pivot); mulPose(R); translate(position)}, which builds
-     * {@code T(-cam)路T(-pivot)路R路T(position)} - i.e. {@code R路p + R路position 鈭?pivot} applied to a point -
-     * where {@link CarrierPose#transformMatrix()} states {@code position + R路(p 鈭?pivot)}. The two agree
-     * only at {@code R = I}, which is exactly what the author saw: <em>the frame flashes into view for
-     * one frame of each turn and vanishes again</em>. This method is the {@code T(position) 路 R 路 S} half
-     * of the contract; the {@code (p 鈭?pivot)} half is the per-vertex offset, computed in {@code double}
-     * by {@link CarrierFrame} so that a Sable plot coordinate never reaches a {@code float}.
+     * <p>A {@code PoseStack} right-multiplies, and {@link CarrierPose#transformMatrix()} states
+     * {@code position + R·(p - pivot)}: translating by the pivot and by the position in the wrong order
+     * agrees with that only at {@code R = I}, which is what makes the frame flash into view for one frame of
+     * each turn and vanish again. This method is the {@code T(position) · R · S} half of the contract; the
+     * {@code (p - pivot)} half is the per-vertex offset, computed in {@code double} by {@link CarrierFrame} so
+     * that a Sable plot coordinate never reaches a {@code float}.
      *
-     * <p>What is deliberately absent is any translation by the pivot. It is a two-million-block number
-     * for a sub-level, {@code PoseStack.translate} takes a {@code float}, and at that magnitude the
-     * spacing between representable values is 2 - so the old {@code T(-pivot)} collapsed a one-block
-     * shell to a single point as well as mis-ordering it.
+     * <p>There is no translation by the pivot, and that is a requirement: it is a two-million-block number
+     * for a sub-level, {@code PoseStack.translate} takes a {@code float}, and at that magnitude the spacing
+     * between representable values is 2 - so such a translation collapses a one-block shell to a point.
      *
-     * <p>Package-private rather than private so that {@code CarrierFrameTest} can drive it: the order is
-     * invisible on screen for all but one frame of a turn, so a test that compares the matrix a real
-     * {@code PoseStack} produces against the contract is the only kind that can hold it.
+     * <p>Package-private rather than private so that a test can drive it: the order is invisible on screen
+     * for all but one frame of a turn.
      */
     static void applyCarrierFrame(PoseStack pose, CarrierFrame carrier) {
         pose.translate(carrier.position().x(), carrier.position().y(), carrier.position().z());
@@ -2149,12 +2021,9 @@ public final class HostRenderPass {
     }
 
     /**
-     * The base the carried contents are emitted at, in the carrier's frame.
-     *
-     * <p>One named expression rather than a {@code cornerOffset} call at the drawing site and a
-     * re-derivation in the tests: this is the number the component's placement is measured from, and it
-     * is the same base the shell emits its vertices at - which is what makes the shell and the component
-     * one object rather than two. See {@link CarrierFrame#cornerOffset}.
+     * The base the carried contents are emitted at, in the carrier's frame: the component's placement is
+     * measured from it, and it is the same base the shell emits its vertices at, which is what makes the
+     * shell and the component one object rather than two. See {@link CarrierFrame#cornerOffset}.
      *
      * @param out a three-element array to write into, so the render loop allocates nothing
      */
@@ -2163,19 +2032,14 @@ public final class HostRenderPass {
     }
 
     /**
-     * The base the <b>world</b> contents are emitted at: the host block's own corner, in world
-     * coordinates.
+     * The base the <b>world</b> contents are emitted at: the host block's own corner, in world coordinates.
      *
-     * <p>This is the world path's half of the same contract {@link #carriedModelBase} states for the
-     * carried one, and it is a method rather than two lines inside {@link #drawContents} for one reason:
-     * a test has to be able to drive <em>this</em> expression. The previous revision of the two-paths
-     * test re-derived the world path's arithmetic from the description instead of calling it, so when
-     * the world path was changed to take a {@code float[] base} there was nothing to break and nothing
-     * to catch. A test that recomputes what the renderer is supposed to do can only ever agree with
-     * itself.
+     * <p>The world path's half of the same contract {@link #carriedModelBase} states for the carried one. It
+     * is a method rather than two lines inside {@link #drawContents} so that a test can drive <em>this</em>
+     * expression: a test that recomputes what the renderer is supposed to do can only ever agree with itself.
      *
-     * @param pos the host block's position, which is what the world path's pose stack expects, because
-     *     it is translated by the camera and by nothing else
+     * @param pos the host block's position, which is what the world path's pose stack expects, because that
+     *     stack is translated by the camera and by nothing else
      * @param out a three-element array to write into, so the render loop allocates nothing
      */
     static float[] worldVertexBase(@Nullable BlockPos pos, float[] out) {
@@ -2194,11 +2058,10 @@ public final class HostRenderPass {
     /**
      * The world path's drawing loop, for the tests, with the client-derived parts supplied.
      *
-     * <p>Everything {@code drawContents} derives from a live {@code ClientLevel} / {@code Minecraft} is
-     * passed in: the boxes come from the component model, which is pure arithmetic, and the lightmap
-     * value never reaches a vertex position. That is what lets a unit test emit real geometry through
-     * the world path - the exporter is the same {@link #emitBoxes} the renderer uses - instead of
-     * asserting a formula twice. See {@code WorldPathCoordinatesTest}.
+     * <p>Everything {@code drawContents} derives from a live {@code ClientLevel} / {@code Minecraft} is passed
+     * in: the boxes come from the component model, which is pure arithmetic, and the lightmap value never
+     * reaches a vertex position. That lets a unit test emit real geometry through the world path - the
+     * exporter is the same {@link #emitBoxes} the renderer uses - instead of asserting a formula twice.
      */
     static void emitWorldBoxesForTest(PoseStack.Pose pose, VertexConsumer buffer, BlockPos pos, Slot slot,
                                       List<Box> boxes, AtlasUv uv, BoxScratch scratch) {
@@ -2212,26 +2075,24 @@ public final class HostRenderPass {
         if (hosts.isEmpty()) {
             return;
         }
-        // THE CARRIED SOURCE, NOT THE WORLD ONE. This line read `contentsBuffer()` - which returns a
-        // consumer from `BUFFERS`, the source `AFTER_ENTITIES` ends - so every carried component quad
-        // was written into a batch that had already been submitted. The component was absent on screen
-        // and `contentQuads=12` in the log, for 431 frames. See §17.
+        // THE CARRIED SOURCE, NOT THE WORLD ONE: the world source's batch was already submitted, so every
+        // carried component quad written there would be absent on screen while the counter still reported
+        // it. See HostRenderTypes.
         VertexConsumer buffer = carriedContentsBuffer(plan);
         BlockRenderDispatcher dispatcher = Minecraft.getInstance().getBlockRenderer();
         List<Box> boxes = new ArrayList<>();
         BoxScratch scratch = new BoxScratch();
         Vector3d world = new Vector3d();
         float[] anchorOffset = new float[3];
-        // ONE PER FRAME, NOT ONE PER SIDE PER HOST (P1.42). "Which structure's own coordinate holds a
-        // component" is the same question for every host of the frame, and the carrier index answers it
-        // by walking its sections - asked per side it would be six walks of it per host.
+        // One per frame, not one per side per host: "which structure's own coordinate holds a component" is
+        // the same question for every host of the frame, and the carrier index answers it by walking its
+        // sections - asked per side it would be six walks of it per host.
         Map<Long, CarrierId> inStructure = ClientHostCache.carriedLocalIndex(level.dimension());
 
         for (Carried host : hosts) {
             Slot slot = host.slot();
-            // The neighbours are asked in TWO frames, and only one of them used to be asked: the
-            // structure's own coordinates (a wire's neighbours inside the same machine - the arms the
-            // author was missing) and the world index at the block's origin. See `neighboursOf`.
+            // The neighbours are asked in TWO frames: the structure's own coordinates (a wire's neighbours
+            // inside the same machine) and the world index at the block's origin. See `neighboursOf`.
             Neighbours neighbours = neighboursOf(level, host, inStructure);
             CarrierFrame carrierFrame = host.frame();
             carrierFrame.blockCentre(world);
@@ -2239,33 +2100,23 @@ public final class HostRenderPass {
 
             // THE COMPONENT IS PLACED BY THE SAME FRAME THE SHELL USES, and this is where that matters.
             //
-            // A block model's vertices are the usual 0..1, so they are measured from the block's CORNER,
-            // and the frame's vertex space is measured from the pivot. One small offset reconciles the
-            // two: `local - pivot`, computed in double, which for a Sable sub-level cancels two
-            // two-million-block numbers down to about half a block. After it, everything the model
-            // renderer sees is a fraction of a block.
-            //
-            // The offset is ADDED TO EACH VERTEX rather than pushed as a `pose.translate`, which is the
-            // form the shell uses and therefore the form the matrix probe can compare: the contents'
-            // matrix is then `T(position) · R · S`, literally the shell's matrix, and the two call sites
-            // differ only in the base they emit at - a point the probe now measures directly. See
-            // Counter#probe for the defect the old shared-translation form hid.
-            //
-            // The defect this replaced: the frame used to place the structure's *origin* (the old
-            // `T(-pivot) · R · T(position)`), the component was then drawn at `BlockPos.ZERO`, and the
-            // `local` coordinate was never added at all. For a Create contraption `local` is (0,0,0) and
-            // the omission was invisible; for a Sable sub-level it is 2.05e7, so the component was drawn
-            // two thousand blocks from the block it lives in while the shell - which does pass `local` -
-            // was drawn in the right place.
+            // A block model's vertices are the usual 0..1 measured from the block's CORNER, while the
+            // frame's vertex space is measured from the pivot, so one small offset reconciles the two:
+            // `local - pivot`, computed in double, which for a Sable sub-level cancels two two-million-block
+            // numbers down to about half a block. After it, everything the model renderer sees is a fraction
+            // of a block. The offset is ADDED TO EACH VERTEX rather than pushed as a `pose.translate` - the
+            // form the shell uses and therefore the form the matrix probe can compare: the contents' matrix is
+            // then `T(position) · R · S`, literally the shell's matrix, and the two call sites differ only in
+            // the base they emit at. See Counter#probe.
             carriedModelBase(carrierFrame, anchorOffset);
 
             pose.pushPose();
             applyCarrierFrame(pose, carrierFrame);
 
-            // THE MATRIX THE CONTENTS ARE HANDED. See CarrierMatrixProbe: paired with the shell's probe
-            // for the same host, this is the number that says whether the shell and the component are in
-            // one frame - and with the base passed here it must be zero for every pose, rotation and
-            // local coordinate.
+            // THE MATRIX THE CONTENTS ARE HANDED. See CarrierMatrixProbe: paired with the shell's probe for
+            // the same host, this is the number that says whether the shell and the component are in one
+            // frame - and with the base passed here it must be zero for every pose, rotation and local
+            // coordinate.
             if (!counter.hasProbe()) {
                 counter.probe("contents", host.carrier().shortId(), pose.last(), carrierFrame,
                         anchorOffset, new Vector3d(cameraPos.x, cameraPos.y, cameraPos.z));
@@ -2301,16 +2152,12 @@ public final class HostRenderPass {
     /**
      * Emits one quad of a shell face, at {@code (baseX, baseY, baseZ)}.
      *
-     * <p>Takes the three offsets as plain floats rather than a {@link BlockPos} because the three
-     * callers measure from different things: the world path and the wrench highlight from a block's
-     * world corner, the carried path from the host block's corner inside its carrier's frame. All of
-     * them end up as the {@code base + corner} a vertex needs, and none has to pretend to be another -
-     * which is also why the carried contents path takes the same kind of base rather than pushing a
-     * second {@code translate}: one expression, two frames, and a probe that can compare them.
-     *
-     * <p><b>Both terms are small, and that is a requirement rather than a coincidence.</b> The sum is
-     * computed in {@code double} and narrowed once, so a carried shell in a Sable plot space cannot
-     * lose its own block: see {@link CarrierFrame}.
+     * <p>Three plain floats rather than a {@link BlockPos} because the callers measure from different things:
+     * a block's world corner for the world path and the wrench highlight, the host block's corner inside its
+     * carrier's frame for the carried path - and for the same reason the carried contents path takes the same
+     * kind of base rather than pushing a second {@code translate}. <b>Both terms are small</b>, and that is a
+     * requirement: the sum is computed in {@code double} and narrowed once, so a carried shell in a Sable
+     * plot space cannot lose its own block. See {@link CarrierFrame}.
      */
     private static void emitShellQuad(VertexConsumer buffer, PoseStack.Pose pose, float baseX,
                                       float baseY, float baseZ, int face, float[] tile, int argb,
@@ -2342,36 +2189,28 @@ public final class HostRenderPass {
      * <b>The WORLD path's shell buffer.</b> Used by {@link #drawShells} and {@link #drawHighlight} - the
      * hosts standing in the world - and by nothing else.
      *
-     * <p>Without shaders: vanilla's own translucent type, through the vanilla buffer source, which the
-     * level renderer flushes in the ordinary translucent pass. That is deliberate: a shader pack
-     * recognises a render type by identity, and the world shell keeps vanilla's instance. (The carried
-     * shell cannot do that - see {@code carriedShellBuffer} - because it is drawn two stages later and
-     * needs its own batch.)
+     * <p>Without shaders: vanilla's own translucent type, through the vanilla buffer source, which the level
+     * renderer flushes in the ordinary translucent pass. That instance rather than a copy of it is what makes
+     * a shader pack recognise the geometry. (The carried shell cannot do that - see
+     * {@code carriedShellBuffer} - because it is drawn two stages later and needs its own batch.)
      *
-     * <p>With a shader pack: vanilla's cutout type instead, in our own buffer. Translucent geometry is
-     * the water program, and a pack's water shader reads the extra vertex attributes that only its own
-     * terrain pipeline fills - geometry drawn by hand has none, which is why the shell used to vanish
-     * under Complementary Unbound. Cutout is the plainest terrain program there is. What is lost is the
-     * transparency of the panel and the frame, which the caller leaves out or draws solid accordingly.
+     * <p>With a shader pack: vanilla's cutout type instead, in our own buffer. Translucent geometry is the
+     * water program, and a pack's water shader reads the extra vertex attributes that only its own terrain
+     * pipeline fills - geometry drawn by hand has none, so the shell would vanish under a pack.
      *
-     * <p><b>The name is the contract.</b> It used to be {@code shellBuffer()}, and the carried shell drew
-     * through it - into a source whose batch is ended at {@code AFTER_ENTITIES}, two stages before the
-     * carried stage runs. Every quad was counted and none was submitted, for 431 frames. A method named
-     * after the <em>path it belongs to</em> cannot be borrowed by the other path without the mistake
-     * being visible in the diff.
+     * <p><b>The name is the contract:</b> a method named after the <em>path it belongs to</em> cannot be
+     * borrowed by the other path without the mistake being visible in the diff.
      */
     private static VertexConsumer worldShellBuffer() {
         if (ShaderCompat.vanillaGeometry()) {
-            // Under a shader pack the world shell deliberately moves into our own source, because a pack's
-            // translucent program needs vertex attributes hand-built geometry does not have. Then it IS
-            // ours to submit, and it is counted as such.
+            // Under a shader pack the world shell moves into our own source, because a pack's translucent
+            // program needs vertex attributes hand-built geometry does not have. Then it IS ours to submit,
+            // and it is counted as such.
             return tally(HostRenderTypes.BUFFERS.getBuffer(RenderType.cutout()),
                     HostBufferTally.Sink.WORLD, HostBufferTally.Kind.SHELL);
         }
-        // Otherwise it is the level renderer's own source, submitted by its translucent section layer
-        // later in the frame. That is the RENDERER sink, not the WORLD one: counting it as ours produced
-        // 305 false "WORLD STAGE WROTE NOTHING" alarms in one session whose world path was working
-        // perfectly. See HostBufferTally.Sink.
+        // Otherwise it is the level renderer's own source, submitted by its translucent section layer later
+        // in the frame: that is the RENDERER sink, not the WORLD one. See HostBufferTally.Sink.
         return tally(Minecraft.getInstance().renderBuffers().bufferSource()
                 .getBuffer(RenderType.translucent()),
                 HostBufferTally.Sink.RENDERER, HostBufferTally.Kind.SHELL);
@@ -2393,16 +2232,16 @@ public final class HostRenderPass {
     /**
      * <b>The CARRIED path's shell buffer</b>: the same source the carried stage flushes, and only that.
      *
-     * <p>Without shaders this is our own {@link HostRenderTypes#CARRIED_SHELL} - vanilla's translucent
-     * state minus the depth test and minus the depth write. The carried shell is placed from the
-     * carrier's last known pose, which the client may be a tick behind on, so an honest depth test
-     * rejects it the moment the structure has turned past it; that is the author's "转速一快，外框也没了".
+     * <p>Without shaders this is our own {@link HostRenderTypes#CARRIED_SHELL} - vanilla's translucent state
+     * minus the depth test and minus the depth write. The carried shell is placed from the carrier's last
+     * known pose, which the client may be a tick behind on, so an honest depth test rejects it the moment the
+     * structure has turned past it.
      *
      * <p>With a shader pack it is vanilla's own cutout, because a pack picks its program from the render
      * type's identity - but still through {@code CARRIED_BUFFERS}, so that the carried stage's
-     * {@code endBatch} is what submits it. The <b>contents</b> deliberately do not follow it there: see
-     * {@link CarrierGeometry.RenderPlan} for why the shell takes vanilla's identity and the component
-     * inside it keeps the depth-ignoring type it has always had.
+     * {@code endBatch} is what submits it. The <b>contents</b> do not follow it there: see
+     * {@link CarrierGeometry.RenderPlan} for why the shell takes vanilla's identity and the component inside
+     * it keeps the depth-ignoring type it has always had.
      */
     private static VertexConsumer carriedShellBuffer(CarrierGeometry.RenderPlan plan) {
         return tally(HostRenderTypes.CARRIED_BUFFERS.getBuffer(plan.vanillaShellType()
@@ -2415,15 +2254,13 @@ public final class HostRenderPass {
      * <b>The CARRIED path's contents buffer</b>: the same source the carried stage flushes.
      *
      * <p>Identical state to {@link HostRenderTypes#CONTENTS} - cutout, block sheet, depth ignored, depth
-     * written - but a different instance in a different source, because the world path's was ended two
-     * stages earlier. This is the line the parent defect was missing.
+     * written - but a different instance in a different source, because the world path's was ended two stages
+     * earlier.
      *
-     * <p><b>The type does not change under a shader pack, and that is the shader defect's fix.</b> It
-     * used to become vanilla's {@code cutout} - which <em>tests</em> depth - so every fragment of a
-     * component inside a carried block failed against the block's own faces, which are drawn around it by
-     * the structure's renderer. The frame survived because it is pushed outside the block; the component
-     * is inside it, so it vanished, and only with a pack drawing. See
-     * {@link CarrierGeometry.RenderPlan#vanillaContentsType()}.
+     * <p><b>The type does not change under a shader pack.</b> It becoming vanilla's {@code cutout}, which
+     * <em>tests</em> depth, makes every fragment of a component inside a carried block fail against the
+     * block's own faces - the frame survives because it is pushed outside the block, but the component is
+     * inside it and vanishes. See {@link CarrierGeometry.RenderPlan#vanillaContentsType()}.
      */
     private static VertexConsumer carriedContentsBuffer(CarrierGeometry.RenderPlan plan) {
         return tally(HostRenderTypes.CARRIED_BUFFERS.getBuffer(plan.vanillaContentsType()
@@ -2435,9 +2272,9 @@ public final class HostRenderPass {
     /**
      * Wraps a consumer so every vertex written through it is counted for one sink and kind.
      *
-     * <p>The count has to be taken at the vertex, not at the decision, which is the whole lesson of §17:
-     * a {@code VertexConsumer} obtained from a source that has already been flushed still accepts
-     * vertices, and the only difference between it and a live one is what happens to them afterwards.
+     * <p>The count has to be taken at the vertex, not at the decision: a {@code VertexConsumer} obtained from
+     * a source that has already been flushed still accepts vertices, and the only difference between it and a
+     * live one is what happens to them afterwards.
      */
     private static VertexConsumer tally(VertexConsumer delegate, HostBufferTally.Sink sink,
                                         HostBufferTally.Kind kind) {
@@ -2447,15 +2284,12 @@ public final class HostRenderPass {
     /**
      * Draws each host's own block model inside out, with vanilla's cutout type.
      *
-     * <p>This is what stands in for the block while a shader pack is drawing: the block has been left
-     * out of the chunk mesh, so the surface seen when looking at it has to come from somewhere. Drawing
-     * the model with a mirrored pose turns every quad around, and with back-face culling on, what
-     * survives is exactly the inside walls of the block - a closed, textured box seen from within. So
-     * nothing behind the block shows through, and the components inside sit in front of those walls.
-     *
-     * <p>The pose mirrors in X about the block's centre, which maps the unit cube onto itself: the
-     * block's own shape is preserved and only its winding - and the texture, which is symmetric on
-     * almost every block a player would hide redstone in - changes.
+     * <p>This stands in for the block while a shader pack is drawing: the block has been left out of the
+     * chunk mesh, so the surface seen when looking at it has to come from somewhere. Drawing the model with a
+     * mirrored pose turns every quad around, and with back-face culling on, what survives is exactly the
+     * inside walls of the block - a closed, textured box seen from within, so nothing behind the block shows
+     * through and the components inside sit in front of those walls. The mirror is in X about the block's
+     * centre, which maps the unit cube onto itself: the shape is preserved and only the winding changes.
      */
     private static void drawHostInteriors(PoseStack pose, ClientLevel level, List<Visible> hosts,
                                          Counter counter) {
@@ -2486,12 +2320,10 @@ public final class HostRenderPass {
     /**
      * The component inside each host, drawn over the block's own face.
      *
-     * <p>Unlike the carried path, this one is drawn through the pass's own pose - which is
-     * {@code T(-cameraPos)} and nothing else - so its vertices have to be <b>world coordinates</b>: the
-     * block's position plus the block-local {@code 0..1} the model and the boxes are built in. That is
-     * the same form the shell uses, and the same form the carried path arrives at by a different route
-     * (a frame whose translation already carries the block). Getting it wrong in either direction puts
-     * the component a block away from its own shell, in one axis, for every host in the world.
+     * <p>Unlike the carried path, this one is drawn through the pass's own pose - {@code T(-cameraPos)} and
+     * nothing else - so its vertices are <b>world coordinates</b>: the block's position plus the block-local
+     * {@code 0..1} the model and the boxes are built in. That is the same form the shell uses, and the same
+     * form the carried path arrives at by a different route.
      */
     private static void drawContents(PoseStack pose, ClientLevel level, List<Visible> hosts, AtlasUv uv,
                                      Counter counter) {
@@ -2541,24 +2373,18 @@ public final class HostRenderPass {
     /**
      * Draws one component from vanilla's baked model for its state.
      *
-     * <p>The model is looked up per frame rather than cached, because the state carries the whole
-     * picture - which way a repeater reads, its delay, whether it is lit, which of a wire's sides are
-     * drawn - and the lookup is a map hit on a state the game has already baked. The rotation comes
-     * with it: a variant's rotation is applied when the model is baked, so nothing here has to know
-     * that a repeater reading from the north is drawn with a half turn.
+     * <p>The model is looked up per frame rather than cached, because the state carries the whole picture -
+     * which way a repeater reads, its delay, whether it is lit, which of a wire's sides are drawn - and the
+     * lookup is a map hit on a state the game has already baked. The rotation comes with it, since a
+     * variant's rotation is applied when the model is baked.
      *
-     * <p>A {@code null} render type asks the model for every quad it has, whichever layer it would
-     * normally be drawn in; they all go into our own depth-ignoring buffer, which is what makes the
-     * inside of a block visible at all.
+     * <p>A {@code null} render type asks the model for every quad it has, whichever layer it would normally
+     * be drawn in; they all go into our own depth-ignoring buffer. The caller has already placed the pose
+     * stack - at the camera for the world path, at the carrier's frame for the carried one - so the model
+     * needs only {@code base}: the block's corner in whichever of those two spaces the stack is in.
      *
-     * <p>The pose stack has already been placed by the caller - at the camera for the world path, at
-     * the carrier's frame for the carried one - so the model needs only {@code base}: the block's
-     * corner in whichever of those two spaces the stack is currently in. A block model's vertices are
-     * the usual {@code 0..1} measured from the corner, so {@code base + vertex} is the world (or frame)
-     * position of that vertex, exactly as it is for the shell's own unit cube.
-     *
-     * @return how many vertices the model's renderer wrote, so the caller can count real geometry
-     *     rather than a host it hoped had produced some
+     * @return how many vertices the model's renderer wrote, so the caller can count real geometry rather
+     *     than a host it hoped had produced some
      */
     private static int drawModel(PoseStack pose, VertexConsumer buffer, float[] base,
                                  InnerComponentVisuals.Visual visual, int light,
@@ -2576,20 +2402,16 @@ public final class HostRenderPass {
     }
 
     /**
-     * Emits our own boxes: a length of wire per connection, the wrench's markers, and the fallback
-     * shape for any component no vanilla model fits.
+     * Emits our own boxes: a length of wire per connection, the wrench's markers, and the fallback shape for
+     * any component no vanilla model fits.
      *
      * <p>A box marked {@link Box#textured()} is drawn with the wire art, spread over its faces, so a
-     * connection reads as redstone; the art is mostly transparent, and cutout throws the transparent
-     * pixels away, which is what turns the box into a thin line. Everything else is a flat colour.
-     *
-     * <p>The corners are the block-local {@code 0..1} ones {@link InnerComponentModel.Basis#point}
-     * produced, translated by {@code pos}. The two callers pass different things and that is the whole
-     * of the difference between them: the world path passes the block's world position, because the pose
-     * stack is at the camera; the carried path passes {@link BlockPos#ZERO}, because its frame's
-     * translation is already the block's own - {@code T(position)} in the pose stack plus the
-     * {@code local - pivot} offset it pushed. Neither ever puts a plot coordinate into a {@code float}:
-     * the carried path's offset was computed in {@code double} and is at most a couple of blocks.
+     * connection reads as redstone; the art is mostly transparent, and cutout throws the transparent pixels
+     * away, which is what turns the box into a thin line. Everything else is a flat colour. The corners are
+     * the block-local {@code 0..1} ones {@link InnerComponentModel.Basis#point} produced, translated by
+     * {@code base}: the world path passes the block's world position, because its pose stack is at the
+     * camera, while the carried path passes {@link BlockPos#ZERO}, because its frame's translation already is
+     * the block's own. Neither ever puts a plot coordinate into a {@code float}.
      *
      * @return how many vertices were written
      */
@@ -2632,19 +2454,15 @@ public final class HostRenderPass {
     }
 
     /**
-     * A vertex consumer that forwards everything and counts what went through it.
+     * A vertex consumer that forwards everything and counts what went through it - the one way to answer
+     * "was any geometry actually emitted" without parsing the vertex buffer, since the model renderer writes
+     * through whatever it is handed.
      *
-     * <p>The one way to answer "was any geometry actually emitted" without parsing the vertex buffer:
-     * the model renderer writes through whatever it is handed, so handing it a counter is exact. It is
-     * one small object per host per frame, next to the {@code Vector3f} the {@code addVertex} overload
-     * already allocates per vertex.
-     *
-     * <h2>Two jobs, and the second one is the important one</h2>
-     * With no sink it is a <b>local</b> counter, used by {@code drawModel} to learn how many vertices a
-     * model produced. With a sink it also reports every vertex to {@link HostBufferTally} - and that is
-     * the count the frame summary prints, because it is taken where the vertex is written rather than
-     * where the quad was decided. A consumer for a batch that has already been flushed still accepts
-     * vertices; only this count can tell the difference.
+     * <p>Two jobs, and the second one is the important one: with no sink it is a <b>local</b> counter, used
+     * by {@code drawModel} to learn how many vertices a model produced; with a sink it also reports every
+     * vertex to {@link HostBufferTally}, and that is the count the frame summary prints, because it is taken
+     * where the vertex is written rather than where the quad was decided. A consumer for a batch that has
+     * already been flushed still accepts vertices; only this count can tell the difference.
      */
     private static final class CountingVertexConsumer implements VertexConsumer {
 
@@ -2770,28 +2588,18 @@ public final class HostRenderPass {
     }
 
     /**
-     * <b>Which of a riding host's six neighbours hold a component of their own - in both frames
-     * (P1.42).</b>
+     * <b>Which of a riding host's six neighbours hold a component of their own - in both frames.</b>
      *
-     * <h2>The defect this replaces, stated exactly</h2>
-     * This asked {@code neighboursOf(level, host.origin())} - the ordinary world host index, at the
-     * world block the component was picked up from. That index holds the hosts <em>standing in the
-     * world</em>, and a carried host's data has been <b>moved out</b> of it into the carrier index,
-     * which is keyed by the structure's own coordinate. So inside a structure the answer was "no
-     * neighbour" on all six sides: every inner wire was drawn as a bare dot however it was actually
-     * wired - the author's "physicalised, and every block is just a dot" - while the identical wiring on
-     * the ground drew its arms, because there the world index and the block's own position are the same
-     * frame and the same key.
+     * <p>A riding host asks the structure's own coordinates (a neighbour inside the same machine) and the
+     * world index at the block's origin (an ordinary host block still standing where the machine came from).
+     * It has to ask both: the carrier index is keyed by the structure's own coordinate and the world index
+     * holds the hosts standing in the world, so asking one alone answers "no neighbour" on all six sides and
+     * every inner wire is drawn as a bare dot however it is really wired. The solver never had that defect -
+     * {@code CarrierSpace#nodeAt} asks the carrier index at the local coordinate - and the drawing must not
+     * disagree with it about the same question.
      *
-     * <p>The solver never had this defect: {@code CarrierSpace#nodeAt} asks the carrier index at the
-     * local coordinate, which is why {@code PowerSolver} charges the hop between two carried wires. The
-     * drawing and the solving disagreeing about the same question is exactly what this method exists to
-     * stop.
-     *
-     * <p>So a riding host asks both frames: the structure's own (a neighbour inside the same machine)
-     * and the world index at the block's origin (an ordinary host block still standing where the machine
-     * came from). A fallback host - drawn at a world block because its carrier's pose went stale - asks
-     * the world frame only: it is not inside the structure any more.
+     * <p>A fallback host - drawn at a world block because its carrier's pose went stale - asks the world
+     * frame only: it is not inside the structure any more.
      *
      * @param inStructure per-frame "local coordinate -&gt; the carrier holding a component there", from
      *     {@link ClientHostCache#carriedLocalIndex}
@@ -2809,14 +2617,13 @@ public final class HostRenderPass {
     }
 
     /**
-     * <b>The one rule behind a carried host's connection arms (P1.42), pure so it can be pinned without
-     * a level.</b> A neighbour is either another host of <em>the same structure</em>, one block away in
-     * the structure's own coordinates, or a host the world index still holds where the block came from.
+     * <b>The one rule behind a carried host's connection arms, pure so it can be pinned without a level.</b>
+     * A neighbour is either another host of <em>the same structure</em>, one block away in the structure's
+     * own coordinates, or a host the world index still holds where the block came from.
      *
-     * <p>The carrier identity is compared rather than assumed. A plot coordinate names one sub-level's
-     * block, but a Create contraption's local coordinates are 0..15 around its anchor, so two
-     * contraptions can hold a host at the same local coordinate - and that is a coincidence, not a
-     * connection. Comparing it can only ever refuse an arm, never invent one.
+     * <p>The carrier identity is compared rather than assumed: a Create contraption's local coordinates are
+     * 0..15 around its anchor, so two contraptions can hold a host at the same local coordinate, and that is
+     * a coincidence, not a connection. Comparing it can only ever refuse an arm, never invent one.
      *
      * @param inStructure the carrier holding a component at the neighbouring local coordinate, or
      *     {@code null} when that coordinate is empty (or the host is not riding)
@@ -2857,18 +2664,10 @@ public final class HostRenderPass {
     // --------------------------------------------------------------- helpers --
 
     /**
-     * The light at a block, floored so a buried component is never black.
-     *
-     * <p>Without shaders the floor is on the block light alone. The component sits in the shade of its
-     * own block, which looks right because vanilla draws the block around it as well.
-     *
-     * <p>With a shader pack the block's own faces are gone from the mesh, so this number is the only
-     * thing lighting the inside - and the packs that lean hardest on shadows and ambient occlusion
-     * (Eclipse, for one) darken geometry further, because the extra vertex data their shaders use for
-     * that is filled by their own terrain pipeline and never by code drawing by hand. The floor is
-     * therefore raised on both halves while a pack is drawing: a component in a dark hole stays
-     * readable instead of turning into a black square. Twelve rather than full brightness on purpose -
-     * at fifteen the inside glows and stops reading as part of the world.
+     * The light at a block, floored so a buried component is never black: on the block light alone without
+     * shaders, and on both halves with a pack drawing, where the block's own faces are gone from the mesh and
+     * this number is the only thing lighting the inside. Twelve rather than full brightness: at fifteen the
+     * inside glows and stops reading as part of the world.
      */
     private static int lightFor(BlockAndTintGetter level, BlockPos pos) {
         int light = LevelRenderer.getLightColor(level, pos);
@@ -2883,15 +2682,10 @@ public final class HostRenderPass {
     /**
      * The light at an arbitrary point in the world, for a component that is not at a whole block.
      *
-     * <p>Used by the carried path. Two differences from {@link #lightFor}, both deliberate:
-     *
-     * <ul>
-     *   <li>The query is <b>block light only</b>, with a floor. A component inside a machine is in the
-     *       shade of the machine, and the sky value at a point in mid-air is a poor description of
-     *       what a player can read anyway. Taking only the block half keeps a machine that flies into
-     *       the dark legible instead of turning into a black silhouette.</li>
-     *   <li>The point is rounded to a block, because that is what the light map is indexed by.</li>
-     * </ul>
+     * <p>Used by the carried path, and <b>block light only</b> with a floor: a component inside a machine is
+     * in the shade of the machine, and the sky value at a point in mid-air is a poor description of what a
+     * player can read anyway - taking only the block half keeps a machine that flies into the dark legible.
+     * The point is rounded to a block, because the light map is indexed by whole blocks.
      */
     private static int lightAt(ClientLevel level, Vector3d point) {
         int light = LevelRenderer.getLightColor(level, BlockPos.containing(point.x, point.y, point.z));

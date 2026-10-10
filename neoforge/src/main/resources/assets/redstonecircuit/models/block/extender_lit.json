@@ -1,0 +1,31 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "redstonecircuit:block/extender_top",
+    "top": "redstonecircuit:block/extender_top_run",
+    "bottom": "redstonecircuit:block/extender_bottom",
+    "side": "redstonecircuit:block/extender_side",
+    "dot": "redstonecircuit:block/extender_dot"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 2, 16],
+      "faces": {
+        "up": { "texture": "#top" },
+        "down": { "texture": "#bottom" },
+        "south": { "texture": "#side" },
+        "north": { "texture": "#side" },
+        "east": { "texture": "#side" },
+        "west": { "texture": "#side" }
+      }
+    },
+    {
+      "from": [1, 2.01, 10],
+      "to": [3, 2.01, 12],
+      "faces": {
+        "up": { "texture": "#dot" }
+      }
+    }
+  ]
+}

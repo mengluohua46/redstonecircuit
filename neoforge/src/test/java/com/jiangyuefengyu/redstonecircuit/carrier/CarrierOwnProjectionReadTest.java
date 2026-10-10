@@ -18,63 +18,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.42: the carrier-side world read must not take the asking carrier's own projected host - through
- * <em>either</em> half of the read.</b>
+ * The carrier-side world read must not take the asking carrier's own projected host, through <em>either</em> half.
  *
- * <h2>Why P1.41's filter did not fix the fade, stated as one call chain</h2>
- * The author's report after P1.41 was the same symptom: inside a physicalised structure a run of carried
- * dust holds fifteen in every cell. The hop charge was never in question
- * ({@code PowerSolver#innerFrom -> afterHop}), so the uncharged copy of an inner neighbour was still
- * arriving. P1.41 refused it in one place:
- *
- * <pre>
- *   CarrierSpace#externalSignal                       (the carrier-side world half)
- *     -> CarrierWorldIo#signalIntoOwnFrame            (names the reader, P1.41)
- *       -> InnerRedstoneNetwork#worldSignalAt(level, worldPos, dir, owner)
- *            int vanilla   = readSignal(level, worldPos, dir);        &lt;- *not* filtered
- *            int projected = projectedSignalAt(level, worldPos, dir, owner);   &lt;- filtered
- *            max(vanilla, projected)
- * </pre>
- *
- * <p>And {@code readSignal} on a {@code ServerLevel} is answered by the projection table too: a
- * {@code ServerLevel} is a {@code SignalGetter}, so the read lands in {@code BlockStateSignalMixin} -&gt;
- * {@code BlockSignalSources#select}, whose second source is {@code CarrierStore#projectedHostAt}. The
- * very host P1.41 refused in the second half therefore came back through the first one, and {@code max}
- * kept the uncharged copy: <b>filtering one half of a read filters nothing.</b>
- *
- * <h2>The fix, and what this file pins</h2>
- * The refusal is a property of <em>the read</em>, not of one of its sources: for its duration, one
- * (carrier, world position) pair is refused by every projection lookup, because
- * {@code CarrierStore#projectedHostAt} is the single accessor both halves go through
- * ({@link InnerRedstoneNetwork#refusingOwnProjectionAt}, {@code projectionMayAnswer}).
- *
- * <table>
- *   <tr><th>test</th><th>on P1.41</th><th>here</th><th>why</th></tr>
- *   <tr><td>{@code theRefusalIsScopedToOneCarrierAndOnePosition}</td><td>compile-red</td>
- *       <td>green</td><td>the rule itself: own host refused, another carrier's read (P1.38), another
- *       position untouched (the mixin's strong-power question asks about the asker), restored after</td></tr>
- *   <tr><td>{@code theVanillaHalfIsTheSameTableSoItIsRefusedToo}</td><td>red</td><td>green</td>
- *       <td>the defect, as wiring: the mixin's projection lookup goes through the one accessor that now
- *       honours the refusal, and the read is wrapped in the scope</td></tr>
- *   <tr><td>{@code aBridgeThatCannotRefuseIsCountedNotSilent}</td><td>compile-red</td><td>green</td>
- *       <td>"the parameter is missing, so read unfiltered" must not be silent: it is counted and named,
- *       and production is pinned to always have the level</td></tr>
- *   <tr><td>{@code theWorldSideAndP141AreUntouched}</td><td>green</td><td>green</td>
- *       <td>the three-argument entry point, {@code worldSignals}, the world-side solve and P1.41's own
- *       filter are unchanged</td></tr>
- * </table>
- *
- * <h2>Honest boundary</h2>
- * A {@code ServerLevel} cannot be built here, so the mixin half of the chain is pinned by the wiring
- * assertions (which name the accessor both halves share) and the rule is pinned behaviourally. The field
- * judgement stays the author's.
+ * <p>The refusal is a property of <em>the read</em>, not of one of its sources: the vanilla half is answered by that
+ * same projection table, so refusing in one place refuses nothing. {@code CarrierStore#projectedHostAt} is the single
+ * accessor both halves go through; {@link InnerRedstoneNetwork#refusingOwnProjectionAt} opens the scope.
  */
 class CarrierOwnProjectionReadTest {
 
     /** The structure whose run of dust is being solved - the reader. */
     private static final CarrierId X =
             CarrierId.subLevel(UUID.fromString("00000000-0000-0000-0000-00000000a142"));
-    /** An independently physicalised structure standing next door - the P1.38 seam. */
+    /** An independently physicalised structure standing next door. */
     private static final CarrierId Y =
             CarrierId.subLevel(UUID.fromString("00000000-0000-0000-0000-00000000b142"));
 
@@ -98,7 +53,7 @@ class CarrierOwnProjectionReadTest {
         CarrierProjection.ProjectedHost theirs = projected(Y, HERE, 15);
 
         assertTrue(InnerRedstoneNetwork.projectionMayAnswer(own, HERE),
-                "outside a read nothing is refused: the world-side solve and the P1.38 seam read every "
+                "outside a read nothing is refused: the world-side solve and the neighbouring seam read every "
                         + "projection there is");
         assertTrue(InnerRedstoneNetwork.projectionMayAnswer(null, HERE),
                 "and air is air whoever is asking");
@@ -110,7 +65,7 @@ class CarrierOwnProjectionReadTest {
                             + "projection's raw emission must not answer as well - that is how the run "
                             + "stopped fading");
             assertTrue(InnerRedstoneNetwork.projectionMayAnswer(theirs, HERE),
-                    "another carrier's host at the same position is the seam P1.38 opened and must keep "
+                    "another carrier's host at the same position is the seam between them and must keep "
                             + "answering, or two independently physicalised blocks go dark again");
             assertTrue(InnerRedstoneNetwork.projectionMayAnswer(own, NEXT_DOOR),
                     "ONLY that position: the mixin's strong-power question asks about the block doing "
@@ -170,7 +125,7 @@ class CarrierOwnProjectionReadTest {
                         + "instead of filtering the projected half alone");
         assertTrue(io.contains("InnerRedstoneNetwork.worldSignalAt(level, worldPos, worldDirection, "
                         + "reader)"),
-                "and the carrier bridge still asks the owner-aware form, naming the reader (P1.41)");
+                "and the carrier bridge still asks the owner-aware form, naming the reader");
         assertTrue(networks.contains("new CarrierWorldIo(pose, bridge.signals(), carrier, ctx.level())"),
                 "with the carrier and the level injected where both are in hand");
         assertTrue(store.contains("carrier -> afterSolveWrote(level, carrier), bridge, level)"),
@@ -208,7 +163,7 @@ class CarrierOwnProjectionReadTest {
     // ------------------------------------------------------ 4. what must not move --
 
     @Test
-    @DisplayName("the world side and P1.41 are untouched: no owner named, no filter applied")
+    @DisplayName("the world side is untouched: no owner named, no filter applied")
     void theWorldSideAndP141AreUntouched() throws Exception {
         String network = flat("src/main/java/com/jiangyuefengyu/redstonecircuit/logic/"
                 + "InnerRedstoneNetwork.java");
@@ -221,7 +176,7 @@ class CarrierOwnProjectionReadTest {
                 "the merged read is still the vanilla block plus the projection, in that order");
         assertTrue(network.contains("int projected = projectedSignalAt(level, worldPos, worldDirection,"
                         + " owner);"),
-                "and P1.41's own filter on the projected half is kept, one implementation");
+                "and the filter on the projected half is kept, one implementation");
         assertTrue(network.contains("if (!projectionReadableBy(host, owner)) {"),
                 "with the rule it states still living next to the projected host");
     }

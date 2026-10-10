@@ -33,54 +33,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.31: the wrench can lock a carried host's line towards a block that stands OUTSIDE every
- * structure.</b>
- *
- * <h2>What the author asked for, and what was there before</h2>
- * <em>"能否加一个用红石扳手可以向外部方块锁定线路"</em> - pick a component inside a machine, shift-right-click
- * a block of the world standing beside it, and pin that line. Before this round that click did
- * <b>nothing at all</b> and said nothing about it: the carrier's resolver answered {@code null} (the
- * coordinate is not a carried host), and the world's wrench found no component in its own store at a
- * position it does not own. The component being pinned is not in the world's store to begin with - it
- * lives in the carrier index under {@code (carrier, localPos)} - so the world's handler could never
- * have served this gesture.
- *
- * <h2>The semantics, and the world's own sentence for them</h2>
- * {@code message.redstonecircuit.wrench.linked_on_device} is the world's own case: <em>the far end holds
- * no embedded redstone, so only this side is pinned - every other direction is cut</em>. That is exactly
- * what this gesture does, because a pin is a statement about the whole component
- * ({@code Slot#isClosed} derives the cuts) - and the tests below pin both halves: the record says one
- * side is pinned, <b>and the solve really stops feeding the other side</b>.
- *
- * <h2>What is asserted</h2>
- * <ol>
- *   <li><b>the lock is written</b>, on the side that faces the world block, in the structure's own
- *       frame, and it steps the same {@code AUTO -> ON -> OFF -> AUTO} cycle the rest of the wrench
- *       uses;</li>
- *   <li><b>the in-structure solve reads it</b>: a neighbouring wire that was carrying power from the
- *       picked component drops to <b>0</b> once the line is locked towards the outside block. This is
- *       the "it really works and is not only a display" evidence;</li>
- *   <li><b>the world store is not touched</b>: no entry is invented at the world block's coordinate,
- *       and none at the picked host's projection either. This is the round's own instruction - only the
- *       carrier record is written - and it is what keeps P1.30's "one source of truth" intact;</li>
- *   <li><b>six refusals, each with a name</b>: no pick, a coordinate a structure owns (the trap: a plot
- *       cell with no component in it yet), not adjacent, an unreadable pose (the direction is never
- *       guessed), no world position, and an empty host;</li>
- *   <li><b>the judgement line</b>: {@code locked OUTSIDE the structure … side=… (world A at B) state=…},
- *       which is distinguishable at a glance from a cross-structure line and from a world one.</li>
- * </ol>
- *
- * <h2>Before the fix (the red half, measured)</h2>
- * This file is written to <b>compile and run against the previous tree</b>: the decision is asked by
- * reflection, so on a build without {@code CarrierInteraction#planOutside} the lookup fails and every
- * assertion is answered "the decision does not exist" - which is the shape of this round's defect, since
- * a click on a world block used to write <b>nothing at all</b>, not the wrong thing.
- *
- * <p>Measured in a worktree at {@code d4be518} (the commit before this one) with only this file copied
- * in: <b>14 tests, 14 failed</b>, e.g.
- * {@code the gesture the author asked for must be a lock, not a refusal: no decision exists on this
- * build} and {@code the line a report is grepped for must be buildable}. Every one of them is a real
- * assertion red, not a compile-order accident.
+ * The wrench can lock a carried host's line towards a block that stands OUTSIDE every structure: pick a
+ * component inside a machine, shift-right-click a block of the world standing beside it, and pin that line.
+ * <p>The semantics are the world's own {@code linked_on_device} case - the far end holds no embedded
+ * redstone, so only this side is pinned and every other direction is cut - because a pin is a statement
+ * about the whole component. So the tests pin both halves: the record says one side is pinned, <b>and the
+ * solve really stops feeding the other side</b>.
+ * <p>Also asserted: the world store is not touched, six refusals are named, and the judgement line says
+ * OUTSIDE; the decision is asked by reflection, so this file compiles against a tree without it.
  */
 class CarrierOutsideLockTest {
 
@@ -135,7 +95,7 @@ class CarrierOutsideLockTest {
         return slot;
     }
 
-    /** A pose that is a plain translation from local to world - the same shape the author's claims print. */
+    /** A pose that is a plain translation from local to world. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -157,15 +117,10 @@ class CarrierOutsideLockTest {
         return pick(MINE, A, A_WORLD);
     }
 
-    // ------------------------------------------------ the decision, asked by name --
-    //
-    // ASKED BY REFLECTION ON PURPOSE. The three types this round adds (`OutsideDecision`,
-    // `OutsideStatus`, `LockedOutside`) did not exist on the previous tree, so a direct call would make
-    // this file a compile error there rather than a red assertion - and the round's report has to say
-    // which of the two it is. Asked by name, the failure is a plain, readable "the decision does not
-    // exist", which is the same statement P1.27's `CarrierCarriedInsertPlanTest` made.
+    // Asked by name, because the decision's own types need not exist on every tree: the failure is then a
+    // readable "the decision does not exist" rather than a compile error.
 
-    /** {@code CarrierInteraction#planOutside(index, pick, click, owned, pose, pickedWorld)}. */
+    /** The decision the outside-lock gesture makes, or {@code null} on a build without it. */
     @Nullable
     private static Object decide(@Nullable CarriedHostIndex index,
                                  @Nullable CarriedSelection.Selection selected, BlockPos click,
@@ -289,9 +244,7 @@ class CarrierOutsideLockTest {
         @DisplayName("the unturned pose carries the wire SOUTH in the world too")
         void theTwoFramesAgree() {
             // Without this, "the wire beside the pick went dead" could pass for the wrong reason: a pose
-            // that turned the structure would make the local SOUTH a different world direction, and the
-            // solve's cut side would still be the right one only by accident. The pose is the identity
-            // rotation, so the two frames must answer the same direction for the same pair of hosts.
+            // that turned the structure would make local SOUTH a different world direction.
             assertEquals(Direction.SOUTH,
                     CarrierDirections.worldDirection(moving(A, A_WORLD), Direction.SOUTH),
                     "the fixture is unturned, so 'beside it inside the structure' and 'beside it in the "
@@ -334,7 +287,7 @@ class CarrierOutsideLockTest {
             Object decision = decide(index, picked(), OUTSIDE, false, moving(A, A_WORLD), A_WORLD);
 
             assertEquals("LOCKED", status(decision),
-                    "the gesture the author asked for must be a lock, not a refusal: "
+                    "a bare-hand click on a carried host must lock the line, not refuse it: "
                             + (decision == null ? "no decision exists on this build" : decision));
             assertTrue(handled(decision), "and the click is ours to consume");
             // The world block is one block away along world +X, so the side that faces it is EAST in the
@@ -371,7 +324,7 @@ class CarrierOutsideLockTest {
             twoWiresWithPower();
             // A quarter turn about the structure's own origin, so the world direction EAST is one of the
             // structure's own NORTH/SOUTH. The direction is computed once in the world and turned into the
-            // structure's frame by the ONE conversion this mod has - never written as "the world direction".
+            // structure's frame by the one conversion this mod has.
             Quaterniond quarter = new Quaterniond().rotateY(Math.PI / 2.0);
             CarrierPose turned = CarrierPose.of(new Vector3d(0.0, 0.0, 0.0), quarter);
 
@@ -397,8 +350,7 @@ class CarrierOutsideLockTest {
 
             assertNotNull(line, "the line a report is grepped for must be buildable");
             assertTrue(line.startsWith("locked OUTSIDE the structure"),
-                    "the first three words name the decision; the old failure printed nothing at all: "
-                            + line);
+                    "the first three words name the decision: " + line);
             assertTrue(line.contains("picked=s:d315200a local=1, 0, 0"), line);
             assertTrue(line.contains("(DUST)"), "the component's constant is on the log line: " + line);
             assertTrue(line.contains("side=east"), "the structure's own side: " + line);
@@ -446,8 +398,8 @@ class CarrierOutsideLockTest {
         @DisplayName("a line locked outside the structure only cuts the sides that are not the pinned one")
         void thePinnedSideStaysTheOnlyOpenOne() {
             twoWiresWithPower();
-            // A second wire on the OTHER side of the picked host, so "one side pinned" can be told apart
-            // from "everything cut": the pinned side stays open, every other side is shut.
+            // A second wire on the OTHER side, so "one side pinned" can be told apart from "everything
+            // cut": the pinned side stays open, every other side is shut.
             BlockPos north = A.relative(Direction.NORTH);
             carry(MINE, north, A_WORLD.relative(Direction.NORTH), ComponentType.DUST);
             solve(MINE, A, WIRE, north);
@@ -483,8 +435,8 @@ class CarrierOutsideLockTest {
             assertEquals("LOCKED", status(decision), String.valueOf(decision));
             assertNull(world.get(OUTSIDE.asLong()),
                     "the world block was only POINTED AT: writing a store entry for it would invent a "
-                            + "component for a block that has none, which is the two-sources-of-truth defect "
-                            + "P1.26-P1.30 exist to remove");
+                            + "component for a block that has none, which is the two-sources-of-truth defect this "
+                            + "exception exists to remove");
             assertEquals(before.keySet(), world.keySet(),
                     "and no other coordinate was added or removed either: " + world.keySet());
         }
@@ -493,9 +445,8 @@ class CarrierOutsideLockTest {
         @DisplayName("a world block that ALREADY holds a component is still not written to")
         void anExistingWorldEntryIsNotTouched() {
             twoWiresWithPower();
-            // The author's own case: the block outside happens to hold a component of its own, from the
-            // world store. It is a different structure's business (or nobody's), and this gesture is about
-            // the PICK's record - so the world's entry must come out byte for byte as it went in.
+            // The block outside happens to hold a component of its own: this gesture is about the PICK's
+            // record, so the world's entry must come out byte for byte as it went in.
             Slot outsideEntry = new Slot(ComponentType.RETAINING_REPEATER);
             outsideEntry.facing = Direction.WEST;
             world.put(OUTSIDE.asLong(), outsideEntry);
@@ -533,9 +484,9 @@ class CarrierOutsideLockTest {
         @DisplayName("a coordinate a structure owns is NOT 'outside' - the empty plot cell trap")
         void aCoordinateAStructureOwnsIsRefused() {
             twoWiresWithPower();
-            // The trap: a physicalised block whose host holds nothing yet. `hitAt` answers null for it (it
-            // asks for a component), so the click reaches this decision - and taking it for a world block
-            // would pin a line towards a plot coordinate two million blocks away.
+            // The trap: a physicalised block whose host holds nothing yet. The resolver answers null for
+            // it, so the click reaches this decision - and taking it for a world block would pin a line
+            // towards a plot coordinate two million blocks away.
             Object decision = decide(index, picked(), OUTSIDE, true, moving(A, A_WORLD), A_WORLD);
 
             assertEquals("NOT_OUTSIDE", status(decision), String.valueOf(decision));
@@ -599,13 +550,8 @@ class CarrierOutsideLockTest {
 
     // ------------------------------------------------------------------ fixtures --
 
-    /**
-     * The override that stands on one side of the picked host, read through the production question.
-     *
-     * <p>Asked through {@code WrenchLinks#stateOf} rather than by poking at the sets, because that is the
-     * method the wrench's own cycle steps through - "the record says ON" and "the wrench would read ON
-     * here" must be one fact.
-     */
+    /** The override that stands on one side of the picked host, read through the production question:
+     * "the record says ON" and "the wrench would read ON here" must be one fact. */
     private ConnectionState stateWrote(BlockPos local, Direction side) {
         CarriedHost host = index.at(MINE, local);
         return host == null || host.slot() == null ? null : WrenchLinks.stateOf(host.slot(), side);

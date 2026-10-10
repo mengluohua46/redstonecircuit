@@ -1,78 +1,43 @@
 package com.jiangyuefengyu.redstonecircuit.client;
 
 /**
- * <b>How many vertices actually reached each of the mod's buffer sources - not how many we meant to
- * write.</b>
+ * How many vertices actually reached each of the mod's buffer sources - not how many we meant to write.
  *
- * <h2>The defect this exists for</h2>
- * The frame summary's {@code carriedShellQuads=30 carriedContentQuads=12} were counted in the drawing
- * loops: every time a quad was handed to a {@code VertexConsumer}, an {@code int} went up. That is a
- * count of <em>intent</em>, and the author's log carried it - 431 frames of it - while the screen showed
- * a contraption with a frame and no components. The cause was one line: the two carried draw points
- * asked for their consumer from the <b>world</b> buffer source, whose batch is ended at
- * {@code AFTER_ENTITIES}, and wrote into it from the carried stage two stages later. The vertices went
- * into a source that had already been flushed, and every counter said the frame was perfect.
+ * <p>Counting in the drawing loops counts <em>intent</em>: vertices written into a source whose batch was
+ * already flushed leave every counter reading perfectly. The numbers therefore have to be taken where the
+ * vertices are written: {@link #writtenQuads} since the last flush, {@link #flushedQuads} for what the
+ * source really held, and {@link #postFlushWrites} for writes after the flush, which correct code never
+ * produces.
  *
- * <p>So the number that has to exist is "vertices this source actually took", measured where they are
- * written rather than where they are decided. Three facts come out of it, and each one names a different
- * failure:
- *
- * <ul>
- *   <li>{@link #writtenQuads} - what the source took since its last flush.</li>
- *   <li>{@link #flushedQuads} - what it had taken when that flush happened. <b>This is the number the
- *       frame summary prints</b>, because it is the only one that cannot be true of a batch that was
- *       never submitted.</li>
- *   <li>{@link #postFlushWrites} - vertices written into a source <em>after</em> its flush. Correct code
- *       never produces this: it means a draw point is aiming at a batch that is already gone, which is
- *       exactly the defect above, caught in one number instead of in a screenshot.</li>
- * </ul>
- *
- * <h2>Why this class has no Minecraft in it</h2>
- * {@code RenderType}'s class initialiser reaches {@code ItemRenderer}, {@code Items} and the vanilla
- * registries, so nothing that mentions a render type can be loaded on a bare JVM - which is why the
- * drawing paths themselves cannot be unit-tested. This is the part of the answer that can be: the
- * accounting, the trap detector and the alarms are plain arithmetic, and {@code HostBufferTallyTest}
- * drives all of them.
+ * <p>Nothing here names a render type: {@code RenderType}'s class initialiser reaches the vanilla item and
+ * registry classes, so the drawing paths cannot be unit-tested. The accounting is plain arithmetic.
  */
 final class HostBufferTally {
 
     /**
-     * The buffer sources vertices are written into, <b>and who submits each of them</b>.
-     *
-     * <p>The distinction is the fix for a false alarm that fired 305 times in one session: a source we do
-     * not submit cannot be held to "we flushed nothing", so it must not be in the same ledger as the ones
-     * we do.
+     * The buffer sources vertices are written into, <b>and who submits each of them</b>: a source we do not
+     * submit cannot be held to "we flushed nothing", so it is not in the same ledger as the ones we do.
      */
     enum Sink {
 
         /**
-         * The world path's source, submitted by us at {@code AFTER_ENTITIES}.
-         *
-         * <p>Holds the world <b>contents</b> (and, under a shader pack, the block interiors). Every quad
-         * written here is ours to submit, so "emitted &gt; 0 and flushed == 0" is a real defect.
+         * The world path's source, submitted by us at {@code AFTER_ENTITIES}: the world <b>contents</b>
+         * (and, under a shader pack, the block interiors). Every quad here is ours to submit.
          */
         WORLD("world", HostRenderPass.WORLD_STAGE_NAME, true),
 
         /**
-         * The carried path's source, submitted by us at {@code AFTER_TRANSLUCENT_BLOCKS}.
-         *
-         * <p>Holds the carried shell and the carried contents. Ours to submit, same rule.
+         * The carried path's source, submitted by us at {@code AFTER_TRANSLUCENT_BLOCKS}: the carried shell
+         * and its contents, ours to submit like the world one.
          */
         CARRIED("carried", HostRenderPass.CARRIED_STAGE_NAME, true),
 
         /**
-         * <b>The level renderer's own buffer source, which the world shell is handed to and never
-         * submitted by us.</b>
-         *
-         * <p>The world shell keeps vanilla's translucent render type identity on purpose - a shader pack
-         * selects its program from that identity - so its vertices go into the renderer's own source and
-         * are submitted by {@code LevelRenderer}'s translucent section layer later in the same frame. We
-         * cannot observe that submission and must not pretend to: a zero here would mean nothing, which is
-         * exactly why the old single ledger produced a false "WORLD STAGE WROTE NOTHING" on every frame in
-         * which only the world shell was drawn.
-         *
-         * <p>{@link #handedOverQuads} is the honest reading for this sink: how much we <em>gave</em> the
-         * renderer. It is reported, never alarmed on.
+         * The level renderer's own buffer source, which the world shell is handed to and never submitted by
+         * us: the shell keeps vanilla's translucent render type identity, because a shader pack selects its
+         * program from that identity, so its vertices are submitted by {@code LevelRenderer}'s translucent
+         * section layer later in the same frame. A zero flush here would mean nothing, so
+         * {@link #handedOverQuads} - how much we gave the renderer - is reported and never alarmed on.
          */
         RENDERER("renderer", "LevelRenderer translucent section layer", false);
 
@@ -111,13 +76,8 @@ final class HostBufferTally {
         /** The component inside the block. */
         CONTENTS("content"),
 
-        /**
-         * The block's own inside-out model, which only the shader path draws.
-         *
-         * <p>Counted apart because it belongs to no config gate the others have: it exists only because a
-         * shader pack needs the block's surface to come from somewhere once the block has left the chunk
-         * mesh.
-         */
+        /** The block's own inside-out model, which only the shader path draws: a shader pack needs the
+         * block's surface to come from somewhere once the block has left the chunk mesh. */
         INTERIOR("interior");
 
         private final String label;
@@ -152,11 +112,8 @@ final class HostBufferTally {
     }
 
     /**
-     * Records {@code vertices} vertices handed to the consumer for one sink and kind.
-     *
-     * <p>Called per vertex, from the consumer wrapper, on the render thread. Plain {@code int}s rather
-     * than atomics: nothing but the render thread and a test ever touches these, and a per-vertex
-     * synchronised block would be a real cost on a hot path.
+     * Records {@code vertices} handed to the consumer for one sink and kind. Plain {@code int}s rather than
+     * atomics: only the render thread and a test touch these, and the call is per vertex.
      */
     static void written(Sink sink, Kind kind, int vertices) {
         if (vertices <= 0) {
@@ -167,13 +124,9 @@ final class HostBufferTally {
     }
 
     /**
-     * Records that our writes to a source are done for this frame: the pending window is snapshotted.
-     *
-     * <p>The reset is the whole point. Without it the "was anything written after the flush" question
-     * would be answered by last frame's legitimate writes.
-     *
-     * <p>Only called for sources we submit - {@link Sink#WORLD} and {@link Sink#CARRIED}. A source we
-     * hand to somebody else has no flush of ours to record; see {@link #handOver}.
+     * Records that our writes to a source are done for this frame: the pending window is snapshotted and
+     * reset, or last frame's legitimate writes would answer the "written after the flush" question. Only
+     * for sources we submit; a source we hand on has no flush of ours to record - see {@link #handOver}.
      */
     static void flush(Sink sink) {
         if (!sink.submittedByUs()) {
@@ -185,11 +138,8 @@ final class HostBufferTally {
     }
 
     /**
-     * Records that we have handed a source to its real submitter, for the renderer's own buffer source.
-     *
-     * <p>The same bookkeeping as {@link #flush} and a different name, because the fact is different: we
-     * gave {@code LevelRenderer} the world shell and it will submit that source later in the frame. The
-     * snapshot answers "how much did we hand over", which is all this build can honestly know.
+     * The same bookkeeping as {@link #flush} under a different name, because the fact is different: the
+     * source was handed to {@code LevelRenderer}, which submits it later in the same frame.
      */
     static void handOver(Sink sink) {
         if (sink.submittedByUs()) {
@@ -204,9 +154,7 @@ final class HostBufferTally {
         int base = sink.ordinal() * KINDS;
         for (int kind = 0; kind < KINDS; kind++) {
             FLUSHED[base + kind] = WRITTEN[base + kind];
-            // The pending window restarts with the snapshot, so that the next frame's numbers describe
-            // the next frame. A running total would make "carriedShellQuads=30" true forever after the
-            // first good frame, which is the same kind of lie the intent counters told.
+            // The pending window restarts with the snapshot, or a running total would be true for ever after one good frame.
             WRITTEN[base + kind] = 0;
         }
         POST_FLUSH[sink.ordinal()] = 0;
@@ -238,27 +186,9 @@ final class HostBufferTally {
     }
 
     /**
-     * <b>The alarm the author's log needed.</b> A source we submit, into which geometry was written and
-     * none of which we flushed.
-     *
-     * <p>Scoped to sources this build submits, <b>and to a named pair of numbers</b>. Both matter:
-     * <ul>
-     *   <li>a source it merely hands to the level renderer cannot be held to this rule - see
-     *       {@link Sink#RENDERER};</li>
-     *   <li>and the flushed count has to be the one that corresponds to the emitted count. Summing every
-     *       kind of a sink lets one kind's flush cover another's loss - under a shader pack the world
-     *       shell shares the world source with the contents, so a shell that flushed 30 would hide
-     *       twelve contents that reached nothing. The caller passes both numbers; the two are then
-     *       comparable by construction.</li>
-     * </ul>
-     *
-     * @param sink the stage's own source; {@code null} is returned for one this build does not submit
-     * @param emittedQuads quads the drawing loops handed out <b>for that source</b> - the count that used
-     *     to be reported as if it were a flush, and that on its own cannot tell a perfect frame from a
-     *     lost one
-     * @param flushedQuads quads of the <em>same kinds</em> that the source held when we submitted it
-     * @return the sentence for the log, or {@code null} when the stage either emitted nothing or really
-     *     did flush something
+     * The alarm: a source we submit took geometry and none of it was flushed. Scoped to sources we submit and
+     * to one pair of kinds, so one kind's flush cannot cover another's loss - {@code emittedQuads} is what the
+     * loops handed out, {@code flushedQuads} what that source of those kinds really held. Null otherwise.
      */
     static String nothingFlushedWhileEmitting(Sink sink, int emittedQuads, int flushedQuads) {
         if (!sink.submittedByUs()) {
@@ -276,11 +206,9 @@ final class HostBufferTally {
     }
 
     /**
-     * The second half of the same alarm: where the lost vertices <em>did</em> go.
-     *
-     * <p>Stated as its own fact because it names the fix. A zero flush on one sink plus writes after the
-     * other sink's flush is the exact signature the parent defect had, and it is stored independently
-     * rather than inferred, so it cannot be a coincidence.
+     * The second half of the same alarm: where the lost vertices <em>did</em> go. Stored rather than
+     * inferred - a zero flush on one sink plus writes after another's flush is the signature of a draw
+     * point aiming at a batch that is already finished.
      */
     static String postFlushSentence() {
         StringBuilder sb = new StringBuilder();
@@ -296,15 +224,9 @@ final class HostBufferTally {
     }
 
     /**
-     * One compact line for the frame summary: what each source really took, and what leaked.
-     *
-     * <p>The renderer's sink is reported as <b>handed over</b> rather than flushed, because that is the
-     * only thing this build can know about it. Mixing the two readings is what produced the false alarm.
-     *
-     * <p>Every name carries {@code Buf}, for "<b>the buffer's own ledger</b>", so that it cannot be
-     * confused with the frame summary's own counts printed beside it: {@code worldShellQuads} there is
-     * what the drawing loops emitted, {@code worldBufShellQuads} here is what the source actually held.
-     * Two readings of the same thing are only useful when a reader can tell which is which.
+     * One compact line for the frame summary: what each source really took, and what leaked. Every name
+     * carries {@code Buf}, so {@code worldBufShellQuads} here cannot be confused with the frame summary's
+     * own {@code worldShellQuads} printed beside it - emitted there, really held here.
      */
     static String describe() {
         StringBuilder sb = new StringBuilder();
@@ -340,12 +262,7 @@ final class HostBufferTally {
         return Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
-    /**
-     * Forgets everything, for a test.
-     *
-     * <p>Not called by the renderer: the tally is a running measure of the session, and a frame that
-     * reset it could not answer "has this source ever flushed anything".
-     */
+    /** Forgets everything, for a test: a frame that reset the running tally could not answer "has this source ever flushed". */
     static void resetForTest() {
         java.util.Arrays.fill(WRITTEN, 0);
         java.util.Arrays.fill(FLUSHED, 0);

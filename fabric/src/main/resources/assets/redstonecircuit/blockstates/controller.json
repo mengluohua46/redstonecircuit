@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "facing=north,lit=false": { "model": "redstonecircuit:block/controller", "y": 180 },
+    "facing=east,lit=false": { "model": "redstonecircuit:block/controller", "y": 270 },
+    "facing=south,lit=false": { "model": "redstonecircuit:block/controller" },
+    "facing=west,lit=false": { "model": "redstonecircuit:block/controller", "y": 90 },
+    "facing=north,lit=true": { "model": "redstonecircuit:block/controller_lit", "y": 180 },
+    "facing=east,lit=true": { "model": "redstonecircuit:block/controller_lit", "y": 270 },
+    "facing=south,lit=true": { "model": "redstonecircuit:block/controller_lit" },
+    "facing=west,lit=true": { "model": "redstonecircuit:block/controller_lit", "y": 90 }
+  }
+}

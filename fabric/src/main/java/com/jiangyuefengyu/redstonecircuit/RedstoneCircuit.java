@@ -4,17 +4,18 @@ import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneTickHandler;
 import com.jiangyuefengyu.redstonecircuit.logic.WrenchSelection;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 import com.jiangyuefengyu.redstonecircuit.network.RCNetwork;
+import com.jiangyuefengyu.redstonecircuit.network.StructureManualTrigger;
+import com.jiangyuefengyu.redstonecircuit.network.StructurePreviews;
+import com.jiangyuefengyu.redstonecircuit.structure.StructureReleaseTickHandler;
+import com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketTickHandler;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.resources.ResourceLocation;
 
 /**
  * 《红石电路》 - put redstone components inside blocks, then look at them with redstone goggles.
  *
- * <p>Target: Minecraft 1.21.1 / Fabric Loader 0.16.5 / Fabric API 0.102.0.
+ * <p>Target: Minecraft 1.21.1 / Fabric Loader / Fabric API.
  *
  * <h2>What changed from the NeoForge build</h2>
  * NeoForge drove everything from its two event buses, so one {@code @Mod} constructor could subscribe
@@ -24,13 +25,16 @@ import net.minecraft.resources.ResourceLocation;
  * The routing is therefore:
  *
  * <ul>
- *   <li>here (common entrypoint): registry, payload types, block interaction, server tick, server
- *       lifecycle, player connection, command;</li>
+ *   <li>here (common entrypoint): registry, payload types and their server-side receivers, block
+ *       interaction, the carried-interaction half, server tick, server lifecycle, player connection,
+ *       the structure previews and the command;</li>
  *   <li>{@code RedstoneCircuitClient}: the overlay pass, the wire tint, the client receivers and the
  *       client-side click gate.</li>
  * </ul>
  *
- * <p>The two share nothing but the classes they call, which is exactly the split Fabric asks for.
+ * <p>The two share nothing but the classes they call, which is exactly the split Fabric asks for. Each
+ * module registers its own hooks, so this method reads as a list of the mod's parts rather than as the
+ * one place every event is named.
  */
 public final class RedstoneCircuit implements ModInitializer {
 
@@ -38,31 +42,59 @@ public final class RedstoneCircuit implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // Blocks, items, the armour material and the creative tab. Static registration, so this only
-        // has to run before the registries freeze.
+        // Blocks, the block entities, the structure item's component, the armour material and the
+        // creative tab. Static registration, so this only has to run before the registries freeze.
         RCRegistry.register();
 
-        // The three client-bound payloads. Only their types: a dedicated server never handles one.
+        // The payload types, on both sides, and the receivers for the four a client sends.
         RCNetwork.register();
+        RCNetwork.registerServerReceivers();
 
-        // Everything below is server-authoritative: placement, retrieval, switches and the host sync.
+        // Everything below is server-authoritative: placement, retrieval, switches, the host sync and
+        // the clicks that belong to a component riding a moving structure.
         InnerRedstoneInteraction.register();
+        com.jiangyuefengyu.redstonecircuit.carrier.CarrierInteraction.register();
+
+        // A block a structure is CARRYING is broken and its component has to drop. A callback of its own
+        // rather than a branch inside the one above, so the world's break path stays as it was; it does
+        // nothing for a break that is not about a carried host. See CarrierBlockDrops.
+        CarrierBlockDrops.register();
+
+        // The per-level tick (queued solves, the devices that answer to the world clock, the inputs that
+        // never announce themselves) and the sweep that drops all of it when the server stops.
         InnerRedstoneTickHandler.register();
+        InnerRedstoneTickHandler.registerServerStopped();
+
+        // Which blocks hide redstone, and what is inside them: sent on arrival, then on every change.
         HostSync.register();
 
-        // A wrench selection is a half-finished gesture, not data: it is dropped when the player leaves.
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
-                WrenchSelection.forget(handler.getPlayer()));
+        // The wrench's pick, echoed to its owner so the client can frame the block; one tick per level and
+        // one disconnect sweep, both registered by the class itself.
+        WrenchSelection.register();
 
-        // Queued redstone work is per level, so it is dropped when the server goes.
-        InnerRedstoneTickHandler.registerServerStopped();
+        // The structure block: every preview border, told to whoever may have missed a broadcast, and the
+        // manual panel's per-player rate limit.
+        StructurePreviews.register();
+        StructureManualTrigger.register();
+
+        // A release writes its budget of blocks per level tick: 48³ in one tick would freeze the server.
+        StructureReleaseTickHandler.register();
+
+        // The pocket dimension: mirrors the overworld's time and weather into it, and drops the plot table
+        // when a server stops; it returns on its first statement for every level that is not the pocket.
+        PocketTickHandler.register();
 
         // Debug/ops command: /rc dump|place|connect|solve|clear|list|rules
         CommandRegistrationCallback.EVENT.register(
                 (dispatcher, registryAccess, environment) -> RCCommand.register(dispatcher));
+
+        // Optional compatibility with block-moving physics mods (Sable / Create / Create Aeronautics). The
+        // half that names their types is not part of this build, so this finds no backend and every entry
+        // point below answers "not installed" without loading a mod-specific class.
+        com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat.init();
     }
 
-    public static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MODID, path);
+    public static net.minecraft.resources.ResourceLocation id(String path) {
+        return net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(MODID, path);
     }
 }

@@ -22,19 +22,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Checks the mod's own resource files, which nothing else here can check.
  *
- * <h2>Why this exists</h2>
- * Everything else in the suite runs on a dedicated server, and a server never reads a block model, an
- * item model or a texture reference. Those files fail silently: a model that names a texture that is not
- * there, a blockstate that names a model that does not exist, or a model that forgets its render type -
- * the last of which made a placed superconducting wire render in the solid layer, where the dust art's
- * transparent pixels come out black, and cost a round of "the texture is all black" to find.
+ * <p>Everything else in the suite runs on a dedicated server, and a server never reads a block model, an
+ * item model or a texture reference, so those files fail silently: a model naming a texture that is not
+ * there, a blockstate naming a model that does not exist, or a model that forgets its render type.
  *
  * <p>So the resources are read straight off disk and cross-checked against each other: every JSON file
  * parses, every {@code redstonecircuit:} model and texture reference resolves to a file that exists, and
  * the wire - the one block here whose art has transparency - is drawn in a cutout layer.
- *
- * <p>This is not a substitute for looking at the game; it is the part of that check that can be done
- * without one.
  */
 class ResourceIntegrityTest {
 
@@ -125,8 +119,8 @@ class ResourceIntegrityTest {
     }
 
     /**
-     * The bug this test was written for: a block whose art has transparent pixels and no render type is
-     * drawn solid, so its transparent pixels are black.
+     * A block whose art has transparent pixels and no render type is drawn solid, so its transparent
+     * pixels come out black.
      */
     @Test
     @DisplayName("the placed wire is drawn with a cutout render type")

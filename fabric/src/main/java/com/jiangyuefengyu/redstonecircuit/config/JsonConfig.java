@@ -110,6 +110,26 @@ public final class JsonConfig {
         return read(key, fallback).getAsString();
     }
 
+    /**
+     * A list of strings, for an option that names things rather than measuring them (the block ids a
+     * capture may not touch).
+     *
+     * <p>Every entry is read as a string, so a hand-edited file that holds numbers still answers with
+     * something usable instead of failing the option.
+     */
+    public java.util.List<String> getStringList(String key, java.util.List<String> fallback) {
+        JsonElement value = read(key, fallback);
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        if (value.isJsonArray()) {
+            for (JsonElement entry : value.getAsJsonArray()) {
+                if (entry != null && !entry.isJsonNull()) {
+                    lines.add(entry.getAsString());
+                }
+            }
+        }
+        return java.util.List.copyOf(lines);
+    }
+
     public Path path() {
         return path;
     }
@@ -149,6 +169,9 @@ public final class JsonConfig {
         if (fallback instanceof Boolean) {
             return value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean();
         }
+        if (fallback instanceof java.util.Collection<?>) {
+            return value.isJsonArray();
+        }
         return value.isJsonPrimitive() && value.getAsJsonPrimitive().isString();
     }
 
@@ -158,6 +181,13 @@ public final class JsonConfig {
         }
         if (value instanceof Boolean flag) {
             return new com.google.gson.JsonPrimitive(flag);
+        }
+        if (value instanceof java.util.Collection<?> entries) {
+            com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+            for (Object entry : entries) {
+                array.add(String.valueOf(entry));
+            }
+            return array;
         }
         return new com.google.gson.JsonPrimitive(String.valueOf(value));
     }

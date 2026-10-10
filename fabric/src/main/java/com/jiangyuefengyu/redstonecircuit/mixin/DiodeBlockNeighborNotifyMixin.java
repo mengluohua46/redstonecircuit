@@ -14,7 +14,7 @@ import net.minecraft.world.level.block.DiodeBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * The third place a neighbour notification starts, mirroring NeoForge.
+ * The third place a neighbour notification starts.
  *
  * <h2>What this adds to {@link ServerLevelNeighborNotifyMixin}</h2>
  * NeoForge fires {@code NeighborNotifyEvent} from three call sites, and

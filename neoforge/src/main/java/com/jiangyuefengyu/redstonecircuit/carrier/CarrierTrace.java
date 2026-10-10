@@ -11,14 +11,11 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 /**
- * <b>The three-stage counter.</b> One place that answers, per level and at a glance, whether a moving
- * structure's components were (1) claimed, (2) sent to the client and (3) drawn there.
+ * The three-stage counter. One place that answers, per level and at a glance, whether a moving structure's
+ * components were (1) claimed, (2) sent to the client and (3) drawn there.
  *
- * <h2>Why a separate class exists for a handful of integers</h2>
- * The previous round of work could not be judged from the log: {@code claimed}, {@code sent} and
- * {@code drawn} were all inferred from lines that were about something else, so "the claim never
- * happened" looked exactly like "the claim happened and the renderer ignored it". Splitting the chain
- * into three independently decidable stages is the fix for that, and it needs one home:
+ * <p>The three stages are independently decidable, so "the claim never happened" can be told apart from "the claim
+ * happened and the renderer ignored it":
  *
  * <pre>
  *   claim   ->  CarrierStore.startMoving / reconcile      (CarrierStore.Claims)
@@ -26,33 +23,9 @@ import net.minecraft.world.level.Level;
  *   render  ->  ClientHostCache / HostRenderPass          (CarrierStore.Render)
  * </pre>
  *
- * <p>Every counter here is a plain increment on a path that already exists, so nothing in the feature
- * depends on the trace being read. It is deliberately minecraft-light: only a {@code ResourceKey} for
- * the map, so the counts can be unit-tested without a running game.
- *
- * <h2>How to read it</h2>
- * {@code /rc carrier} prints all three sections. The shapes that matter:
- *
- * <ul>
- *   <li>{@code claim: claimed=0} while a machine with a component is in flight - the claim is the
- *       broken stage; look at the {@code carrier pickup} / {@code carrier claim} lines for the
- *       reason.</li>
- *   <li>{@code claim: claimed>0, sync: carriersSent=0} - the claim happened but nothing was sent;
- *       the client cannot possibly draw it.</li>
- *   <li>{@code sync: carriersSent>0, render: drawn=0} - the client was told and drew nothing; the
- *       fault is on the client side (goggles off, out of range, or the pose is wrong).</li>
- *   <li>{@code claim: reconciled>0} - the two-phase identity did its job; the host was claimed before
- *       the contraption entity existed and was re-labelled onto it afterwards.</li>
- *   <li>{@code render: drawnLastFrame=0 skippedNoPose=0 skippedFar=0 skippedStalePose=0} while hosts
- *       are held - nothing was skipped for any reason at all, so the remaining filters are the switch
- *       and the line of sight.</li>
- *   <li>{@code render: skippedStalePose>0} - the hosts were held for a carrier whose pose had stopped
- *       arriving, so the client let the carrier go and put them back on the world path. This is the
- *       self-healing backstop working, and it is also how a server that forgot to announce a removal
- *       is caught.</li>
- *   <li>{@code render: carrierIndex(server=N)} with {@code carrierIndex>N} - the client is holding a
- *       carrier the server has forgotten; the two together are logged as a warning once.</li>
- * </ul>
+ * <p>Every counter here is a plain increment on a path that already exists, so nothing in the feature depends on the
+ * trace being read. Only a {@code ResourceKey} is needed for the map, so the counts can be unit-tested without a
+ * running game. {@code /rc carrier} prints all three sections.
  */
 public final class CarrierTrace {
 
@@ -126,27 +99,25 @@ public final class CarrierTrace {
         /**
          * World-host announcements sent because a carrier put a host down.
          *
-         * <p>The other half of the landing transfer: the carrier message says "this host no longer
-         * rides me", and this is the message that says "it is a world host at <em>this</em> position
-         * now". Without it the client is told where a component stopped riding and never where it
-         * went - which is the defect this counter exists to make countable.
+         * <p>The other half of the landing transfer: the carrier message says "this host no longer rides me", and this
+         * is the message that says "it is a world host at <em>this</em> position now". Without it the client is told
+         * where a component stopped riding and never where it went.
          */
         private long restored;
         /**
          * World-host suppressions sent because a carrier picked a host up.
          *
-         * <p>The mirror image: "this position is no longer a world host, it is riding a structure
-         * now". Without it the client keeps drawing the component at the block the structure took it
-         * from - the "ghost component standing where the machine used to be" the author reported.
+         * <p>The mirror image: "this position is no longer a world host, it is riding a structure now". Without it the
+         * client keeps drawing the component at the block the structure took it from.
          */
         private long worldHostSuppressed;
 
         /**
          * {@code stopMoving} callbacks that did <b>not</b> release, because the structure was still there.
          *
-         * <p>The three counters together are the whole of §18: {@code deferred} is "the structure asked
-         * to stand down and it was not believed", {@code cancelled} is "it was indeed still moving" -
-         * which is what a direction change looks like - and {@code settled} is "it really had stopped".
+         * <p>The three counters together describe one motion: {@code deferred} is "the structure asked to stand down
+         * and it was not believed", {@code cancelled} is "it was indeed still moving" - which is what a direction
+         * change looks like - and {@code settled} is "it really had stopped".
          */
         private long releasesDeferred;
         /** Deferred releases that were settled because the structure really had stopped. */
@@ -208,10 +179,9 @@ public final class CarrierTrace {
         /**
          * Carriers the server believes are in flight, as of the last message it sent.
          *
-         * <p>The comparison that makes "the client is holding a carrier the server has forgotten"
-         * visible: the client knows how many it was told about, the server knows how many it has, and
-         * a client count above the server count is the shape this whole round of work exists to rule
-         * out. Zero means "the server has not said yet".
+         * <p>The comparison that makes "the client is holding a carrier the server has forgotten" visible: the client
+         * knows how many it was told about, the server knows how many it has, and a client count above the server
+         * count is the shape this pair exists to catch. Zero means "the server has not said yet".
          */
         private int serverCarriers;
         /** Carried hosts the client's index currently holds. */
@@ -225,10 +195,9 @@ public final class CarrierTrace {
         /**
          * Carried hosts skipped because their carrier's pose had gone stale.
          *
-         * <p>The gap this closes: a host whose carrier was dropped by the server without a removal
-         * notice is not "far" and does not have "no pose" - it has an <em>old</em> pose, which used to
-         * be counted by nothing at all, so "drawn=0 with every skip counter at zero" was possible and
-         * silent. It is now named.
+         * <p>A host whose carrier was dropped by the server without a removal notice is not "far" and does not have
+         * "no pose" - it has an <em>old</em> pose, which nothing counted at all, so "drawn=0 with every skip counter
+         * at zero" was possible and silent. It is now named.
          */
         private int skippedStalePose;
 
@@ -241,9 +210,8 @@ public final class CarrierTrace {
         /**
          * Hosts the client is keeping as "landed" - put down by a carrier the server has taken back.
          *
-         * <p>The third state, and the one this round added: a host whose carrier is gone and whose
-         * landing position may have no block under it. It is drawn at that position rather than
-         * dropped, and this counter is the evidence that the record survives the removal.
+         * <p>A host whose carrier is gone and whose landing position may have no block under it: it is drawn at that
+         * position rather than dropped, and this counter is the evidence that the record survives the removal.
          */
         private int landedHosts;
         /**
@@ -299,23 +267,19 @@ public final class CarrierTrace {
         /**
          * The age, in client ticks, of the oldest pose the last frame drew a component from.
          *
-         * <p><b>The number the author's report needed.</b> "The bearing turns and the component does not
-         * turn with it" produced a log in which {@code drawnLastFrame=1} and {@code delta=0.000 OK} on
-         * every frame: the pose arithmetic is self-consistent about a four-second-old pose exactly as it
-         * is about a current one. {@code -1} means no frame has reported yet, which must not be read as
-         * "fresh".
+         * <p>A machine turning while the components do not is invisible in the other numbers: the pose arithmetic is
+         * self-consistent about a four-second-old pose exactly as it is about a current one. {@code -1} means no frame
+         * has reported yet, which must not be read as "fresh".
          */
         private long poseAgeTicks = -1L;
 
         /**
          * Shell quads the last frame actually emitted, over every host it drew.
          *
-         * <p><b>The counter that separates "a host was handled" from "geometry reached the buffer".</b>
-         * {@code drawn} counts carried <em>hosts</em>, so a host whose every quad was refused - by a
-         * colour of zero, by the shader pack's solid-frame rule, by {@code showInnerComponents} - was
-         * counted by it exactly like a host that filled the screen. This is the number that cannot be
-         * fooled that way, and {@code shellQuads=0} beside {@code drawnLastFrame=1} is the author's
-         * "the log says it drew and I see nothing", in one line.
+         * <p>This separates "a host was handled" from "geometry reached the buffer". {@code drawn} counts carried
+         * <em>hosts</em>, so a host whose every quad was refused - by a colour of zero, by the shader pack's
+         * solid-frame rule, by {@code showInnerComponents} - was counted by it exactly like a host that filled the
+         * screen. {@code shellQuads=0} beside {@code drawnLastFrame=1} is "the log says it drew and I see nothing".
          */
         private int shellQuads;
         /** Component quads the last frame actually emitted, over every host it drew. */
@@ -342,17 +306,14 @@ public final class CarrierTrace {
         private String gates = "not reported yet";
 
         /**
-         * <b>Which render stage each half of the frame was actually flushed at, and how many quads.</b>
+         * Which render stage each half of the frame was actually flushed at, and how many quads.
          *
-         * <p>The counter a previous round could not read: {@code shellQuads=30 contentQuads=12} proves
-         * that geometry was <em>written</em>, and says nothing about <em>when</em> it reached the frame.
-         * A vertex written into a buffer that is ended before the structure's own blocks are drawn is
-         * covered by them, and every existing number reads exactly like a correct frame. This is the
-         * line that separates the two: the stage name is the one NeoForge's dispatcher uses, so it can
-         * be checked against the game's own source, and the counts are per half of the frame.
-         *
-         * <p>{@code "not flushed yet"} means this stage has not run since the client started - not that
-         * it flushed nothing. A stage that ran and wrote nothing says {@code 0}.
+         * <p>{@code shellQuads=30 contentQuads=12} proves geometry was <em>written</em> and says nothing about
+         * <em>when</em> it reached the frame: a vertex written into a buffer that is ended before the structure's own
+         * blocks are drawn is covered by them, and every other number reads like a correct frame. The stage name is
+         * the one NeoForge's dispatcher uses, so it can be checked against the game's own source, and the counts are
+         * per half of the frame. {@code "not flushed yet"} means the stage has not run since the client started, not
+         * that it flushed nothing; a stage that ran and wrote nothing says {@code 0}.
          */
         private String flushStages = "not flushed yet";
 
@@ -416,22 +377,15 @@ public final class CarrierTrace {
         /**
          * The same, <b>with the number of hosts this geometry was produced from</b>.
          *
-         * <h2>Why the two numbers have to travel together</h2>
-         * The frame summary and the geometry are recorded by <b>different render stages</b>: with no
-         * shader pack the summary is written from the world stage ({@code AFTER_ENTITIES}) and the carried
-         * geometry is emitted two stages later ({@code AFTER_TRANSLUCENT_BLOCKS}), so the summary of frame
-         * <i>N</i> describes frame <i>N</i>'s collection and frame <i>N-1</i>'s quads. Comparing those two
-         * produced <b>a false "NOTHING EMITTED" on every frame in which a host appeared</b> - the shape
-         * that is printed in the log the author sent, and in the working session before it. It reads as
-         * "the renderer emitted nothing", and what it means is "the previous frame emitted nothing because
-         * there was nothing to draw yet".
+         * <p>The frame summary and the geometry are recorded by <b>different render stages</b>: with no shader pack
+         * the summary is written from the world stage and the carried geometry is emitted two stages later, so the
+         * summary of frame <i>N</i> describes frame <i>N</i>'s collection and frame <i>N-1</i>'s quads. Comparing
+         * those two reports "NOTHING EMITTED" on every frame in which a host appeared, which means only that the
+         * previous frame had nothing to draw yet. The verdict therefore compares the count the geometry came from
+         * against the geometry, and leaves the frame's own {@code drawn} to the row's {@code drawnLastFrame} field.
          *
-         * <p>So the verdict compares the count the geometry came from against the geometry, and the
-         * frame's own {@code drawn} is left to the row's {@code drawnLastFrame} field, where a reader can
-         * see it beside the rest of the frame's numbers.
-         *
-         * @param hostsCollected hosts the collection these quads came from held; negative means "not
-         *     reported", which is the four-argument form's answer
+         * @param hostsCollected hosts the collection these quads came from held; negative means "not reported", which
+         *     is the four-argument form's answer
          */
         public void setGeometry(int shellQuads, int contentQuads, int hostsDrawn, int hostsCollected,
                                 @Nullable String hostDetail) {
@@ -460,18 +414,14 @@ public final class CarrierTrace {
         }
 
         /**
-         * <b>The sentence a zero has to carry.</b>
+         * The sentence a zero has to carry.
          *
-         * <p>{@code drawn>0, shellQuads=0, contentQuads=0} means every collected host had every quad
-         * skipped, which is the exact shape the author reported: the log full of healthy-looking
-         * counts and an empty screen. Spelled out in the log rather than left to be inferred from three
+         * <p>{@code drawn>0, shellQuads=0, contentQuads=0} means every collected host had every quad skipped: a log
+         * full of healthy-looking counts and an empty screen. Spelled out rather than left to be inferred from three
          * zeros, because the reader of a log is not the person who wrote the counters.
          */
         public String geometryVerdict() {
-            // THE COUNT THE GEOMETRY CAME FROM, not the frame's own. See `setGeometry`: the summary and
-            // the quads are recorded by different stages, so `drawn` (this frame's collection) beside
-            // `shellQuads` (the previous frame's emission) reported "NOTHING EMITTED" on the very frames
-            // in which a host appeared - the false alarm in the author's own log.
+            // The count the geometry came from, not the frame's own; see setGeometry for why they differ.
             int collected = geometryHostsCollected >= 0 ? geometryHostsCollected : drawn;
             if (collected <= 0) {
                 return "";
@@ -576,11 +526,8 @@ public final class CarrierTrace {
         }
 
         /**
-         * The pose-age phrase, shared with the client's own log lines so the two can never disagree.
-         *
-         * <p>Written here as well as in {@code CarrierRenderTrace} because this is the copy {@code /rc
-         * carrier} prints, and the command has to carry the same warning the log does: the author's
-         * report was diagnosed from a log in which every carrier looked healthy.
+         * The pose-age phrase, shared with the client's own log lines so the two can never disagree: this is the copy
+         * {@code /rc carrier} prints, and it has to carry the same warning the log does.
          */
         private String poseAgeText() {
             if (poseAgeTicks < 0) {
@@ -747,8 +694,7 @@ public final class CarrierTrace {
         /**
          * The two lines {@code /rc carrier} prints about the geometry: the gates, then the last host.
          *
-         * <p>{@code drawnLastFrame=1} used to be the end of the story, and it was the wrong story: it
-         * counted collection. These two lines are the rest of it.
+         * <p>{@code drawnLastFrame} counts collection, not emission; these two lines carry the rest.
          */
         public String geometrySummary() {
             return "geometry: " + gates
@@ -846,20 +792,17 @@ public final class CarrierTrace {
         }
 
         /**
-         * <b>The sight half of the frame: how many carried hosts were asked whether the eye can reach
-         * them, and what the ray answered.</b>
+         * The sight half of the frame: how many carried hosts were asked whether the eye can reach them, and what the
+         * ray answered.
          *
-         * <p>The counters a previous round could not read at all. {@code drawnOffStructure} says where a
-         * host was drawn, and nothing about whether something solid stands between the eye and that
-         * point - so a component that is refused by the sight rule and a component that is drawn are the
-         * same picture in the trace. These five counts separate them, and {@code sightUnknownTarget} in
-         * particular names the shape this round exists for: a question asked with no point to aim at.
+         * <p>{@code drawnOffStructure} says where a host was drawn and nothing about whether something solid stands
+         * between the eye and that point, so a component refused by the sight rule and one that is drawn look the
+         * same in the trace. These five counts separate them, and {@code sightUnknownTarget} in particular names a
+         * question asked with no point to aim at.
          *
-         * <p>These five are among the few counters that <b>stay on the default frame row</b>; the rest of
-         * the frame's numbers are written only under {@code verboseRenderLog} (see
-         * {@code CarrierRenderTrace}). The split is by usefulness: these are what the current round is
-         * for and are five short integers, while the geometry counters matter to an investigation that
-         * can afford to turn a switch on.
+         * <p>These five <b>stay on the default frame row</b>; the rest of the frame's numbers are written only under
+         * {@code verboseRenderLog}. The split is by usefulness: five short integers that answer the current question,
+         * against geometry counters an investigation can afford to turn a switch on for.
          */
         private CarrierHostCheck.Tally sight = CarrierHostCheck.Tally.NONE;
 
@@ -1006,11 +949,10 @@ public final class CarrierTrace {
     }
 
     /**
-     * A {@code stopMoving} callback that did <b>not</b> release: the world block was still air and the
-     * structure was still there. See {@link PendingRelease}.
+     * A {@code stopMoving} callback that did <b>not</b> release: the world block was still air and the structure was
+     * still there. See {@link PendingRelease}.
      *
-     * <p>Counted because "the structure asked to stand down" and "the structure put the block down" are
-     * two different events, and before this round the first was always followed immediately by the second.
+     * <p>"The structure asked to stand down" and "the structure put the block down" are two different events.
      */
     public static void noteDeferredRelease(ResourceKey<Level> dimension) {
         sync(dimension).releasesDeferred++;

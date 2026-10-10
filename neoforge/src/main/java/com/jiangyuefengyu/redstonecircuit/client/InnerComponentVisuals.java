@@ -30,43 +30,12 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
 /**
- * The <b>vanilla</b> model that stands in for a component stored inside a host block.
+ * Vanilla's own model, standing in for a component stored inside a host block: a model is only ever
+ * <em>named</em> ({@code minecraft:block/repeater_1tick}) and loaded from the game's own jar.
  *
- * <h2>Why vanilla models rather than our own shapes</h2>
- * The first version of the mod drew every component as a handful of coloured boxes
- * ({@link InnerComponentModel}). It was exact and it worked, but it looked like what it was - flat
- * coloured plastic next to pixel art - and players said so.
- *
- * <p>Every component we support happens to be a vanilla block as well, so the honest answer is to draw
- * vanilla's own model: the repeater's slab and torches, the comparator's side pips, the torch's stick,
- * the lever's handle, dust's dot-and-lines - textures, geometry and all. Nothing is copied: a model is
- * only ever <em>named</em> ({@code minecraft:block/repeater_1tick}), and the game loads it out of its
- * own jar.
- *
- * <p>The three repeaters added in 1.1.0 are the exception, and the reason this class now names a couple
- * of our own blocks as well: a retaining repeater that looked exactly like a vanilla one inside a host
- * block would be a lie, so those draw their own models - the player's own art - in the world and inside
- * a host block alike.
- *
- * <h2>How a state is obtained without placing a block</h2>
- * A component is mapped onto a real vanilla {@link BlockState}, and
- * {@code BlockModelShaper#getBlockModel} hands back the baked model for it. That includes the
- * variant's rotation, because a variant's {@code ModelState} is applied when the model is baked - so
- * a repeater facing any horizontal direction needs no matrix from us at all. Rendering is then just
- * "translate to the host block, hand the model to {@code ModelBlockRenderer#renderModel}", with the
- * tint that vanilla's own block colour provider would have supplied.
- *
- * <h2>The two cases vanilla cannot express</h2>
- * A host block can hold a component on its floor, its ceiling or a wall, and our diodes and torches
- * accept all six. Vanilla has no standing repeater (its {@code FACING} is horizontal only) and no
- * ceiling torch, so those two cases reuse the flat-authored model with a quarter turn of our own -
- * see {@link #tilt}. Buttons and levers do have ceiling variants, so they need no such help.
- *
- * <h2>What is deliberately still ours</h2>
- * Vanilla has no notion of a connection being pinned or cut, so the wrench's green "locked" and dark
- * "cut" markers stay custom - see {@link ConnectionBars}. The repeater's own vanilla "locked" look
- * ({@code repeater_*_locked}) is switched on whenever the wrench has locked one of its sides, so the
- * state reads in vanilla's own visual language as well.
+ * <p>Our own three repeaters draw their own models instead, and the wrench's locked/cut markers stay
+ * custom ({@link ConnectionBars}). Vanilla has no standing repeater and no ceiling torch, so those two
+ * reuse the flat-authored model with a quarter turn of our own - see {@link #tilt}.
  */
 @OnlyIn(Dist.CLIENT)
 final class InnerComponentVisuals {
@@ -83,6 +52,14 @@ final class InnerComponentVisuals {
         WALL_TORCH,
         LEVER,
         BUTTON,
+        /** 控制器: our own plate, standing in for itself inside the host block. */
+        CONTROLLER,
+        /** 红石变压器: our own plate again. */
+        TRANSFORMER,
+        /** 时钟源: our own plate; its lit face is the pulse. */
+        CLOCK,
+        /** 信号延长器: our own plate once more; its lit model is the display running. */
+        EXTENDER,
         /** No vanilla model fits; the caller falls back to the box shapes. */
         NONE
     }
@@ -90,17 +67,8 @@ final class InnerComponentVisuals {
     /**
      * One component expressed in vanilla's vocabulary, with no registry access anywhere - so the
      * interesting half of the mapping can be checked by a plain unit test.
-     *
-     * @param model      which vanilla block to borrow
-     * @param facing     the {@code facing} property, already resolved for this model
-     * @param face       the {@code face} property (levers and buttons); {@code null} elsewhere
-     * @param tilt       degrees of rotation about the block's X axis for the cases vanilla cannot
-     *                   express: 0, ±90 (a diode lying on its back) or 180 (a torch hanging)
-     * @param lit        torch: is it lit; diode: is it powered; switch: is it thrown
-     * @param locked     repeater: has the wrench locked one of its sides (vanilla's "locked" look)
-     * @param delay      repeater delay, 1-4
-     * @param subtract   comparator: subtract mode rather than compare
-     * @param wireSides  dust: the horizontal sides a line is drawn towards
+     * <p>{@code tilt} is degrees about X (0, ±90 for a diode on its back, 180 for a hanging torch);
+     * {@code delay} is a repeater delay of 1-4; {@code wireSides} are the sides dust draws a line towards.
      */
     record Placement(Model model, Direction facing, @Nullable AttachFace face, float tilt, boolean lit,
                      boolean locked, int delay, boolean subtract, Set<Direction> wireSides) {
@@ -117,11 +85,8 @@ final class InnerComponentVisuals {
     }
 
     /**
-     * What to draw for {@code slot}, or {@code null} when no vanilla model fits and the caller should
-     * fall back to the box shapes.
-     *
-     * @param neighbours which neighbouring blocks hold a component, which is what decides where a wire
-     *                   draws its lines
+     * What to draw for {@code slot}, or {@code null} when no vanilla model fits and the box shapes must do.
+     * {@code neighbours} decides where a wire draws its lines.
      */
     @Nullable
     static Visual of(Slot slot, InnerComponentModel.Neighbours neighbours) {
@@ -139,20 +104,12 @@ final class InnerComponentVisuals {
 
     // ------------------------------------------------------------------ decisions --
 
-    /**
-     * The vanilla vocabulary for one component.
-     *
-     * <p>Pure: no registries, no client state, no world. {@code Direction}, {@link AttachFace} and
-     * {@link RedstoneSide} are the only vanilla types involved, and all three are plain enums.
-     */
+    /** The vanilla vocabulary for one component: pure - no registry, no client state, no world. */
     @Nullable
     static Placement placementFor(Slot slot, InnerComponentModel.Neighbours neighbours) {
         switch (slot.type) {
             case DUST, SUPERCONDUCTOR -> {
-                // Vanilla draws a wire out of one flat "dot" quad plus one line quad per side it
-                // connects to, so all we have to decide is which sides those are. A side counts when
-                // the signal leaves that way and something is actually there to receive it - the same
-                // rule the connection bars use, so the drawing and the solver cannot disagree.
+                // A side counts when the signal leaves that way and a component stands there to receive it.
                 Set<Direction> sides = EnumSet.noneOf(Direction.class);
                 for (Direction direction : Direction.Plane.HORIZONTAL) {
                     if (PowerSolver.emitsToward(slot, direction)
@@ -167,8 +124,7 @@ final class InnerComponentVisuals {
                 return diode(slot, Model.REPEATER, clampDelay(slot.delay), false);
             }
             case RETAINING_REPEATER -> {
-                // Same four settings as a repeater, and the same look: what it does differently is the
-                // strength it hands on, which no block model can show.
+                // Same four settings and the same look as a repeater; only the strength it hands on differs.
                 return diode(slot, Model.RETAINING_REPEATER, clampDelay(slot.delay), false);
             }
             case DOUBLE_REPEATER -> {
@@ -191,6 +147,46 @@ final class InnerComponentVisuals {
             case BUTTON -> {
                 return attached(Model.BUTTON, slot);
             }
+            case CONTROLLER -> {
+                // Floor- or ceiling-mounted: a quarter turn about X as a diode is (#diode), so 正面 faces what it reads.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.CONTROLLER, Direction.SOUTH, null, tilt, slot.power > 0, false, 1,
+                            false, Set.of());
+                }
+                return new Placement(Model.CONTROLLER, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
+            case TRANSFORMER -> {
+                // The same plate and the same southern model: 变压器's 正面 is its input edge.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.TRANSFORMER, Direction.SOUTH, null, tilt, slot.power > 0, false, 1,
+                            false, Set.of());
+                }
+                return new Placement(Model.TRANSFORMER, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
+            case CLOCK -> {
+                // The same plate again; the lit flag carries the pulse - slot.power, a two-tick flash per period.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.CLOCK, Direction.SOUTH, null, tilt, slot.power > 0, false, 1,
+                            false, Set.of());
+                }
+                return new Placement(Model.CLOCK, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
+            case EXTENDER -> {
+                // The same plate once more: lit while it is answering, which is the display running.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.EXTENDER, Direction.SOUTH, null, tilt, slot.power > 0, false, 1,
+                            false, Set.of());
+                }
+                return new Placement(Model.EXTENDER, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
             default -> {
                 // Pressure plates are not placeable yet, and no vanilla plate shape would be honest.
                 return null;
@@ -199,23 +195,13 @@ final class InnerComponentVisuals {
     }
 
     /**
-     * A diode.
-     *
-     * <p>Vanilla's {@code FACING} is the side a diode <em>reads</em> from: {@code getInputSignal} asks
-     * the neighbour in that direction, and {@code updateNeighborsInFront} notifies the block on the
-     * opposite one. That is the same thing our {@link Slot#facing} means, so a horizontal component
-     * maps straight onto it and vanilla's own variant table does the rotating.
-     *
-     * <p>For a component on the floor or the ceiling there is no such variant: vanilla's diode
-     * {@code FACING} is {@code HORIZONTAL_FACING}, and its blockstate has only the four quarter turns.
-     * So the unrotated model (authored with {@code facing=south}, i.e. reading from the south) is used
-     * instead, turned a quarter turn about X: south becomes down for a component reading from below,
-     * and up for one reading from above.
+     * A diode: vanilla's {@code FACING} is the side it reads from, which is what {@link Slot#facing} means, so a
+     * horizontal component maps straight onto it. A floor or ceiling mounting has no variant, so the southern
+     * model is used with a quarter turn about X - south becomes down, or up.
      */
     private static Placement diode(Slot slot, Model model, int delay, boolean subtract) {
         boolean lit = slot.power > 0;
-        // Vanilla's comparator has no locked property at all - only the repeaters do - so a comparator
-        // never asks for that look even when the wrench has pinned one of its sides.
+        // Vanilla's comparator has no locked property, so it never asks for that look.
         boolean locked = model != Model.COMPARATOR && slot.isRoutingLocked();
         if (slot.facing.getAxis() == Direction.Axis.Y) {
             float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
@@ -226,15 +212,9 @@ final class InnerComponentVisuals {
     }
 
     /**
-     * A torch: lit by default, put out by whatever reaches the side it hangs on.
-     *
-     * <p>Vanilla's floor torch is attached below and powers everything except below; its wall torch is
-     * attached at {@code facing.getOpposite()} and powers everything except that side. Both are exactly
-     * "does not power the side it hangs on", so a torch on a wall maps onto the wall torch with
-     * {@code facing} flipped, and a torch on the floor maps onto the floor torch untouched.
-     *
-     * <p>A torch hanging from a ceiling has no vanilla counterpart at all - vanilla cannot place one -
-     * so the floor torch is turned upside down.
+     * A torch: lit by default, put out by whatever reaches the side it hangs on. Vanilla's torches power
+     * everything except the side they hang on, so a wall torch's {@code facing} is flipped, and a ceiling
+     * torch (which vanilla cannot place) is the floor torch turned upside down.
      */
     private static Placement torch(Slot slot) {
         boolean lit = slot.power > 0;
@@ -245,19 +225,14 @@ final class InnerComponentVisuals {
             return new Placement(Model.TORCH, Direction.NORTH, null, 180F, lit, false, 1, false,
                     Set.of());
         }
-        // The wall is the side the torch hangs on, so the wall is behind it: vanilla's facing points
-        // away from the wall.
+        // The wall is behind the torch: vanilla's facing points away from the wall.
         return new Placement(Model.WALL_TORCH, slot.facing.getOpposite(), null, 0F, lit, false, 1, false,
                 Set.of());
     }
 
     /**
-     * A lever or a button: vanilla has floor, wall and ceiling variants of both, so all six of our
-     * mounting directions are covered without a matrix.
-     *
-     * <p>The attached block is {@code FACE} for the floor and the ceiling, and {@code FACE=WALL} with
-     * {@code FACING.getOpposite()} for a wall - which is why a horizontal component flips its facing
-     * here, exactly as the torch does.
+     * A lever or a button: vanilla has floor, wall and ceiling variants of both, so all six mountings are
+     * covered. A wall mounting is {@code FACE=WALL} with {@code FACING.getOpposite()}, exactly as the torch.
      */
     private static Placement attached(Model model, Slot slot) {
         boolean on = slot.powered;
@@ -275,11 +250,7 @@ final class InnerComponentVisuals {
 
     // ------------------------------------------------------------- state assembly --
 
-    /**
-     * Turns a {@link Placement} into the vanilla {@link BlockState} whose baked model is drawn.
-     *
-     * <p>This half touches the registries, which is why it is kept apart from {@link #placementFor}.
-     */
+    /** The vanilla {@link BlockState} whose baked model is drawn; this half is the one that touches registries. */
     @Nullable
     private static BlockState stateOf(Placement placement, Slot slot) {
         switch (placement.model()) {
@@ -330,12 +301,35 @@ final class InnerComponentVisuals {
                         .setValue(LeverBlock.POWERED, placement.lit());
             }
             case BUTTON -> {
-                // Retrieving a button always hands back a stone one, so the stone model is the honest
-                // one to draw; see HostRules#itemFor.
+                // Retrieving a button always hands back a stone one, so the stone model is honest; see HostRules#itemFor.
                 return Blocks.STONE_BUTTON.defaultBlockState()
                         .setValue(FaceAttachedHorizontalDirectionalBlock.FACE, placement.face())
                         .setValue(FaceAttachedHorizontalDirectionalBlock.FACING, placement.facing())
                         .setValue(ButtonBlock.POWERED, placement.lit());
+            }
+            case CONTROLLER -> {
+                // Our own block's model: the plate is what the component inside a block really is.
+                return RCRegistry.CONTROLLER.get().defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ControllerBlock.FACING, placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ControllerBlock.LIT, placement.lit());
+            }
+            case TRANSFORMER -> {
+                // Only facing and LIT reach the model: the two lit models are what the answer selects.
+                return RCRegistry.TRANSFORMER.get().defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TransformerBlock.FACING, placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TransformerBlock.LIT, placement.lit());
+            }
+            case CLOCK -> {
+                // And the same for 时钟源, whose 上-亮 texture is what its model does with LIT.
+                return RCRegistry.CLOCK.get().defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ClockBlock.FACING, placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ClockBlock.LIT, placement.lit());
+            }
+            case EXTENDER -> {
+                // And for 信号延长器, whose lit model is the display with the marker running in it.
+                return RCRegistry.EXTENDER.get().defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.FACING, placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.LIT, placement.lit());
             }
             default -> {
                 return null;
@@ -344,11 +338,8 @@ final class InnerComponentVisuals {
     }
 
     /**
-     * The state of a repeater-shaped block, vanilla's or one of ours.
-     *
-     * <p>All four carry the same properties, so one builder serves them: the model that ends up being
-     * drawn is the only thing that differs, which is what makes our own repeaters look like themselves
-     * inside a host block as well as in the world.
+     * The state of a repeater-shaped block, vanilla's or one of ours: all four carry the same properties,
+     * so one builder serves them and only the model that ends up being drawn differs.
      */
     private static BlockState repeaterState(Block block, Placement placement) {
         return block.defaultBlockState()
@@ -361,8 +352,8 @@ final class InnerComponentVisuals {
     // ------------------------------------------------------------------- geometry --
 
     /**
-     * A rotation about the block's centre, because the models are authored with the block's corner at
-     * the origin and turning them about the corner would swing them out of the block.
+     * A rotation about the block's centre: the models are authored with the block's corner at the origin,
+     * and turning them about the corner would swing them out of the block.
      */
     private static Matrix4f tilt(float degrees) {
         if (degrees == 0F) {
@@ -375,11 +366,9 @@ final class InnerComponentVisuals {
     }
 
     /**
-     * The tint vanilla's own block colour provider would have applied.
-     *
-     * <p>Only dust is tinted - its texture is greyscale, which is what makes a wire readable at a
-     * glance - and we reproduce vanilla's ramp exactly, so inner dust looks like the dust outside the
-     * block. The superconductor is the same ramp in orange. Everything else draws at full brightness.
+     * The tint vanilla's own block colour provider would have applied: only dust (a greyscale texture) and
+     * the superconductor are tinted, with vanilla's own ramp, so inner dust matches the dust outside the
+     * block. Everything else draws at full brightness.
      */
     private static float[] tintOf(Slot slot) {
         if (slot.type != ComponentType.DUST && slot.type != ComponentType.SUPERCONDUCTOR) {

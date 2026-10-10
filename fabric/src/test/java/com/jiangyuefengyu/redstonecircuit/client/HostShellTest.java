@@ -9,12 +9,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the shell geometry.
- *
- * <p>This is the part of the rendering that cannot be checked by looking at a test run, and every
- * way of getting it wrong is silent: a reversed winding makes the whole shell invisible through
- * back-face culling, an inset shell hides behind the block, a coplanar one z-fights with it, and
- * overlapping tiles z-fight with each other. All of it is arithmetic, so all of it is asserted here.
+ * Tests the shell geometry: every way of getting it wrong is silent, so all of them are asserted here - a
+ * reversed winding makes the shell invisible through back-face culling, an inset shell hides behind the
+ * block, a coplanar one z-fights with it, and overlapping tiles z-fight.
  */
 class HostShellTest {
 
@@ -73,15 +70,13 @@ class HostShellTest {
         for (int face = 0; face < HostShell.FACE_COUNT; face++) {
             float[] normal = normal(face);
             float[] winding = winding(face);
-            // A positive dot product means the first triangle is wound counter-clockwise as seen from
-            // outside, which is the front face the chunk renderer keeps.
+            // Wound counter-clockwise seen from outside: the front face the chunk renderer keeps.
             float dot = normal[0] * winding[0] + normal[1] * winding[1] + normal[2] * winding[2];
             assertTrue(dot > 0,
                     "face " + face + " is wound backwards: normal " + normal[0] + "," + normal[1] + ","
                             + normal[2] + " but winding " + winding[0] + "," + winding[1] + ","
                             + winding[2]);
-            // And the face has to be a whole expanded square, not a degenerate sliver: the edge
-            // vectors span the expanded cube, so the parallelogram they span is SPAN by SPAN.
+            // The edge vectors must span the expanded cube: a whole square, not a degenerate sliver.
             assertClose("face " + face + " area", HostShell.SPAN * HostShell.SPAN,
                     (float) Math.sqrt(winding[0] * winding[0] + winding[1] * winding[1]
                             + winding[2] * winding[2]));
@@ -91,9 +86,7 @@ class HostShellTest {
     @Test
     @DisplayName("the shell wraps the block instead of sharing a plane with it")
     void shellSitsOutsideTheBlock() {
-        // The block itself occupies 0..1, so every corner of the shell is either just below 0 or just
-        // above 1: never on the block's own faces, which would z-fight, and never inside it, which
-        // would hide the shell behind the block.
+        // The block occupies 0..1: every corner sits just outside it, never on a face (z-fight) or inside (hidden).
         for (int face = 0; face < HostShell.FACE_COUNT; face++) {
             for (float a : new float[] { 0, 1 }) {
                 for (float b : new float[] { 0, 1 }) {
@@ -116,8 +109,7 @@ class HostShellTest {
             float[] normal = normal(face);
             float[] centre = corner(face, 0.5F, 0.5F);
             for (int axis = 0; axis < 3; axis++) {
-                // The centre of a face is at 0.5 on the two axes it spans and outside the cube on the
-                // axis it faces.
+                // A face's centre is at 0.5 on the two axes it spans and outside the cube on its own axis.
                 if (normal[axis] == 0) {
                     assertClose("face " + face + " centre on axis " + axis, 0.5F, centre[axis]);
                 } else if (normal[axis] > 0) {

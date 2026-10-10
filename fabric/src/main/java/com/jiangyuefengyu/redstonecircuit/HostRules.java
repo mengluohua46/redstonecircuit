@@ -19,16 +19,11 @@ import net.minecraft.world.level.block.state.BlockState;
 /**
  * Decides which blocks may host inner redstone, and which items are redstone components.
  *
- * <p>Rules (from the design document):
- * <ul>
- *   <li>rejected: transparent blocks (glass, leaves) and non-full-cube blocks
- *       (beds, chests, brewing stands) - detected via {@link BlockState#isSolidRender} and
- *       {@link BlockState#isCollisionShapeFullBlock};</li>
- *   <li>rejected: workstations (crafting table, furnaces, ...) - explicit deny list, because they
- *       are full opaque cubes but must not be hollowed out;</li>
- *   <li>rejected: full-cube redstone components (pistons, dispensers, ...) cannot be placed
- *       *inside* another block.</li>
- * </ul>
+ * <p>Rejected as hosts: transparent blocks (glass, leaves) and non-full-cube blocks (beds, chests, brewing stands),
+ * detected via {@link BlockState#isSolidRender} and {@link BlockState#isCollisionShapeFullBlock}; workstations
+ * (crafting table, furnaces, ...) through an explicit deny list, because they are full opaque cubes but must not be
+ * hollowed out; and full-cube redstone components (pistons, dispensers, ...), which cannot be placed *inside*
+ * another block.
  */
 public final class HostRules {
 
@@ -81,6 +76,24 @@ public final class HostRules {
         if (WORKSTATION_DENY.contains(state.getBlock())) {
             return false;
         }
+        // A structure block is a product, not a plain cube: a component put inside one would give the same block two
+        // owners - the plot it already drives and a component of its own - and the two would answer the same queries.
+        // Refused like a workstation, and by class rather than by state so no property of it can make it hostable.
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.StructureBlock) {
+            return false;
+        }
+        // 逻辑整合器 is the same kind of case: a device whose six faces are already spoken for (its front answers the
+        // gate), and the query a component inside it would answer is asked <em>before</em> the block's own getSignal
+        // (BlockStateSignalMixin), so the gate is the half that would go quiet. Refused by class for the same reason.
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.LogicIntegratorBlock) {
+            return false;
+        }
+        // 传输门 is the third of that kind: five of its six faces are inputs and the sixth answers, so a component
+        // stored in its cell would be a second owner of the same block, and the query it would answer is asked before
+        // the block's own getSignal. Refused by class, like the two above.
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.TransmissionGateBlock) {
+            return false;
+        }
         // Transparency is a pure block-state property (glass, leaves, ice, ...), so check the
         // cheap one first. A dummy getter suffices because no accepted vanilla block consults the
         // position here.
@@ -98,9 +111,8 @@ public final class HostRules {
     /**
      * Full-cube shapes with no block-specific state, so a dummy getter is enough.
      *
-     * <p>Only used for state-independent checks; block positions are deliberately
-     * {@link BlockPos#ZERO} because none of the vanilla block classes we accept read the position
-     * for these two properties.
+     * <p>Only used for state-independent checks; block positions are {@link BlockPos#ZERO} because none of the vanilla
+     * block classes we accept read the position for these two properties.
      */
     private enum EmptyBlockGetter implements BlockGetter {
         INSTANCE;
@@ -134,26 +146,15 @@ public final class HostRules {
     /**
      * Whether a right-click on this block is the mod's to handle rather than vanilla's.
      *
-     * <h2>Why this is a separate, shared question</h2>
-     * The client predicts a block placement before the server has had its say: {@code MultiPlayerGameMode}
-     * runs {@code ItemStack#useOn} locally, so an item that is about to be stored <em>inside</em> a block
-     * is drawn as a freshly placed block for one round trip and then taken away again - the flash of
-     * redstone on the ground that a placement used to produce. The only way to stop that is for the
-     * client to know the click is ours, which means the same question has to be answered on both sides.
+     * <p>The client predicts a block placement before the server has had its say: {@code MultiPlayerGameMode} runs
+     * {@code ItemStack#useOn} locally, so an item that is about to be stored <em>inside</em> a block is drawn as a
+     * freshly placed block for one round trip. The only way to stop that is for the client to know the click is ours,
+     * so the question is answered here from inputs both sides have: the block's state, the component already known
+     * about ({@code null} when the client has not been told, or when the block holds nothing), the held stack, and
+     * whether the player is sneaking.
      *
-     * <p>So it is answered here, from inputs both sides have: the block's state, the component the
-     * client or server already knows about ({@code null} when the client has not been told, or when the
-     * block holds nothing), the held stack, and whether the player is sneaking. The server additionally
-     * checks that this is a valid host and whether replacing is allowed - both of which are config reads,
-     * and both of which this does too.
-     *
-     * <p>The wrench is deliberately not answered as "ours": it is not a block item, so it never predicts
-     * a placement, and claiming the click here would risk swallowing a legitimate vanilla use.
-     *
-     * @param state the block being clicked
-     * @param existing the component stored in it, or {@code null}
-     * @param stack what the player is holding in the hand that clicked
-     * @param sneaking whether the player is using the secondary (sneak) action
+     * <p>The wrench is not answered as "ours": it is not a block item, so it never predicts a placement, and claiming
+     * the click here would risk swallowing a legitimate vanilla use.
      */
     public static boolean claimsClick(BlockState state, @Nullable Slot existing, ItemStack stack,
                                       boolean sneaking) {
@@ -183,8 +184,8 @@ public final class HostRules {
      * Maps the held item to the component it would become, or {@code null} if it is not a
      * redstone component.
      *
-     * <p>Pistons, dispensers, droppers and observers are intentionally absent: they are full-cube
-     * blocks and the design forbids putting them inside another block.
+     * <p>Pistons, dispensers, droppers and observers are absent: they are full-cube blocks and the design forbids
+     * putting them inside another block.
      *
      * <p>Pressure plates are absent for now as well, but for a different reason: nothing would happen.
      * A plate has to answer to whatever stands on the host block, which needs a per-position index and
@@ -229,6 +230,21 @@ public final class HostRules {
                 || item == Items.POLISHED_BLACKSTONE_BUTTON) {
             return ComponentType.BUTTON;
         }
+        // The controller is a component in both forms: inside a host block it runs off ControllerRule.Setting on the
+        // slot (see ComponentType#CONTROLLER).
+        if (item == RCRegistry.CONTROLLER_ITEM) {
+            return ComponentType.CONTROLLER;
+        }
+        if (item == RCRegistry.TRANSFORMER_ITEM) {
+            return ComponentType.TRANSFORMER;
+        }
+        if (item == RCRegistry.CLOCK_ITEM) {
+            return ComponentType.CLOCK;
+        }
+        // 信号延长器 is a component in both forms as well.
+        if (item == RCRegistry.EXTENDER_ITEM) {
+            return ComponentType.EXTENDER;
+        }
         return null;
     }
 
@@ -246,15 +262,17 @@ public final class HostRules {
             case TORCH -> new ItemStack(Items.REDSTONE_TORCH);
             case LEVER -> new ItemStack(Items.LEVER);
             case BUTTON -> new ItemStack(Items.STONE_BUTTON);
+            case CONTROLLER -> new ItemStack(RCRegistry.CONTROLLER_ITEM);
+            case TRANSFORMER -> new ItemStack(RCRegistry.TRANSFORMER_ITEM);
+            case CLOCK -> new ItemStack(RCRegistry.CLOCK_ITEM);
+            case EXTENDER -> new ItemStack(RCRegistry.EXTENDER_ITEM);
             case PRESSURE_PLATE -> new ItemStack(Items.LIGHT_WEIGHTED_PRESSURE_PLATE);
         };
     }
 
     /**
-     * Which face of the host the component is attached to.
-     *
-     * <p>Uses the clicked face so that clicking the top of a block behaves like vanilla, while
-     * clicking a side or the bottom mounts the component on that vertical/bottom face (R5).
+     * Which face of the host the component is attached to: the clicked face, so clicking the top of a block behaves
+     * like vanilla, while clicking a side or the bottom mounts the component on that face.
      */
     public static Direction slotFor(BlockPos clickedPos, Direction clickedFace) {
         return clickedFace;

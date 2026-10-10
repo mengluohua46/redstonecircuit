@@ -29,30 +29,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Jade over a physicalised block: resolving the carried host, and the fields that are shown.</b>
+ * Jade over a physicalised block: resolving the carried host, and the fields that are shown.
  *
- * <h2>The gap these tests close</h2>
- * The author asked whether Jade can be made to work "under a physicalised block". It can, but not by the
- * lookup the world side uses: a physicalised block's position in the level is the structure's <em>own</em>
- * coordinate (a Sable sub-level's blocks are the level's blocks inside a reserved plot region), and the
- * ordinary host sync has nothing at any such coordinate - which is exactly why the overlay was empty
- * while the goggles drew the component inside the block perfectly well.
+ * <p>A physicalised block's position in the level is the structure's <em>own</em> coordinate, where the ordinary host
+ * sync has nothing; the carrier payload is keyed by that same coordinate, so a lookup there resolves the host.
  *
- * <p>The carrier payload has it all along, keyed by that same coordinate. What is pinned here is the
- * resolution and the fields:
- *
- * <ul>
- *   <li>a coordinate a structure is carrying a host at resolves to that host, and the component comes out
- *       of <b>the carrier store</b> - the block the player is looking at, not a world host;</li>
- *   <li>the fields are the ones the world overlay prints, field for field, because both are built by
- *       {@link InnerComponentLine#of} - so "the same information as in the world" is true by construction
- *       rather than by two switch statements kept in step by hand;</li>
- *   <li>a coordinate nothing is carried at resolves to nothing, so the provider stays silent instead of
- *       reporting a "looks connected, never displays" line;</li>
- *   <li>an index that has not been told a dimension answers nothing and, crucially, <b>does not adopt</b>
- *       the asked-about one: an overlay is not an update, and it must never be the thing that decides
- *       which level this client's carrier view is about.</li>
- * </ul>
+ * <p>The fields are the ones the world overlay prints, field for field, because both are built by
+ * {@link InnerComponentLine#of}. An index that has not been told a dimension answers nothing and does not adopt the
+ * asked-about one: an overlay is not an update, and it must never decide which level this client's view is about.
  */
 class InnerComponentLineTest {
 

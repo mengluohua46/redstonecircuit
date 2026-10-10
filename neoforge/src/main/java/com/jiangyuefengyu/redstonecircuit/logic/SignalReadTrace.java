@@ -10,39 +10,11 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
 import net.minecraft.core.BlockPos;
 
 /**
- * <b>The low-frequency record of "which structure read which position, and what came back" (P1.38).</b>
+ * <b>The low-frequency record of "which structure read which position, and what came back".</b>
  *
- * <h2>The question this exists to answer</h2>
- * "Two physicalised blocks do not pass signals to each other" has three completely different causes,
- * and until this class existed the log could not tell them apart:
- *
- * <ol>
- *   <li>the <b>read</b> never happened - the asking structure's solver never asked about the other
- *       block at all, so nothing was there to answer;</li>
- *   <li>the read happened and came back <b>0</b> while the other structure's block was really there
- *       holding a value - a source was reachable and hidden;</li>
- *   <li>the read happened and was answered correctly, and the problem is elsewhere (the notification
- *       half, or the world grid: the two blocks are not actually adjacent).</li>
- * </ol>
- *
- * <p>The counters separate them: {@link #describe()} distinguishes "no read was ever attempted"
- * ({@code reads=0}) from "reads were attempted and the world store answered" from "reads were
- * attempted and a carrier answered", while {@link #suppressionBlocked} counts the queries the
- * suppression flag would have hidden. The per-tick line names the asker, the position asked about, the
- * local coordinate it means inside the answerer, and the value.
- *
- * <h2>Why it cannot flood the log</h2>
- * <b>At most one line per level tick</b>, whatever the solver does: {@link #record} keeps only the
- * first read of the tick and {@link #closeTick} writes that one line and clears it. A machine with two
- * hundred components asking two hundred times per tick therefore costs one line per tick, and the
- * counters carry the rest. {@code debugLog=false} turns the whole thing off, line and counting alike;
- * with it off, {@link #record} returns after one boolean test.
- *
- * <h2>Cost</h2>
- * Per read: one boolean test, and on the first read of a tick one {@link BlockPos#immutable()} plus one
- * field store. No collection, no queue, no growth: the state is five longs and one small record, and
- * {@link #reset} drops even those on a level unload. Nothing here reads a level, an entity or a
- * sub-level container, so it is safe on the shutdown path.
+ * <p>"两块物理化方块之间信号传不过去"有三种原因: 读取根本没发生、读取发生但答 0 而源其实在、读取正常而问题在别处。
+ * 计数器把它们分开: {@link #describe()} 区分世界投影／结构自身坐标／世界存档，{@link #suppressionBlocked} 数被抑制
+ * 开关挡掉的查询。每个 level tick 最多一行，{@code debugLog=false} 时只花一次布尔判断。
  */
 public final class SignalReadTrace {
 
@@ -51,11 +23,11 @@ public final class SignalReadTrace {
 
     /** Reads answered from the world projection table - a carrier's host at its world position. */
     private static long projectedReads;
-    /** Reads answered from a structure's own coordinate - P1.36's inside-the-machine read. */
+    /** Reads answered from a structure's own coordinate - the inside-the-machine read. */
     private static long structureReads;
-    /** Reads refused because the coordinate belongs to another live sub-level - P1.37's guard. */
+    /** Reads refused because the coordinate belongs to another live sub-level - the ownership guard. */
     private static long declines;
-    /** Queries where the suppression flag would have hidden a carrier source - P1.38's symptom. */
+    /** Queries where the suppression flag would have hidden a carrier source. */
     private static long suppressionBlocked;
     /** Reads answered from the ordinary world store. */
     private static long worldStoreReads;
@@ -65,18 +37,11 @@ public final class SignalReadTrace {
     private static Read lastRead;
 
     /**
-     * One read, as the line needs it: who asked, what about, what each source said, and the answer.
-     *
-     * @param asker the structure whose solve asked, or {@code null} when the asker was the world
-     * @param position the position that was asked about, in the asker's own frame
-     * @param crossStructure true when the position belongs to a <b>different</b> sub-level than the
-     *     asker - the seam this round is about
-     * @param worldProjection what the world projection source said at that position, as text: the
-     *     host's local coordinate when it holds one, or {@code none-hit} / {@code none-indexed}
-     * @param structureFrame what the structure frame did with it: {@code answered}, {@code declined}
-     *     (P1.37's ownership guard refused it) or {@code none}
-     * @param finalSource which source answered in the end, named for the line
-     * @param answer the value the query was answered with, 0-15
+     * One read, as the line needs it: who asked ({@code null} for the world), what about, what each source said, and
+     * the answer. {@code position} is in the asker's own frame; {@code crossStructure} is true when it belongs to a
+     * <b>different</b> sub-level than the asker; {@code worldProjection} is the host's local coordinate or
+     * {@code none-hit} / {@code none-indexed}; {@code structureFrame} is {@code answered}, {@code declined} or
+     * {@code none}; {@code answer} is 0-15.
      */
     public record Read(@Nullable CarrierId asker, BlockPos position, boolean crossStructure,
                        String worldProjection, String structureFrame, String finalSource, int answer) {
@@ -93,19 +58,9 @@ public final class SignalReadTrace {
         }
     }
 
-    /**
-     * Records one read of a carrier-hosted position, or one read of the ordinary world store.
-     *
-     * <p>Gated on {@code debugLog}: with the switch off this is one boolean test and nothing else.
-     * Counting happens on every recorded read; the <b>line</b> is written by {@link #closeTick}, so a
-     * busy tick still writes one line.
-     *
-     * @param asker the structure whose solve asked, or {@code null} for the world / a vanilla device
-     * @param position the position asked about
-     * @param crossStructure true when the position belongs to another live sub-level than the asker
-     * @param worldProjection what the projection source said, as text
-     * @param structureFrame what the structure frame did, as text
-     */
+    /** Records one read of a carrier-hosted position, or one read of the ordinary world store. Gated on
+     * {@code debugLog}: with the switch off this is one boolean test and nothing else. Counting happens on every
+     * recorded read; the <b>line</b> is written by {@link #closeTick}, so a busy tick still writes one line. */
     public static void record(@Nullable CarrierId asker, @Nullable BlockPos position,
                               boolean crossStructure, String worldProjection, String structureFrame,
                               BlockSignalSources.Source finalSource, int answer) {
@@ -125,44 +80,30 @@ public final class SignalReadTrace {
         }
     }
 
-    /**
-     * True when a read should be recorded at all: the one boolean the hot path pays for.
-     *
-     * <p>Exposed so a caller that has to do work to build the record - the carrier layer, which asks
-     * which structure's plot holds a coordinate - can skip that work entirely when the operator has not
-     * asked for lines. {@link #record} repeats the test, so a caller that ignores this is still safe.
-     */
+    /** True when a read should be recorded at all: the one boolean the hot path pays for. Exposed so a caller that has
+     * to do work to build the record can skip it; {@link #record} repeats the test, so ignoring this is still safe. */
     public static boolean enabled() {
         return RCConfig.debugLog();
     }
 
-    /**
-     * Counts one query that the suppression flag hid from the carrier sources.
-     *
-     * <p>Called from the rule rather than from the mixin so "the world store was suppressed and nothing
-     * else was reachable" is one counter instead of a condition spread over two files. Counted only
-     * while {@code debugLog} is on, like every other counter here.
-     */
+    /** Counts one query that the suppression flag hid from the carrier sources. Counted only while {@code debugLog} is
+     * on, like every other counter here. */
     public static void suppressionBlocked() {
         if (RCConfig.debugLog()) {
             suppressionBlocked++;
         }
     }
 
-    /** Counts one P1.37 decline: a coordinate refused because it belongs to another live sub-level. */
+    /** Counts one decline: a coordinate refused because it belongs to another live sub-level. */
     public static void declined() {
         if (RCConfig.debugLog()) {
             declines++;
         }
     }
 
-    /**
-     * Ends one level tick: the one line for that tick, then the slot is cleared.
-     *
-     * <p>Returns the line rather than logging it, exactly like {@code SolverLog#tickEnd}, so the
-     * once-per-tick property and the wording are asserted by an offline unit test; {@link #flush} is
-     * the production caller that writes it.
-     */
+    /** Ends one level tick: the one line for that tick, then the slot is cleared. Returns the line rather than logging
+     * it, so the once-per-tick property and the wording are asserted by an offline unit test; {@link #flush} is the
+     * production caller that writes it. */
     public static java.util.List<String> closeTick() {
         Read read = lastRead;
         lastRead = null;
@@ -179,11 +120,8 @@ public final class SignalReadTrace {
         }
     }
 
-    /**
-     * One compact summary for the existing {@code solver:} line, so the counters reach the log without a
-     * command being typed - the point of this round. Empty when nothing has been read yet, which keeps
-     * the summary line unchanged in a level where nothing is physicalised.
-     */
+    /** One compact summary for the existing {@code solver:} line, so the counters reach the log without a command being
+     * typed. Empty when nothing has been read yet, which keeps the summary line unchanged. */
     public static String describe() {
         if (projectedReads == 0 && structureReads == 0 && worldStoreReads == 0 && declines == 0
                 && suppressionBlocked == 0) {
@@ -197,7 +135,7 @@ public final class SignalReadTrace {
                 + " lastRead=" + lastReadMode();
     }
 
-    /** The three-state marker the author reads: which frame the <b>last</b> structure query used. */
+    /** The three-state marker: which frame the <b>last</b> structure query used. */
     public static String lastReadMode() {
         if (structureReads > 0 && declines == 0) {
             return "structure_frame";
@@ -213,17 +151,17 @@ public final class SignalReadTrace {
         return projectedReads;
     }
 
-    /** How many reads the structure frame answered; P1.36's counter. */
+    /** How many reads the structure frame answered. */
     public static long structureReads() {
         return structureReads;
     }
 
-    /** How many reads P1.37's ownership guard refused. */
+    /** How many reads the ownership guard refused. */
     public static long declines() {
         return declines;
     }
 
-    /** How many queries the suppression flag hid from the carrier sources - P1.38's evidence. */
+    /** How many queries the suppression flag hid from the carrier sources. */
     public static long suppressionBlockedCount() {
         return suppressionBlocked;
     }
@@ -233,12 +171,8 @@ public final class SignalReadTrace {
         return worldStoreReads;
     }
 
-    /**
-     * Drops every counter and the pending tick slot.
-     *
-     * <p>Called when a level unloads: the counters describe a level's structures, and the pending slot
-     * holds a position of one. No level, entity or container is touched here.
-     */
+    /** Drops every counter and the pending tick slot; called when a level unloads, because the counters describe a
+     * level's structures and the pending slot holds a position of one. */
     public static void reset() {
         projectedReads = 0;
         structureReads = 0;

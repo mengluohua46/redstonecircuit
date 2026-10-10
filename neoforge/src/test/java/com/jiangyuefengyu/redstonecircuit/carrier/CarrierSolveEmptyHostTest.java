@@ -29,48 +29,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The author's P1.24 log, as a test: an emptied carried host must not silence the machine's own
- * solve.</b>
+ * An emptied carried host must not silence the machine's own solve.
  *
- * <h2>What the log shows</h2>
- * 53 lines of
- *
- * <pre>
- *   [redstonecircuit] carrier s:aa684475 solve failed: java.lang.NullPointerException:
- *       Cannot read field "type" because "slot" is null
- * </pre>
- *
- * <p>printed by {@code CarrierNetworks#solveAll}'s per-structure {@code catch}. The exception is the
- * <em>same</em> empty-host state P1.24 made first-class everywhere else - a host the structure still
- * carries whose component a player took back out ({@code CarriedHostIndex#removeSlot}) - but this time
- * it is thrown from <b>inside the in-carrier solve</b>, so the catch swallows it and nothing crashes.
- * What is left is quiet and worse: a machine whose internal redstone silently stops being computed, once
- * per tick, for as long as the empty host is riding.
- *
- * <h2>Where it is thrown</h2>
- * {@code CarrierNetworks#solve} walks the structure's live hosts twice - once to collect solve seeds and
- * once to compare the result against what the clients believe - and both loops dereferenced
- * {@code host.slot().type} without asking whether the host holds anything. The seeds loop is the one that
- * fires first. The diagnostics walk ({@code CarrierNetworks#describe}, reached from {@code /rc carrier})
- * has the same shape.
- *
- * <h2>What this class asserts</h2>
- * Every entry point of the <b>carrier solve path</b> that can meet an emptied host, in the order the
- * brief lists them:
- *
- * <ol>
- *   <li><b>solve</b> - the pass runs to completion and produces the answer it would produce without the
- *       empty host;</li>
- *   <li><b>broadcast</b> - the client-facing walk skips it (the payload build itself, which needs a
- *       level, is covered by {@code CarrierEmptyHostTest});</li>
- *   <li><b>projection</b> - a projected host with no component answers zero rather than throwing;</li>
- *   <li><b>world bridge</b> - the same, through the signal the world reads;</li>
- *   <li><b>landing</b> ("落回") - releasing an emptied host writes nothing into the world and still
- *       lands the record;</li>
- *   <li><b>diagnostics</b> - {@code /rc carrier}'s walk says "empty" instead of throwing;</li>
- *   <li><b>the ledger</b> - if anything in the solve path does throw, it is counted and reported
- *       <em>once per exception kind</em>, so a flood cannot hide a second, different failure.</li>
- * </ol>
+ * <p>The carrier solve walks a structure's live hosts twice - once to collect seeds, once to compare the result
+ * against what the clients believe - and the diagnostics walk has the same shape; all three must tolerate a host
+ * that still exists with no component. Asserted for every entry point of that path: the solve produces the answer
+ * it would produce without the empty host, the broadcast skips it, a projection and the world bridge answer zero,
+ * a landing writes nothing and still lands the record, the diagnostics say "empty", and an exception that does
+ * escape is counted once per kind, so a flood cannot hide a second, different failure.
  */
 class CarrierSolveEmptyHostTest {
 
@@ -131,7 +97,7 @@ class CarrierSolveEmptyHostTest {
                 null, recorder, null);
     }
 
-    /** The same context with P4's bridge open: a fixed pose, and a world that answers one number. */
+    /** The same context with the carrier bridge open: a fixed pose, and a world that answers one number. */
     private CarrierStore.TickContext bridged(long tick, int worldSignal) {
         CarrierPose pose = CarrierPose.at(new Vector3d(200.0, 64.0, 200.0));
         return new CarrierStore.TickContext(new CarrierStore.Clock(tick, DIMENSION), index, world,
@@ -398,12 +364,9 @@ class CarrierSolveEmptyHostTest {
     // ------------------------------------------------------------- the ledger --
 
     /**
-     * <b>Counting and "say it once" on the same fallback.</b>
-     *
-     * <p>The per-structure catch in {@code solveAll} printed one warn line per failure - 53 of them in
-     * the author's log, all identical. The replacement counts every failure, prints the first of each
-     * <em>kind</em> exactly once, and keeps a second, later, different exception kind visible: the one
-     * thing worse than a flood is a flood that hides the real defect behind its own repetition.
+     * Counting and "say it once" on the same fallback: every failure is counted, the first of each
+     * <em>kind</em> is printed exactly once, and a later, different kind stays visible - the one thing worse
+     * than a flood is a flood that hides the real defect behind its own repetition.
      */
     @Test
     @DisplayName("the solve fallback counts every failure and reports each kind once")

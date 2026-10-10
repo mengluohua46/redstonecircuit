@@ -24,33 +24,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>"Which gesture is this click" - one rule, and the author's bug is a row of its table.</b>
- *
- * <h2>What went wrong</h2>
- * The carrier side asked "did I recognise a component in this hand?" and treated <em>no</em> as "the hand
- * is empty". A wrench is not a component, so a click holding a wrench answered <em>no</em> and the switch
- * gesture thought the hand was bare. Vanilla delivers one right-click twice - main hand and off hand, same
- * tick, same position - so the author's log has, side by side, a rod turn on the main hand and a repeater
- * delay step on an empty off hand:
- *
- * <pre>
- *   hand=MAIN_HAND item=redstonecircuit:rotation_rod -&gt; rod ... -&gt; input side east
- *   hand=OFF_HAND  item=empty                        -&gt; switch adjusted RETAINING_REPEATER ...
- * </pre>
- *
- * <p>The world side never had this: {@code InnerRedstoneInteraction} asks {@code stack.isEmpty()} before
- * it offers a click to {@code InnerSwitches}. The rule is now asked in one place, {@link CarrierGesture},
- * in a form a unit test can drive - four booleans and the sneak state - and this class is that table.
- *
- * <h2>The two claims</h2>
- * <ol>
- *   <li><b>Only an actually empty hand reaches the switch gesture.</b> Every other content of the hand -
- *       a wrench, the rod, a component, an ordinary block, a sword - is classified as its own gesture or
- *       as nobody's, and never as {@link CarrierGesture.Kind#SWITCH}.</li>
- *   <li><b>The sneak state does not change which gesture an item means.</b> A tool is a tool either way,
- *       a component is a placement either way, and an item nobody owns is nobody's either way - which is
- *       what makes this rule the same one the world side asks.</li>
- * </ol>
+ * "Which gesture is this click" - one rule. The carrier side asked "does this hand hold a component?" and
+ * read <em>no</em> as "the hand is empty", so a click holding a wrench was classified as a bare hand; and
+ * since vanilla delivers one right-click twice - main hand and off hand, same tick - a rod turn on one hand
+ * and a repeater delay step on the empty other hand both happened.
+ * <p>The rule lives in one place ({@link CarrierGesture}), in a form a unit test can drive: only an
+ * actually empty hand reaches the switch gesture, and the sneak state never changes what an item means.
  */
 class CarrierGestureTest {
 
@@ -83,12 +62,8 @@ class CarrierGestureTest {
 
     // ------------------------------------------------------------- the table --
 
-    /**
-     * <b>The rule, one row per thing a hand can hold.</b>
-     *
-     * <p>The "{@code notEmpty}" rows are the fix: before it, every one of them answered
-     * {@code SWITCH} when the sneak key was not held, which is exactly "非空手也能调".
-     */
+    /** The rule, one row per thing a hand can hold. The "holding something" rows are the point: anything
+     * but an empty hand must never be classified as the bare-hand switch gesture. */
     @Test
     @DisplayName("only an empty hand is classified as the switch gesture")
     void onlyAnEmptyHandReachesTheSwitch() {
@@ -123,13 +98,8 @@ class CarrierGestureTest {
         }
     }
 
-    /**
-     * The sneak state chooses between gestures that exist; it never turns an item into another item's
-     * gesture.
-     *
-     * <p>This is the half of the author's report that made the bug visible - a rod click while sneaking is
-     * still a rod click, and it must not also be a retrieval just because the sneak key was down.
-     */
+    /** The sneak state chooses between gestures that exist; it never turns an item into another item's
+     * gesture - a rod click while sneaking is still a rod click, not a retrieval. */
     @Test
     @DisplayName("sneaking never changes which gesture an item means")
     void sneakingNeverReclassifiesAnItem() {
@@ -175,13 +145,9 @@ class CarrierGestureTest {
 
     // ------------------------------------------- the rule against the actions --
 
-    /**
-     * The classification is not cosmetic: an empty host and a host that is not ours are still answered by
-     * the actions, and the switch action refuses a component it cannot work.
-     *
-     * <p>This is the seam the classification feeds. It exists so "the classification changed" and "the
-     * action refused" cannot be confused in the log or in a test.
-     */
+    /** The classification is not cosmetic: an empty host and a host that is not ours are still answered by
+     * the actions, and the switch action refuses a component it cannot work. It exists so "the
+     * classification changed" and "the action refused" cannot be confused in a log or a test. */
     @Test
     @DisplayName("the switch action refuses by its own rule, whatever the classification said")
     void theSwitchActionStillOwnsItsOwnRefusals() {
@@ -190,7 +156,7 @@ class CarrierGestureTest {
         world.set(new BlockPos(600, 64, 600), slot);
         index.claim(CARRIER, local, new BlockPos(600, 64, 600), world);
 
-        // A wire is a component, so the classification says PLACEMENT (if in hand) - but the switch action
+        // A wire is a component, so the classification says PLACEMENT if in hand - but the switch action
         // itself must also refuse it, because "not in hand" and "in hand" are answered by different code.
         assertFalse(CarriedSwitch.workable(index, CARRIER, local),
                 "dust has no bare-hand action, and the action says so on its own");
@@ -217,17 +183,8 @@ class CarrierGestureTest {
     }
 
     // ==================================================================================================
-    // P1.25: the SECOND half of the same defect - the other hand.
-    //
-    // The table above is about ONE hand, and every row of it was already true after P1.24 while the
-    // author's bug was still there. Vanilla delivers one right-click twice, and the second delivery
-    // comes from a hand that genuinely IS empty:
-    //
-    //   hand=MAIN_HAND item=redstonecircuit:redstone_wrench x1 tool=wrench -> MATCH … clear …
-    //   hand=OFF_HAND  item=empty                            tool=bare hand -> MATCH
-    //   carrier s:aa684475: switch adjusted RETAINING_REPEATER out=0 in=east -> …
-    //
-    // So the criterion has to be asked over BOTH hands. Everything below is that, driven as a table.
+    // The other hand. A click is delivered twice, and the second delivery comes from a hand that really
+    // is empty, so the criterion has to be asked over BOTH hands - everything below is that, as a table.
     // ==================================================================================================
 
     /** The five things a hand can hold, for the two-hand table. */
@@ -257,17 +214,8 @@ class CarrierGestureTest {
         return "a plain block";
     }
 
-    /**
-     * <b>THE RULE, AS THE AUTHOR FOUND IT BROKEN: the switch gesture requires BOTH hands to be empty.</b>
-     *
-     * <p>One row per (dispatched hand x other hand x sneak state). For each row both deliveries of one
-     * click are computed - the main hand's and the off hand's - because the click is one click and the
-     * rule must not depend on the order they arrive in.
-     *
-     * <p><b>RED before this round's fix, for every row whose dispatched hand is empty and whose other
-     * hand is not</b>: those are exactly the author's two log lines, and the old rule - which read only
-     * the dispatched hand - answered {@code SWITCH} for the second of them.
-     */
+    /** The switch gesture requires BOTH hands to be empty. One row per dispatched hand x other hand x
+     * sneak state, with both deliveries of one click computed - the order they arrive in cannot matter. */
     @Test
     @DisplayName("only two empty hands reach the switch gesture, whichever hand the delivery is for")
     void onlyTwoEmptyHandsReachTheSwitch() {
@@ -275,9 +223,8 @@ class CarrierGestureTest {
             for (CarrierGesture.Hold off : holds()) {
                 boolean bothEmpty = main.empty() && off.empty();
                 for (boolean sneaking : new boolean[] {false, true}) {
-                    // ONE CLICK, TWO DELIVERIES. A click is one gesture, so exactly one delivery may own
-                    // an acting gesture - and the switch half of it only exists when nothing at all is
-                    // held.
+                    // One click, two deliveries: exactly one delivery may own an acting gesture, and the
+                    // switch half of it exists only when nothing at all is held.
                     CarrierGesture.Kind fromMain = CarrierGesture.of(main, off, sneaking);
                     CarrierGesture.Kind fromOff = CarrierGesture.of(off, main, sneaking);
                     String row = "main=" + nameOf(main) + " off=" + nameOf(off)
@@ -290,8 +237,7 @@ class CarrierGestureTest {
                                     + " (main delivery said " + fromMain + ", off delivery said " + fromOff
                                     + ")");
 
-                    // AND NOTHING ELSE BECOMES A SWITCH EITHER: holding any of the four things can never
-                    // be classified as the bare-hand gesture, in either delivery.
+                    // And nothing else becomes a switch either, in either delivery.
                     if (!(bothEmpty && !sneaking)) {
                         assertFalse(fromMain == CarrierGesture.Kind.SWITCH || fromOff == CarrierGesture.Kind.SWITCH,
                                 "holding something must never be a bare-hand switch: " + row);
@@ -301,12 +247,8 @@ class CarrierGestureTest {
         }
     }
 
-    /**
-     * <b>The author's two log lines, as two assertions.</b>
-     *
-     * <p>The main hand's delivery is the tool's; the off hand's delivery - the one with the empty stack -
-     * must be nobody's. Before the fix the second one was {@code SWITCH} and stepped the repeater's delay.
-     */
+    /** The two log lines, as two assertions: the main hand's delivery is the tool's, and the off hand's -
+     * the one with the empty stack - must be nobody's. */
     @Test
     @DisplayName("a tool in one hand makes the other hand's empty delivery nobody's")
     void aToolInOneHandSuppressesTheOtherEmptyDelivery() {
@@ -318,8 +260,7 @@ class CarrierGestureTest {
             // The other hand's delivery: nobody's. This is the line that was missing.
             assertEquals(CarrierGesture.Kind.NONE, CarrierGesture.of(EMPTY, tool, false),
                     "an empty hand whose OTHER hand holds " + nameOf(tool)
-                            + " must not be offered the switch - this is `switch adjusted` on the author's"
-                            + " second trace line");
+                            + " must not be offered the switch: the tool's own delivery owns the click");
             // And the same while sneaking: not a retrieval either.
             assertEquals(CarrierGesture.Kind.NONE, CarrierGesture.of(EMPTY, tool, true),
                     "sneaking does not turn it into a retrieval either while a tool is in the other hand");
@@ -343,13 +284,8 @@ class CarrierGestureTest {
                 "the placement belongs to the hand holding the component, not to the empty one");
     }
 
-    /**
-     * <b>PRIORITY: the tool first, then the component, then the bare hand.</b>
-     *
-     * <p>Every tool/component combination, both deliveries, both sneak states: the hand holding the tool
-     * always gets the tool's gesture, and the other delivery is nobody's - so "拿扳手就是扳手、拿转向杆就是
-     * 转向杆、拿元件就是放取" holds whatever the other hand is doing, independent of dispatch order.
-     */
+    /** Priority: the tool first, then the component, then the bare hand. Whatever the other hand holds,
+     * the hand with the tool gets the tool's gesture and the other delivery is nobody's. */
     @Test
     @DisplayName("a tool beats a component beats a bare hand, in either delivery order")
     void aToolBeatsAComponentBeatsABareHand() {
@@ -389,14 +325,8 @@ class CarrierGestureTest {
         assertFalse(CarrierGesture.ownsTheClick(EMPTY), "an empty hand owns nothing");
     }
 
-    /**
-     * <b>② the tool's own action is what runs.</b>
-     *
-     * <p>The classification is the gate: the entry point dispatches on it, so the wrench's own delivery
-     * must say {@code WRENCH} (and the tool action itself must work on the record), and the bare-hand switch
-     * must not be reachable from a click that holds one. The end-to-end wiring is the author's own
-     * acceptance action; what can be pinned offline is the dispatch and the action behind it.
-     */
+    /** The tool's own action is what runs: the classification is the gate, so the wrench's delivery must
+     * say WRENCH - and the bare-hand switch must not be reachable from a click that holds one. */
     @Test
     @DisplayName("a tool's delivery is the tool's gesture, and the tool's action really runs")
     void aToolsDeliveryRunsTheToolsAction() {
@@ -410,25 +340,18 @@ class CarrierGestureTest {
         assertFalse(CarrierGesture.requiresEmptyHand(CarrierGesture.Kind.ROD));
 
         // The tool's action on a host that holds a component: the pick works, and the switch would have
-        // adjusted the same host (so "the tool ran" and "the switch ran" are different observations).
+        // adjusted the same host, so "the tool ran" and "the switch ran" are different observations.
         assertTrue(CarriedTool.select(index, CARRIER, local) instanceof CarriedTool.Action.Selected,
                 "the wrench's own action on this host picks it");
         assertTrue(CarriedSwitch.workable(index, CARRIER, local),
                 "and the same host is workable, which is why the switch had to be gated off");
 
-        // The gate itself, stated as the entry point reads it: the empty delivery of this same click is
-        // not a switch, so `switch adjusted` cannot be produced by it.
+        // The gate as the entry point reads it: this click's empty delivery is not a switch.
         assertEquals(CarrierGesture.Kind.NONE, CarrierGesture.of(EMPTY, WRENCH, false));
     }
 
-    /**
-     * <b>The judgement line: {@code tool=} must name the gesture that actually ran.</b>
-     *
-     * <p>It used to be a boolean at the call site - {@code wrench ? "wrench" : "rotation rod"} - so the
-     * author's log has {@code switch adjusted … tool=rotation rod} and {@code retrieve … tool=rotation rod}
-     * on clicks where no rod existed. Two different defects (a switch that should not have happened, and a
-     * label that lied about who did it) were therefore readable as one.
-     */
+    /** The judgement line: {@code tool=} must name the gesture that actually ran rather than a boolean at
+     * the call site, or a switch that never happened and a label that lied read as one. */
     @Test
     @DisplayName("the action line's tool= names the gesture that ran, never a tool that did not")
     void theActionLineNamesTheGestureThatRan() {
@@ -437,13 +360,11 @@ class CarrierGestureTest {
         assertEquals("bare hand", CarrierGesture.toolLabel(CarrierGesture.Kind.SWITCH));
         assertEquals("placement", CarrierGesture.toolLabel(CarrierGesture.Kind.PLACEMENT));
 
-        // The two labels the author's log got wrong.
+        // The two labels that could lie about which gesture ran.
         assertNotEquals("rotation rod", CarrierGesture.toolLabel(CarrierGesture.Kind.SWITCH),
-                "a bare-hand switch is not a rotation rod: this is the `switch adjusted … tool=rotation rod`"
-                        + " line from the author's P1.24 log");
+                "a bare-hand switch must not be labelled as a rotation rod");
         assertNotEquals("rotation rod", CarrierGesture.toolLabel(CarrierGesture.Kind.PLACEMENT),
-                "a retrieval is not a rotation rod either: `carrier s:aa684475: retrieve … tool=rotation rod`"
-                        + " is on the author's log too");
+                "a retrieval must not be labelled as a rotation rod either");
 
         // Five kinds, five distinct labels: no two gestures can be confused by reading the line.
         long distinct = java.util.Arrays.stream(CarrierGesture.Kind.values())
@@ -454,29 +375,13 @@ class CarrierGestureTest {
 
     // ------------------------------------------------ the rule against the world side --
 
-    /**
-     * <b>③ 对拍: the world side's own bare-hand gate, read from the world side's own source - and the one
-     * place it now asks the carrier-side rule.</b>
+    /** 对拍: the world side's own bare-hand gate, read from its source, and the one place it now asks the
+     * carrier-side rule. It pins {@code stack.isEmpty()} for the plain click and for the shift retrieval,
+     * so widening that gate back to "no component was recognised" makes this red.
      *
-     * <p>It reads {@code InnerRedstoneInteraction.java} and pins the two expressions the bare-hand gesture
-     * is gated on - {@code stack.isEmpty()} for the plain click and the same for the shift retrieval.
-     * Widening that gate back to "no component was recognised" (the original defect) makes this red.
-     *
-     * <p><b>P1.34: the two rules are joined at exactly one point, and this asserts which one.</b> The world
-     * side's stand-down used to be decided by <em>ownership of the coordinate</em>, which is why a piston
-     * could no longer be placed on a physicalised block: every click on a structure's cell stopped vanilla's
-     * own {@code Item#useOn}. It now asks the same question the carrier's entry point answers - which
-     * gesture is this, and what does the clicked cell hold - and the value it asks it with is
-     * {@code CarrierGesture.of(player, event.getHand())}, the <b>same</b> production form the carrier's own
-     * entry point calls. That is deliberately the only carrier-side name in this file, and the sentence
-     * below pins it: importing the rule is what stops the world side and the carrier side disagreeing about
-     * what a click is, which is precisely the class of defect this round repairs.
-     *
-     * <p>A source-level assertion rather than a call, because {@code HostRules#claimsClick} takes an
-     * {@code ItemStack} and {@code ItemStack.EMPTY} cannot be initialised on a bare JVM (no registries):
-     * that is the same reason no other test in this project builds one. What the world side then does with
-     * an empty stack is asserted on the real {@code InnerSwitches} predicate below, which does not need
-     * one.
+     * <p>A source-level assertion rather than a call, because {@code ItemStack.EMPTY} cannot be
+     * initialised on a bare JVM (no registries). The gesture the world side reads has to be that rule's
+     * own production form, or the two listeners could disagree about what a click is.
      */
     @Test
     @DisplayName("the world side still offers the bare-hand gesture on an empty stack, and asks the carrier rule once")
@@ -492,7 +397,7 @@ class CarrierGestureTest {
                         + "player, pos)) {"),
                 "and the shift retrieval on the same test, in its own branch");
         assertTrue(source.contains("CarrierGesture.of(player, event.getHand())"),
-                "P1.34: the world side's stand-down is decided by the gesture, and it reads that gesture "
+                "the world side's stand-down is decided by the gesture, and it reads that gesture "
                         + "through the carrier-side rule's own production form rather than a second copy of "
                         + "it - one definition of `which click is this` for both listeners");
         assertTrue(source.contains("CarrierClickPriority.weOwnThisClick")
@@ -503,8 +408,8 @@ class CarrierGestureTest {
                 "while the tool gestures themselves stay carrier-side: the world side names the gesture "
                         + "and nothing more");
 
-        // The component set the world side gates the gesture on, through its own predicate. A bare hand
-        // works a repeater / comparator / lever and does nothing at all to a wire, exactly as before.
+        // The component set the world side gates the gesture on, through its own predicate: a bare hand
+        // works a repeater, a comparator or a lever and does nothing at all to a wire, as before.
         assertTrue(InnerSwitches.isWorkable(ComponentType.REPEATER));
         assertTrue(InnerSwitches.isWorkable(ComponentType.RETAINING_REPEATER));
         assertTrue(InnerSwitches.isWorkable(ComponentType.COMPARATOR));
@@ -513,15 +418,9 @@ class CarrierGestureTest {
                 "dust has never had a bare-hand action, on either side");
     }
 
-    /**
-     * The two rules must agree in the direction that matters: <b>whatever the carrier side calls a switch,
-     * both hands are empty</b> - which is exactly what the world side's own gate plus its two-delivery hand
-     * guard amount to (see {@link #theWorldsOwnBareHandGateIsUnchanged()} for the world half).
-     *
-     * <p>The carrier rule is deliberately <em>stricter</em> than the world side's per-hand test, and this
-     * states the implication rather than an equality, so the extra requirement is visible rather than
-     * assumed.
-     */
+    /** The two rules must agree in the direction that matters: whatever the carrier side calls a switch,
+     * both hands are empty. The carrier rule is deliberately <em>stricter</em> than the world side's
+     * per-hand test, so this states an implication rather than an equality. */
     @Test
     @DisplayName("the carrier rule never invents a switch the world side would have refused")
     void theCarrierRuleIsASubsetOfTheWorldsGate() {

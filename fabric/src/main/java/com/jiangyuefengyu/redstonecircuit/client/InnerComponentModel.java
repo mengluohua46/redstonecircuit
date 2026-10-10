@@ -11,25 +11,13 @@ import net.minecraft.core.Direction;
 /**
  * The shape of the component that lives inside a host block, as a handful of boxes.
  *
- * <h2>Coordinates</h2>
- * Everything here is in "component space", measured in blocks with the block's centre at the origin:
+ * <p>Everything is in "component space", measured in blocks with the block's centre at the origin: {@code a}
+ * sideways along {@code right}, {@code b} upwards along {@code up}, and {@code c} forwards along the
+ * component's {@code facing}. The renderer turns this frame into the block's axes with {@link Basis} once,
+ * so the model never has to know which way it ended up.
  *
- * <pre>
- *   a  - sideways, along {@code right}
- *   b  - upwards, along {@code up}
- *   c  - forwards, along the component's {@code facing} (the side it reads from)
- * </pre>
- *
- * <p>Keeping the model in this frame rather than in world coordinates is what lets a repeater point
- * anywhere: the renderer turns this frame into the block's axes with {@link Basis} once, and the model
- * itself never has to know whether it ended up facing north or up. It also means the shapes can be
- * checked without a game, which matters because a wrong shape is invisible in a headless test and
- * obvious in the wrong way in game.
- *
- * <h2>Why the connection bars matter</h2>
- * A wire inside a block looks the same whichever way it is routed, so without something showing the
- * routing, "adjust it with the wrench" (R7) would have no visible result. {@link ConnectionBars} draws
- * one bar per side the component actually talks to, and marks the sides the wrench has pinned or cut.
+ * <p>{@link ConnectionBars} draws one bar per side the component really talks to, and marks the sides the
+ * wrench pinned or cut.
  */
 public final class InnerComponentModel {
 
@@ -43,32 +31,21 @@ public final class InnerComponentModel {
     }
 
     /**
-     * The block's axes, as the component sees them.
-     *
-     * @param right {@code a} axis, a unit vector along a block axis
-     * @param up {@code b} axis
-     * @param forward {@code c} axis: the direction the component reads from
+     * The block's axes as the component sees them: {@code right} is {@code a}, {@code up} is {@code b},
+     * {@code forward} is {@code c} - the direction the component reads from.
      */
     public record Basis(float[] right, float[] up, float[] forward) {
 
         /**
-         * The frame a component is drawn in.
-         *
-         * <p>A wire is always drawn flat on the block's floor, whichever face was clicked. Dust has no
-         * direction to speak of - it reads and emits on every side - and vanilla's wire model is flat,
-         * so flattening it is what keeps our own vertical connection bars in the same plane as the
-         * lines vanilla draws. Everything else is drawn in the frame of the face it was placed on.
+         * A wire is always drawn flat on the block's floor, whichever face was clicked: dust has no
+         * direction to speak of, and vanilla's wire model is flat, so this keeps the vertical connection
+         * bars in the same plane as the lines vanilla draws. Everything else uses its own face.
          */
         public static Basis of(Slot slot) {
             return of(slot.type.isWire() ? Direction.NORTH : slot.facing);
         }
 
-        /**
-         * Builds the frame for a component facing {@code facing}.
-         *
-         * <p>For a component mounted on the top or bottom of a block its "up" cannot be up, so north is
-         * used instead - the same choice vanilla makes for a repeater lying on its back.
-         */
+        /** For a component mounted on the top or bottom, "up" cannot be up, so north is used - vanilla's own choice. */
         public static Basis of(Direction facing) {
             float[] forward = unit(facing);
             float[] up = facing.getAxis() == Direction.Axis.Y
@@ -94,12 +71,7 @@ public final class InnerComponentModel {
             out[2] = 0.5F + a * right[2] + b * up[2] + c * forward[2];
         }
 
-        /**
-         * The same mapping for a direction given in block coordinates.
-         *
-         * <p>Used to turn "north" into the component-space axis it corresponds to, which is how the
-         * connection bars are laid out without a second set of rules.
-         */
+        /** The direction's component-space axis: how the connection bars are laid out without a second set of rules. */
         public float[] axis(Direction direction) {
             float[] unit = unit(direction);
             return new float[] {
@@ -113,12 +85,9 @@ public final class InnerComponentModel {
     }
 
     /**
-     * One box: its centre and half-extents in component space, plus its colour.
-     *
-     * <p>{@code textured} marks a box drawn with the game's own wire art rather than with a flat
-     * colour - a length of wire, which the colour then only tints. The wrench's markers are
-     * deliberately not textured: a solid bead reads as a mark, where a recoloured piece of wire would
-     * just read as more wire.
+     * One box: its centre and half-extents in component space, plus its colour. {@code textured} marks a box
+     * drawn with the game's own wire art, which the colour then only tints; the wrench's markers are not
+     * textured, because a solid bead reads as a mark where a recoloured piece of wire would read as more wire.
      */
     public record Box(float a, float b, float c, float ha, float hb, float hc, int argb,
                       boolean textured) {
@@ -134,7 +103,7 @@ public final class InnerComponentModel {
         }
     }
 
-    /** Which of the six sides of this block hold another component; used to place connection bars. */
+    /** Which of the six sides of this block hold another component. */
     @FunctionalInterface
     public interface Neighbours {
         /** True when the block on that side holds redstone of its own. */
@@ -148,10 +117,8 @@ public final class InnerComponentModel {
     };
 
     /**
-     * The six faces of a box, as indices into {@link #SIGNS}, wound anticlockwise seen from outside.
-     *
-     * <p>The renderer relies on this winding for back-face culling, so it is spelled out rather than
-     * derived: face order is down, up, north, south, west, east in component space.
+     * The six faces of a box, as indices into {@link #SIGNS}, wound anticlockwise seen from outside: the
+     * renderer relies on that winding for back-face culling. Order is down, up, north, south, west, east.
      */
     private static final int[][] FACES = {
             { 0, 3, 2, 1 },
@@ -163,12 +130,9 @@ public final class InnerComponentModel {
     };
 
     /**
-     * Appends the boxes for one component to {@code out}.
-     *
-     * <p>Connection bars come first so the component's own shape is drawn over them. Every box is
-     * clamped into the block on the way out: a bar reaching towards the block's floor has nowhere to go
-     * once it gets there, and without the clamp it would poke into the block below - which is a bug that
-     * only ever shows up in game.
+     * Appends the boxes for one component to {@code out}. Connection bars come first so the component's own
+     * shape is drawn over them, and every box is clamped into the block on the way out - a bar reaching the
+     * floor has nowhere to go and would otherwise poke into the block below.
      */
     public static void boxes(Slot slot, Neighbours neighbours, List<Box> out) {
         int first = out.size();
@@ -218,10 +182,8 @@ public final class InnerComponentModel {
     }
 
     /**
-     * A repeater: a slab with a torch at each end, and one pip per delay setting.
-     *
-     * <p>The pips are how the delay becomes visible from outside the block; vanilla shows it with the
-     * spacing of the two torches, which does not read at this size.
+     * A repeater: a slab with a torch at each end, and one pip per delay setting - vanilla shows the delay
+     * by the spacing of the two torches, which does not read at this size.
      */
     private static void repeater(Slot slot, List<Box> out) {
         out.add(new Box(0, FLOOR, 0, 0.24F, 0.05F, 0.38F, 0xFF9A9A9A));
@@ -271,20 +233,15 @@ public final class InnerComponentModel {
     }
 
     /**
-     * The colour of a piece of wire at a given strength: red for dust, orange for the superconductor.
-     *
-     * <p>Both keep vanilla's "dark when idle, hot at fifteen" brightness ramp, so a run of either is
-     * readable at a glance; the two materials are told apart by hue rather than by shape, which matters
-     * because they look identical otherwise.
+     * The colour of a piece of wire at a given strength: red for dust, orange for the superconductor. Both
+     * keep vanilla's "dark when idle, hot at fifteen" ramp, so the two are told apart by hue - they look
+     * identical otherwise.
      */
     public static int wireColor(ComponentType type, int power) {
         return type == ComponentType.SUPERCONDUCTOR ? superconductorColor(power) : dustColor(power);
     }
 
-    /**
-     * The colour of ordinary wire at a given strength: exactly vanilla's own ramp, so inner dust looks
-     * like the dust outside the block.
-     */
+    /** Ordinary wire at a given strength: exactly vanilla's own ramp, so inner dust looks like the dust outside. */
     public static int dustColor(int power) {
         float strength = strength(power);
         return argb(
@@ -294,34 +251,20 @@ public final class InnerComponentModel {
     }
 
     /**
-     * The tint that turns vanilla's greyscale wire art orange, at a given strength.
-     *
-     * <p>Since 1.1.0 the superconductor inside a block is drawn with vanilla's own dust texture, so its
-     * orange has to come from a tint rather than from the texture - and the tint it has to match is the
-     * one the <em>placed</em> wire's art already carries. That art is vanilla's, multiplied by
-     * {@code #FF8C00} (see {@code tools/ColorizeTexture.java}), so this is that colour with vanilla's
-     * brightness ramp applied to it: a wire inside a block then looks exactly like the wire outside it,
-     * which is the whole point.
-     *
-     * <p>The proportional green is also what keeps the two materials apart at every strength. A red
-     * wire's green channel is zero for most of its range - that is what makes it red - so an orange
-     * that carried vanilla's green curve would look like red dust when it is idle.
+     * The tint that turns vanilla's greyscale wire art orange: the placed wire's art is vanilla's multiplied
+     * by {@code #FF8C00} ({@code tools/ColorizeTexture.java}), so this is that colour with vanilla's
+     * brightness ramp applied. The proportional green is what keeps orange from reading as idle red dust.
      */
     public static int superconductorColor(int power) {
-        // Worked out in whole channels rather than in fractions, so that full strength lands on the art's
-        // orange exactly instead of a rounding step away from it.
+        // Whole channels rather than fractions, so full strength lands on the art's orange exactly.
         int brightness = channel(strength(power) * 0.6F + 0.4F);
         int green = brightness * 140 / 255;
         return 0xFF000000 | (brightness << 16) | (green << 8);
     }
 
     /**
-     * How much to brighten the placed wire's own orange art at a given strength.
-     *
-     * <p>The placed wire carries its colour in its texture - vanilla's wire art is greyscale and tinted
-     * in code, and the superconductor's is the same art multiplied by orange - so the tint that remains
-     * is brightness alone. It is the same curve vanilla uses, from four tenths when idle to full when
-     * the wire is at fifteen, which is what makes a line's strength readable at a glance.
+     * How much to brighten the placed wire's own orange art: its colour is in the texture, so only
+     * brightness is left to tint. Vanilla's own curve, from four tenths when idle to full at fifteen.
      */
     public static int wireBrightness(int power) {
         int brightness = channel(strength(power) * 0.6F + 0.4F);

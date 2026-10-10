@@ -18,31 +18,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests the client's memory of hosts a structure has put down.
+ * Tests the client's memory of the hosts a structure has put down.
  *
- * <p>The defect these tests pin down: a component that a structure carries comes home, the server
- * writes it back into its world store and tells the client so - and the client still cannot draw it,
- * because the carried record it had been drawing from went out with the carrier and the block at the
- * landing position is not guaranteed to exist. The world path refuses to draw a shell over air, so a
- * host in that state is drawn by nothing at all.
- *
- * <p>What has to hold, and each line below is one of them:
- *
- * <ul>
- *   <li>a carrier that is announced gone leaves its hosts <b>behind</b>, at the position each was put
- *       down at, keyed by that position - the map is the answer to "does the carried path still owe a
- *       draw here";</li>
- *   <li>announcing the same carrier gone again (the server's release paths are deliberately chatty)
- *       adds nothing: idempotent per host, with the newer view winning;</li>
- *   <li>the world sync taking a position over <b>and the block really being there</b> <b>removes</b> the
- *       landed record, because from then on the ordinary world path draws that host and two shells on
- *       one block is a different bug - and while the block is still air the record <b>stays</b>, because
- *       yielding to a world path that is refusing to draw is how a component ends up drawn by neither
- *       (see {@link LandedHosts#worldPathDraws});</li>
- *   <li>a carrier that is heard from again - a fresh pose - clears its landed records, because a host
- *       that is riding again is not a host that has been put down;</li>
- *   <li>reads are against a snapshot, so a walk cannot see a list change under it.</li>
- * </ul>
+ * <p>A carried component that comes home is written into the server's world store and announced to the client,
+ * but the carried record the client was drawing from goes out with the carrier and the block at the landing
+ * position need not exist yet, so the world path refuses to draw a shell over air. A landed record is keyed by
+ * the landing position, is idempotent per host, and yields only while the world path cannot draw. Reads are
+ * snapshots.
  */
 class LandedHostsTest {
 
@@ -58,11 +40,7 @@ class LandedHostsTest {
     }
 
     /**
-     * One host that was picked up at {@code origin} and put down at {@code at}.
-     *
-     * <p>Before landing the two are the same position (that is what {@code CarriedHost.captured} does);
-     * after landing {@code at} is where the release wrote it, which is the field the landed record is
-     * keyed by.
+     * One host picked up at {@code origin} and put down at {@code at}; the landed record is keyed by {@code at}.
      */
     private static CarrierIndex.CarriedView view(CarrierId carrier, int lx, int ly, int lz,
                                                  BlockPos origin, BlockPos at) {
@@ -89,9 +67,7 @@ class LandedHostsTest {
     @Test
     @DisplayName("a landing position that is not the pick-up position is the one that is remembered")
     void stowKeysByLandingNotByOrigin() {
-        // A structure that drifted: the component belongs where the release put it, not where the
-        // block was when the machine picked it up. Keying by origin here would draw the component at
-        // a position the server no longer answers for.
+        // Keyed by where the release put it: the origin is a position the server no longer answers for.
         CarrierIndex.CarriedView host =
                 view(CARRIER, 0, 0, 0, pos(100, 64, 100), pos(140, 64, 100));
 
@@ -196,8 +172,7 @@ class LandedHostsTest {
     @Test
     @DisplayName("the section walk finds landed hosts by where they landed, not by where they came from")
     void forEachNearUsesTheLandingPosition() {
-        // Origin a hundred blocks away, landing next to the camera: a walk that used the origin would
-        // find nothing at all, which is how a component can be held and never drawn.
+        // Landing next to the camera, origin far away: a walk that used the origin would find nothing.
         landed.stow(List.of(
                 view(CARRIER, 0, 0, 0, pos(900, 64, 900), pos(2, 64, 2)),
                 view(SECOND, 0, 0, 0, pos(1, 64, 1), pos(900, 64, 900))));
@@ -273,13 +248,11 @@ class LandedHostsTest {
     @Test
     @DisplayName("a landed record yields exactly when the world path draws, and never otherwise")
     void aLandedRecordDrawsItselfWheneverTheWorldPathCannot() {
-        // The defect these four lines pin down, as a truth table. "The sync knows the position" and
-        // "the block is there" arrive at different moments - the sync at once, the block when Create
-        // puts it back - so there is a window in which a record that yielded on the sync alone was
-        // drawn by nothing at all.
+        // The truth table: "the sync knows the position" and "the block is there" arrive at different
+        // moments, so a record that yielded on the sync alone would be drawn by nothing.
         assertTrue(LandedHosts.fallbackDraws(false, false), "no world host, no block: it draws itself");
         assertTrue(LandedHosts.fallbackDraws(true, false),
-                "the sync knows it but the block is still air: THIS is the frame window that was invisible");
+                "the sync knows it but the block is still air: the record has to draw it");
         assertTrue(LandedHosts.fallbackDraws(false, true),
                 "a block and no world host: the component is still only in the record");
         assertFalse(LandedHosts.fallbackDraws(true, true),
@@ -305,9 +278,8 @@ class LandedHostsTest {
     @Test
     @DisplayName("a record the world path cannot draw survives the world sync naming its position")
     void aRecordSurvivesASyncTheWorldPathCannotDrawYet() {
-        // The order the real client sees: the carrier is announced gone (the record is stowed), the
-        // ordinary host sync names the landing position straight away, and the block only comes back a
-        // moment later. Dropping the record on the sync alone is what made the component invisible.
+        // The order the client sees: the carrier is announced gone, the ordinary host sync names the
+        // landing position at once, and the block only comes back a moment later.
         CarrierIndex.CarriedView host =
                 view(CARRIER, 1, 0, 2, pos(100, 64, 100), pos(100, 64, 100));
         landed.stow(List.of(host));
@@ -330,9 +302,8 @@ class LandedHostsTest {
     @Test
     @DisplayName("two hosts at different local coordinates keep separate records at separate landings")
     void aMultiBlockStructureKeepsOneRecordPerLocalCoordinate() {
-        // The shape the author's single-block tests never exercised: two components inside one
-        // structure, at different local coordinates, put down on different blocks. Neither the record
-        // nor the map may fold them together - folding happens per carrier plus local coordinate.
+        // Two components inside one structure, at different local coordinates, put down on different
+        // blocks: folding happens per carrier plus local coordinate, not per carrier.
         CarrierIndex.CarriedView first =
                 view(CARRIER, 0, 0, 0, pos(100, 64, 100), pos(100, 64, 100));
         CarrierIndex.CarriedView second =
@@ -351,8 +322,8 @@ class LandedHostsTest {
     @Test
     @DisplayName("the same local coordinate on two structures is two records, not one")
     void theSameLocalCoordinateOnTwoStructuresIsNotFolded() {
-        // Why the key is carrier plus local coordinate and not the local coordinate alone: two
-        // machines parked next to each other both have a host at their own (1,0,2).
+        // Why the key is carrier plus local coordinate: two machines parked next to each other both have
+        // a host at their own (1,0,2).
         CarrierIndex.CarriedView mine =
                 view(CARRIER, 1, 0, 2, pos(100, 64, 100), pos(100, 64, 100));
         CarrierIndex.CarriedView theirs =
@@ -381,9 +352,8 @@ class LandedHostsTest {
     @Test
     @DisplayName("a host missing from a still-flying carrier's list is the one that was put down")
     void aHostMissingFromTheListWasPutDown() {
-        // The per-host put-down path: the carrier is still there (it has a pose), and its list is one
-        // entry shorter. That entry is the block that just came home, and it has to become landed - it
-        // is not a world host the client can draw over a block that is not there.
+        // The per-host put-down path: the carrier still has a pose and its list is one entry shorter; that
+        // entry is the block that just came home, and it is not a world host the client can draw.
         CarrierIndex.CarriedView stays =
                 view(CARRIER, 0, 0, 0, pos(100, 64, 100), pos(100, 64, 100));
         CarrierIndex.CarriedView leaves =

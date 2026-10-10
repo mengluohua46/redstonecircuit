@@ -33,107 +33,25 @@ import org.joml.Quaterniond;
 import org.joml.Vector3d;
 
 /**
- * <b>The claim the Sable path never had.</b>
- *
- * <h2>The defect this exists for, stated exactly</h2>
- * The author's report for Create Aeronautics was: <em>physicalise the blocks with the aeronautics
- * wrench, fly the structure away - the redstone components inside the block cannot be seen, and they
- * stay behind instead of following.</em>
- *
- * <p>Both halves of that sentence had one cause. Nothing on the Sable side ever called
- * {@code CarrierStore.startMoving}: the Create side is driven by {@code MovementBehaviour}, and a
- * Sable sub-level has no equivalent callback that P0 or P1 ever found. So a component in a flying
- * sub-level was never moved into the carrier index, and:
- *
- * <ul>
- *   <li>the server's world store still held it at the block the structure had taken it from, so the
- *       component did not follow the machine ("鐣欏湪鍘熷湴");</li>
- *   <li>the client was never told to stop drawing it there, and the block itself is air once the
- *       structure has flown off, so the world render path refused to draw it
- *       ({@code worldPathDraws = worldHost && blockPresent} is false) and the carried path had never
- *       heard of it either ("鐪嬩笉瑙?).</li>
- * </ul>
- *
- * <p>The log confirmed the absence rather than the failure: {@code carrier s:xxxxxxxx released
- * wholesale (sable sub-level removed (UNLOADED)) UNKNOWN_CARRIER} - a <b>release</b> for a carrier that
- * had never been claimed, four of them, and not one {@code carrier claim} line with an {@code s:} id.
- *
- * <h2>Where the claim hangs, given that there is no callback</h2>
- * Two places, because neither is sufficient alone:
- *
- * <ol>
- *   <li>{@link SableSubLevelAccounting#onSubLevelAdded} - the moment the sub-level exists. Prompt, and
- *       it is what makes a re-loaded save reconcile;</li>
- *   <li>this class's {@link #sweep}, driven once per level tick. Necessary because a sub-level is
- *       typically allocated <em>before</em> the blocks move out of the world (the plot is created, and
- *       only then are the blocks copied in and cleared out), so at the instant the add hook fires there
- *       may be nothing to claim yet. The sweep keeps looking until either the claim happens or the
- *       structure proves not to be holding our blocks.</li>
- * </ol>
- *
- * <h2>Why "which world positions" is answered from Sable's own bounds, not by scanning the world</h2>
- * The candidate set is <code>{world store position : it is inside some live sub-level's world
- * bounds}</code>. That is bounded by the number of host blocks in the level (the order of a thousand)
- * against the handful of sub-levels, and it needs no knowledge of the sub-level's internal layout. The
- * alternative - walking every block of every plot - would be a walk over millions of coordinates for a
- * plot that is mostly empty, once per tick, which is not a trade this mod is willing to make.
- *
- * <h2>Why a candidate is only claimed when its world block has really gone</h2>
- * A sub-level can exist over terrain that is still standing in the world: allocate an airship whose
- * balloon overlaps your house and, for one tick, the house's components are inside the sub-level's
- * bounds <em>and</em> still real blocks in the world. Claiming then would take the component out of a
- * block the player can still see and break, and the break would find nothing. So the last gate is
- * physical: <b>the block at the candidate's origin must no longer be the block it was</b>. For a block
- * the structure has really taken, that is air (Sable's own move clears the world side). For a block
- * that has not moved, it is the block itself, and nothing is touched.
- *
- * <p>Every step is verified rather than assumed:
- *
- * <pre>
- *   candidate = a world position the store says holds a component, inside a live sub-level
- *   gate 1    the block at that position is no longer the block the component was placed in
- *   gate 2    pose.logicalPose() to world for local = pose.transformPositionInverse(origin)
- *             round-trips back to origin within a block  (see SubLevelSpace#localForVerified)
- *   claim     CarrierStore.startMoving(level, subLevelUuid, SUB_LEVEL, local, origin)
- * </pre>
- *
- * <p>A candidate that fails either gate is left exactly where it is. The invariant this protects is
- * the same one the Create hook protects: <b>a block that really holds a component is never skipped</b>
- * - the sweep keeps trying - and nothing is ever moved on a guess.
- *
- * <h2>Nothing here runs unless Sable is installed</h2>
- * Every Sable type this class names lives in the compat source set, and the class is only reached from
- * {@link SableSubLevelAccounting}, which is only installed after a {@code ModList} check.
+ * The claim the Sable path needs: a sub-level has no callback comparable to Create's
+ * {@code MovementBehaviour}, so nothing ever called {@code CarrierStore.startMoving} and a component inside
+ * a flying structure stayed in the server's world store, with the client never told to stop drawing it.
+ * <p>Two places claim, because neither suffices: the add hook when the sub-level appears, and {@link #sweep}
+ * once per level tick, since a sub-level is usually allocated before its blocks leave the world. Candidates
+ * come from the store rather than a walk of the plot, and one is claimed only once its world block is gone.
  */
 final class SableCarrierClaim {
 
-    /**
-     * How many level ticks to wait between two attempts at the same sub-level.
-     *
-     * <p>Ten: a sub-level is allocated and its blocks moved within the same tick in the ordinary
-     * aeronautics flow, so one retry after half a second is already generous, and a player who
-     * physicalises something and then walks away costs ten sweeps a second of one hash lookup. Between
-     * attempts nothing is walking the store at all.
-     */
+    /** Level ticks between two attempts at the same sub-level: a sub-level is allocated and its blocks
+     * moved within the same tick in the ordinary flow, so one retry after half a second is generous. */
     private static final int RETRY_INTERVAL = 10;
 
-    /**
-     * How many times one sub-level is re-examined before it is left alone for good.
-     *
-     * <p>Forty attempts at ten ticks each is roughly twenty seconds: long enough for a machine that is
-     * assembled and then paused, short enough that a sub-level holding none of our blocks - the
-     * overwhelming majority, since most players' contraptions have no inner redstone at all - stops
-     * costing anything.
-     */
+    /** Attempts before one sub-level is left alone for good: forty at ten ticks each is about twenty
+     * seconds, long enough for a machine that is assembled and then paused. */
     private static final int MAX_ATTEMPTS = 40;
 
-    /**
-     * The most candidates one sub-level may claim in one pass.
-     *
-     * <p>Four hundred and ninety-six, which is a full section of blocks. A structure holding more
-     * components than that finishes over the following passes, which is correct if slower; the ceiling
-     * exists so one pathological machine cannot make one tick unbounded.
-     */
+    /** The most candidates one sub-level may claim in one pass (a full section of blocks), so no
+     * pathological machine can make one tick unbounded; the rest finish over later passes. */
     private static final int MAX_CLAIMS_PER_PASS = 496;
 
     /** How many blocks a round trip through the pose may be out before the pose is refused. */
@@ -145,17 +63,8 @@ final class SableCarrierClaim {
         private int attempts;
         private int claimed;
 
-        /**
-         * How many adoption attempts this sub-level has had, and when the last one was.
-         *
-         * <p>P1.30. Deliberately <b>separate</b> from {@link #attempts}: the claim path stops after
-         * {@link #MAX_ATTEMPTS} because a structure that has claimed nothing for twenty seconds is
-         * holding none of our blocks, whereas the adoption path has to keep looking for a different
-         * reason - "a component is in the world store at one of this structure's own plot coordinates" is
-         * a state a save can be in for as long as the save exists, and its own cadence is a second, not
-         * half a second. Rolling them into one counter would either re-open the claim path for ever or
-         * close the adoption path after twenty seconds; both are wrong.
-         */
+        /** Adoption attempts, kept <b>separate</b> from {@link #attempts}: the claim path gives up after
+         * {@link #MAX_ATTEMPTS}, while an un-adopted entry can persist as long as the save does. */
         private int adoptionPasses;
         private long lastAdoptionTick = Long.MIN_VALUE;
 
@@ -169,12 +78,7 @@ final class SableCarrierClaim {
             return adoptionPasses < SableComponentAdoption.MAX_PASSES;
         }
 
-        /**
-         * Whether this tick is one of the structure's own adoption ticks.
-         *
-         * <p>Staggered by the UUID, the same trick the claim sweep uses, so a world with many structures
-         * does not examine them all on the same tick.
-         */
+        /** Whether this tick is one of the structure's own adoption ticks, staggered by the UUID. */
         boolean adoptionDue(long now, UUID uuid) {
             if (!adoptionRetryable()) {
                 return false;
@@ -200,14 +104,8 @@ final class SableCarrierClaim {
 
     // ---------------------------------------------------------------- entry --
 
-    /**
-     * One attempt at every sub-level of one level.
-     *
-     * <p>Called once per level tick by the compat backend, before the carrier tick that would send
-     * poses and release orphans - so a claim made here is broadcast with a pose in the same tick rather
-     * than a tick later, which is the difference between "the component appears as the machine lifts"
-     * and one frame of it standing in the world.
-     */
+    /** One attempt at every sub-level of one level, called once per level tick before the carrier tick
+     * that would send poses - so a claim made here is broadcast with a pose in the same tick. */
     static void sweep(ServerLevel level) {
         if (level == null || !CarrierStore.isActive()) {
             return;
@@ -215,19 +113,13 @@ final class SableCarrierClaim {
         try {
             sweepAll(level);
         } catch (RuntimeException | LinkageError failed) {
-            // A claim failing must never take a level tick down: the components stay in the world
-            // store, which is the safe half of the two states.
+            // A claim failing must never take a level tick down: the components stay in the world store.
             RCConfig.LOGGER.warn("[redstonecircuit] sable claim sweep failed: {}", failed.toString());
         }
     }
 
-    /**
-     * The one-shot attempt for a sub-level that has just been added.
-     *
-     * <p>Returns what the accounting should log. Deliberately does not mark the sub-level as settled
-     * when it finds nothing: the add hook fires before the blocks move, so "found nothing" here is the
-     * expected answer and the sweep is what actually claims.
-     */
+    /** The one-shot attempt for a sub-level that has just been added. "Found nothing" is the expected
+     * answer here and is not settled on: the add hook fires before the blocks move. */
     static int onSubLevelAdded(@Nullable ServerLevel level, SubLevel subLevel) {
         if (level == null || subLevel == null || !CarrierStore.isActive()) {
             return 0;
@@ -286,11 +178,7 @@ final class SableCarrierClaim {
             }
             live.add(uuid);
             Watched watched = WATCHED.computeIfAbsent(uuid, ignored -> new Watched());
-            // THE ADOPTION PASS (P1.30) RUNS INDEPENDENTLY OF THE CLAIM PASS, and before it. The two look
-            // at disjoint candidate sets - a claim is about a world position inside the structure's WORLD
-            // bounds, an adoption about a level position inside its PLOT bounds - so the order cannot
-            // change either answer, and running the repair first means a save that is in the broken state
-            // is fixed on the same pass that would otherwise do nothing about it.
+            // Adoption runs before the claim and independently: the two look at disjoint candidate sets.
             if (watched.adoptionDue(now, uuid)) {
                 watched.noteAdoption(now);
                 SubLevelSpace adoptionSpace = describe(subLevel);
@@ -301,8 +189,7 @@ final class SableCarrierClaim {
             if (!watched.retryable()) {
                 continue;
             }
-            // Ten ticks between attempts, staggered by the sub-level's own id so a world with many
-            // sub-levels does not re-examine all of them on the same tick.
+            // Ten ticks between attempts, staggered by the sub-level's own id.
             if ((now + Math.floorMod(uuid.hashCode(), RETRY_INTERVAL)) % RETRY_INTERVAL != 0) {
                 continue;
             }
@@ -314,12 +201,8 @@ final class SableCarrierClaim {
 
     // ------------------------------------------------------------ the claim --
 
-    /**
-     * One sub-level's attempt: build its two spaces, find its candidates, and claim the ones whose
-     * block has really left the world.
-     *
-     * @return how many hosts were newly claimed
-     */
+    /** One sub-level's attempt: build its two spaces, find its candidates, and claim the ones whose
+     * block has really left the world. Returns how many hosts were newly claimed. */
     static int claimFrom(ServerLevel level, SubLevel subLevel, String why) {
         SubLevelSpace space = describe(subLevel);
         if (space == null || !space.hasPose()) {
@@ -340,22 +223,20 @@ final class SableCarrierClaim {
                 break;
             }
             if (!blockHasLeftTheWorld(level, origin)) {
-                // Gate 1: the block is still standing where the component is. Claiming now would move
-                // a component out of a block a player can still see and break.
+                // Gate 1: the block is still standing there, so claiming would take a component out of a
+                // block a player can still see and break.
                 continue;
             }
             BlockPos local = space.localForVerified(origin, ROUND_TRIP_TOLERANCE);
             if (local == null) {
                 // Gate 2: the pose does not put this local coordinate back where the block is, so this
-                // code cannot say where the component would be drawn. Reported rather than guessed.
+                // code cannot say where the component would be drawn - reported rather than guessed.
                 refused++;
                 continue;
             }
             if (!blockIsInsideTheStructure(space, local)) {
-                // Gate 3: the local coordinate the pose names is not a block this structure is standing
-                // on. A pose answers for every point in the world, so a candidate at the origin of a
-                // component a *different* machine is carrying would round-trip perfectly and still be
-                // the wrong block; the structure's own world bounds are what says so.
+                // Gate 3: that local coordinate is not a block this structure stands on. A pose answers
+                // for every point in the world, so another machine's host would round-trip too.
                 refused++;
                 continue;
             }
@@ -386,12 +267,8 @@ final class SableCarrierClaim {
         return claimed;
     }
 
-    /**
-     * The world positions inside a sub-level that still hold a component in the level's own store.
-     *
-     * <p>Bounded by the store, not by the plot: see the class doc. The store's own position list is the
-     * only enumeration used, and the sub-level's world bounds filter it in one comparison per entry.
-     */
+    /** The world positions inside a sub-level that still hold a component in the level's own store.
+     * Bounded by the store, not by the plot: its position list, filtered by the sub-level's bounds. */
     private static List<BlockPos> candidates(ServerLevel level, SubLevelSpace space,
                                              InnerRedstoneStore store) {
         List<BlockPos> out = new ArrayList<>();
@@ -411,32 +288,15 @@ final class SableCarrierClaim {
         return out;
     }
 
-    /**
-     * Whether the local coordinate the pose named is a block the structure is really standing on.
-     *
-     * <p>An affine pose answers for every point in the world, so "the pose put this world block at that
-     * local coordinate" is true for a block nowhere near the sub-level. What makes a candidate ours is
-     * that its local coordinate, put back through the pose, is inside the structure's own world bounds -
-     * the bounds Sable maintains from the blocks it actually holds.
-     */
+    /** Whether the local coordinate the pose named is a block the structure really stands on: an affine
+     * pose answers for every point in the world, so its own bounds are what make a candidate ours. */
     private static boolean blockIsInsideTheStructure(SubLevelSpace space, BlockPos local) {
         Vector3d world = space.worldFor(local);
         return world != null && space.containsWorld(SubLevelSpace.nearestWorldBlock(world));
     }
 
-    /**
-     * Whether the block at {@code origin} is no longer the block the component was placed inside.
-     *
-     * <p>The physical gate. Sable clears the world side when it takes a block into a plot, so for a
-     * block the structure has really taken this is air; for a block that is still standing - a
-     * sub-level allocated over terrain, a plot whose bounds merely overlap a house - it is the block
-     * itself and the candidate is left alone.
-     *
-     * <p>The test is "air", not "not the same state": a structure that has swapped the block for
-     * another one is not a case this code has ever seen, and treating a non-air block as taken would
-     * make a claim on the strength of a wrong block. Air is the one answer that means the block was
-     * moved.
-     */
+    /** The physical gate: the block at {@code origin} is air, so the structure really took it. "Air",
+     * not "a different state", because a wrong block must never make a claim. */
     private static boolean blockHasLeftTheWorld(ServerLevel level, BlockPos origin) {
         try {
             BlockState state = level.getBlockState(origin);
@@ -448,13 +308,8 @@ final class SableCarrierClaim {
 
     // ------------------------------------------------- Sable type conversion --
 
-    /**
-     * Everything this code needs about one sub-level, in our own types.
-     *
-     * <p>The one place a {@code SubLevel} is turned into numbers, so that all of the decision-making
-     * above is testable without Sable and this method is the only thing that has to be checked against
-     * Sable's own API when it changes.
-     */
+    /** Everything this code needs about one sub-level, in our own types - the one place Sable's API is
+     * turned into numbers, which keeps every decision above testable without Sable. */
     @Nullable
     static SubLevelSpace describe(SubLevel subLevel) {
         if (subLevel == null || subLevel.isRemoved()) {
@@ -472,16 +327,9 @@ final class SableCarrierClaim {
                 poseOf(subLevel));
     }
 
-    /**
-     * A sub-level's {@code logicalPose()} as a {@link CarrierPose}, or {@code null} when it cannot be
-     * read.
-     *
-     * <p>This is the <b>same</b> conversion {@code CarrierResolver#subLevelPose} makes for the live
-     * carrier path, and deliberately so: the pose a claim is verified against has to be the pose the
-     * renderer and the landing arithmetic later use, or a claim can round-trip here and land nowhere.
-     * Written out again rather than shared because that one is private to another class - and the two
-     * are pinned against each other by the same {@link SubLevelSpace} tests.
-     */
+    /** A sub-level's {@code logicalPose()} as a {@link CarrierPose}, or {@code null} when it cannot be
+     * read - deliberately the same conversion the live carrier path makes, or a claim verified against
+     * one pose could round-trip here and land nowhere. */
     @Nullable
     static CarrierPose poseOf(SubLevel subLevel) {
         Pose3dc pose = subLevel.logicalPose();
@@ -506,14 +354,9 @@ final class SableCarrierClaim {
         return new CarrierPose(position, orientation.normalize(), pivot, scale);
     }
 
-    /**
-     * The landing position of one host, from the sub-level's <em>current</em> pose, or {@code null}
-     * when there is no pose left to ask.
-     *
-     * <p>Used on the removal path: a sub-level that is taken apart has a pose at that moment, and the
-     * pose is where its blocks actually are. Falling back to the recorded origin is what
-     * {@code releaseAll(鈥? null, 鈥?} does.
-     */
+    /** The landing position of one host, from the sub-level's <em>current</em> pose: a sub-level being
+     * taken apart has a pose at that moment, and the pose is where its blocks actually are. Falls back
+     * to the recorded origin when there is no pose left to ask. */
     @Nullable
     static CarriedHostIndex.Landing landingFor(@Nullable SubLevel subLevel) {
         if (subLevel == null || subLevel.isRemoved()) {

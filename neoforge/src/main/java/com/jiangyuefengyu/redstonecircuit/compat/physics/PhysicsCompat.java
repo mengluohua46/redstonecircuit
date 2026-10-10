@@ -11,47 +11,28 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The single gate between this mod and the optional physics-structure mods (Sable, Create,
- * Create Aeronautics).
+ * The single gate between this mod and the optional physics-structure mods (Sable, Create, Create
+ * Aeronautics).
  *
- * <p>This class is the <em>only</em> member of the compat layer the rest of the mod may name, and
- * the only one that ever runs when none of those mods is installed. Everything that names a Sable or
- * Create type lives in {@code src/compat/java}, a separate Gradle source set that is left out of the
- * build entirely when the two nested jars it compiles against are not available - so the mod builds
- * on a machine that has never seen those mods.
+ * <p>This is the only member of the compat layer the rest of the mod may name, and the only one that runs
+ * when none of those mods is installed: everything that names a Sable or Create type lives in a separate
+ * Gradle source set that is left out of the build entirely when the nested jars it compiles against are
+ * missing, so the mod builds on a machine that has never seen those mods.
  *
- * <h2>How the two halves meet</h2>
- * There is no compile-time reference in either direction across the two halves except this class
- * being named by {@code RedstoneCircuit} and by {@code RCCommand}:
- * <ul>
- *   <li>{@code compat} depends on {@code main} (its classpath is main's output plus the optional mod
- *       jars), so it may call anything here;</li>
- *   <li>{@code main} never links against {@code compat}. It reaches it by name, through
- *       {@link #backend()}, and only after a real mod-list check has passed.</li>
- * </ul>
- * That is what keeps the promise from P0: <b>with none of the optional mods installed, no class of
- * theirs is ever loaded</b>, so {@code NoClassDefFoundError} cannot happen, and behaviour is
- * identical to a build without any of this code.
- *
- * <h2>Why a reflection call rather than a direct one</h2>
- * {@code Class.forName("...PhysicsCompatBackend")} resolves the class <em>and its supertypes</em>.
- * The backend implements no Sable or Create interface - that is the P0 rule this code still obeys -
- * so on a machine without those mods it loads, runs its mod-list check, and does nothing. If the
- * source set was not compiled at all, the lookup simply fails and
- * {@link #backendAvailable()} stays false, which is
- * {@link #describe()}'s "not built into this jar" answer.
- *
- * <h2>What this class does not do</h2>
- * <p>P0's promise is still intact: nothing here registers an event listener, a mixin, a network
- * channel or a data structure. The only things the compat half registers are diagnostics,
- * and every one of them is a log line.
+ * <p>The two halves never reference each other at compile time: this one reaches the other by name through
+ * {@link #backend()}. {@code Class.forName} resolves a class <em>and its supertypes</em>, which is why the
+ * backend implements no Sable or Create interface - with the mods absent it loads, checks the mod list and
+ * does nothing, so {@code NoClassDefFoundError} cannot happen. Nothing here registers a listener, a mixin,
+ * a network channel or a data structure.
  */
 public final class PhysicsCompat {
 
@@ -70,7 +51,7 @@ public final class PhysicsCompat {
     /** Mod id of Create Simulated, also inside the wrapper. */
     public static final String MOD_SIMULATED = "simulated";
 
-    /** Fully qualified name of the compat half. Kept as a string on purpose - see the class doc. */
+    /** Fully qualified name of the compat half; kept as a string so no compile-time link exists. */
     private static final String BACKEND = "com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompatBackend";
 
     private static boolean initialised;
@@ -84,10 +65,8 @@ public final class PhysicsCompat {
     // ---------------------------------------------------------------- public --
 
     /**
-     * Wires up whatever optional compatibility is available. Called once, from the mod constructor.
-     *
-     * <p>Safe to call before the mod list is populated: an unavailable mod list is treated as
-     * "nothing is installed".
+     * Wires up whatever optional compatibility is available; called once, from the mod constructor, and safe
+     * before the mod list is populated.
      */
     public static void init() {
         if (initialised) {
@@ -97,20 +76,128 @@ public final class PhysicsCompat {
 
         Class<?> backend = backend();
         if (backend == null) {
-            // Either none of the optional mods is installed, or this jar was built without the
-            // optional compat source set. Both are ordinary, supported states.
+            // Either none of the optional mods is installed, or this jar was built without the optional
+            // compat source set. Both are ordinary, supported states.
             return;
         }
         invoke(backend, "init");
     }
 
     /**
-     * Tells the compat half that the block type at {@code pos} now holds an inner component, so it
-     * can attach its diagnostic hook to that block type.
+     * The one compat registration that needs the block registry, so it is asked for once every registry is
+     * full and this mod's blocks exist.
      *
-     * <p>Called from the placement paths. Does nothing at all - not even a class lookup - unless the
-     * backend exists and Sable or Create is installed, so it is free when the mods are absent.
+     * <p>Gated exactly like {@link #hostBlockStored}: a no-op with no physics mod installed, and it never
+     * loads a Create type on a server that has none.
      */
+    public static void installProductCarrier() {
+        if (backendClass == null || !createLoaded()) {
+            return;
+        }
+        invoke(backendClass, "installProductCarrier");
+    }
+
+    /**
+     * Runs the tick of every placed structure a level does not tick, once per level tick and after the
+     * level's own block-entity ticks.
+     *
+     * <p>A Sable sub-level's blocks live in an embedded plot the level does not tick, so nothing else would
+     * ever read a physicalised structure's faces again. Gated like every other entry point: no backend class
+     * or no Sable answers without loading a single Sable type.
+     */
+    public static void tickCarriedProducts(ServerLevel level, ServerLevel pocket) {
+        if (backendClass == null || !sableLoaded() || level == null || pocket == null) {
+            return;
+        }
+        invoke(backendClass, "tickCarriedProducts",
+                new Class<?>[] {ServerLevel.class, ServerLevel.class}, level, pocket);
+    }
+
+    /**
+     * What a carrier's drawn block answers a signal query with, at a world position.
+     *
+     * <p>A sub-level draws blocks where its pose puts them while the blocks themselves stand in a reserved
+     * plot, so the world position the player sees holds air and answers nothing unless the block drawn there
+     * is asked. Turning a world position back into a sub-level's own coordinates is a Sable question, which
+     * is why it lives behind this entry point; a world without Sable answers 0 without loading a Sable type.
+     *
+     * <p>{@code worldDirection} is vanilla's direction: the way the query travelled, from the asker towards
+     * the queried position.
+     */
+    public static int carriedSignalAt(ServerLevel level, BlockPos pos,
+                                      net.minecraft.core.Direction worldDirection, boolean strong) {
+        if (backendClass == null || !sableLoaded() || level == null || pos == null || worldDirection == null) {
+            return 0;
+        }
+        Object answer = invoke(backendClass, "carriedSignalAt",
+                new Class<?>[] {ServerLevel.class, BlockPos.class, net.minecraft.core.Direction.class, boolean.class},
+                level, pos, worldDirection, strong);
+        return answer instanceof Integer value ? value : 0;
+    }
+
+    /**
+     * What a carrier's drawn block answers a comparator with, at a world position: the twin of
+     * {@link #carriedSignalAt} for the analogue output, which is what a comparator's back input is made of
+     * and the only thing a steering angle can travel in. The same reserved-plot reasoning applies, so it is
+     * gated the same way: no backend class or no Sable answers 0 without loading a Sable type.
+     *
+     * <p>The direction travels with the question: the compat walk turns the asker's world direction into the
+     * sub-level's own, because a directional answer is the one a steering wheel gives.
+     */
+    public static int carriedAnalogAt(ServerLevel level, BlockPos pos,
+                                      net.minecraft.core.Direction worldDirection) {
+        if (backendClass == null || !sableLoaded() || level == null || pos == null) {
+            return 0;
+        }
+        Object answer = invoke(backendClass, "carriedAnalogAt",
+                new Class<?>[] {ServerLevel.class, BlockPos.class, net.minecraft.core.Direction.class},
+                level, pos, worldDirection);
+        return answer instanceof Integer value ? value : 0;
+    }
+
+    /**
+     * Tells the compat half that the block type at {@code pos} now holds an inner component, so it can
+     * attach its diagnostic hook to that block type; does nothing at all unless the backend exists and
+     * Sable or Create is installed.
+     */
+    /**
+     * Places a single-block physics structure where the machine's own carrier frame draws the cell in front
+     * of it, through the same vanilla placement the world path uses, so the two halves of the machine cannot
+     * disagree about what placing a block means.
+     *
+     * <p>False is the ordinary answer on a machine with no physics installed - or no Sable, or no container
+     * in this level - and it means nothing was placed: the item is not spent.
+     */
+    public static boolean placeSingleBlockStructure(ServerLevel level, BlockPos drawnTarget, Direction out,
+                                                    ItemStack stack) {
+        if (backendClass == null || !sableLoaded() || level == null || drawnTarget == null || out == null
+                || stack == null || stack.isEmpty()) {
+            return false;
+        }
+        Object answer = invoke(backendClass, "placeSingleBlockStructure",
+                new Class<?>[] {ServerLevel.class, BlockPos.class, Direction.class, ItemStack.class},
+                level, drawnTarget, out, stack);
+        return answer instanceof Boolean placed && placed;
+    }
+
+    /**
+     * Drops one chunk's saved sub-level record: the repair for a structure Sable filed but cannot load. The
+     * record goes from disk <b>and</b> from Sable's in-memory copy, because Sable writes that copy back out at
+     * the next save; no live structure, plot or world block is touched.
+     *
+     * <p>Check first that nothing still wanted is filed under that chunk. {@code null} means the backend or
+     * Sable is missing.
+     */
+    @Nullable
+    public static String purgeHoldingChunk(ServerLevel level, int chunkX, int chunkZ) {
+        if (backendClass == null || !sableLoaded() || level == null) {
+            return null;
+        }
+        Object answer = invoke(backendClass, "purgeHoldingChunk",
+                new Class<?>[] {ServerLevel.class, int.class, int.class}, level, chunkX, chunkZ);
+        return answer instanceof String text ? text : null;
+    }
+
     public static void hostBlockStored(ServerLevel level, BlockPos pos, Block block) {
         if (backendClass == null || !(sableLoaded() || createLoaded())) {
             return;
@@ -120,16 +207,10 @@ public final class PhysicsCompat {
     }
 
     /**
-     * <b>P1.56: the pose Sable is drawing a sub-level at, in this frame - or {@code null}.</b>
+     * The pose Sable is drawing a sub-level at in this frame, or {@code null} when the carrier is not an
+     * answerable Sable sub-level - the caller then keeps the pose the network gave it.
      *
-     * <p>Asked by the carried render pass, once per carrier per frame. The compat half answers it from
-     * Sable's own client sub-level ({@code ClientSubLevel#renderPose(float)}), which is the pose Sable
-     * itself draws the structure with; {@code null} means "not a Sable sub-level, or not answerable",
-     * and the caller then keeps the pose it already had from the network.
-     *
-     * <p>Gated exactly like the rest of this class: no backend class, no Sable, or a carrier that is not
-     * a sub-level answers {@code null} without loading a single Sable type - a missing mod must never be
-     * able to throw {@code NoClassDefFoundError}.
+     * <p>Gated like the rest of this class, so a missing mod can never throw {@code NoClassDefFoundError}.
      */
     @Nullable
     public static com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose renderPoseOf(
@@ -147,36 +228,25 @@ public final class PhysicsCompat {
     }
 
     /**
-     * <b>Every gated call that could not be made, counted - and warned about <em>once per name</em>.</b>
-     *
-     * <p>P1.57. The first version of the render-pose round added its query to the compat half but not to
-     * the backend class this file reflects on, and the author's log grew to 21 MB: {@code invoke} warned
-     * <b>per call</b>, and this call is made once per carried host per frame - 3625 warnings on the render
-     * thread, while the render silently went on using the placeholder. Both halves of that are defects:
-     * the missing entry point, and a warning whose rate is the frame rate.
-     *
-     * <p>So a failure is now reported once by name and only counted afterwards, and the count is readable
-     * ({@link #backendFailureCount()}) - which is the same shape {@code CarrierWorldIo#unfilteredReads}
-     * uses for the other "cannot do it, must not be silent" case in this mod.
+     * Every gated call that could not be made, counted and warned about <em>once per name</em>: this path
+     * runs per carried host per frame, so a warning per call would be a warning per frame.
      */
     private static final Set<String> REPORTED_BACKEND_FAILURES = ConcurrentHashMap.newKeySet();
 
-    /** How many gated calls have failed in total; read by the test, and by nothing else. */
+    /** How many gated calls have failed in total. */
     private static final AtomicInteger BACKEND_FAILURES = new AtomicInteger();
 
     /** Successful reflective lookups, one per name: this path runs per host per frame. */
     private static final Map<String, Method> BACKEND_METHODS = new ConcurrentHashMap<>();
 
-    /** How many gated backend calls have failed; read by the test, and by nothing else. */
+    /** How many gated backend calls have failed, for the once-per-name warning above. */
     public static int backendFailureCount() {
         return BACKEND_FAILURES.get();
     }
 
     /**
-     * {@code /rc physics}: everything the P1 decision needs about one world position.
-     *
-     * @return lines to print, or an empty list when there is nothing to report here (no mods, or a
-     *     jar built without the compat half; {@link #describe()} says which).
+     * {@code /rc physics}: everything the decision needs about one world position; empty when there is
+     * nothing to report here, which is no mods or a jar built without the compat half.
      */
     public static List<String> physicsReport(ServerLevel level, BlockPos pos) {
         if (backendClass == null) {
@@ -191,10 +261,8 @@ public final class PhysicsCompat {
     }
 
     /**
-     * {@code /rc carrier}: what every moving structure is carrying, and where it is.
-     *
-     * <p>The same information {@link #physicsReport} prints, minus the parts that need a block to look
-     * at - so it can be run at any time, including while standing nowhere in particular.
+     * {@code /rc carrier}: what every moving structure is carrying, and where it is - the same information
+     * {@link #physicsReport} prints, minus the parts that need a block to look at, so it can be run anywhere.
      */
     public static List<String> carrierReport(ServerLevel level) {
         if (backendClass == null) {
@@ -208,12 +276,9 @@ public final class PhysicsCompat {
     }
 
     /**
-     * One line about a carrier that is still filed under a provisional identity.
-     *
-     * <p>Part of the two-phase identity's diagnostics: it says which structure the fallback id belongs
-     * to - anchor, block count, and whether an entity has appeared - which is what an operator needs to
-     * match a provisional claim in {@code /rc carrier} against the machine in front of them. Answered
-     * by the compat half, which is the only place that can look a contraption up.
+     * One line about a carrier that is still filed under a provisional identity: which structure the fallback
+     * id belongs to - anchor, block count, whether an entity has appeared - which is what an operator needs to
+     * match a provisional claim against the machine in front of them.
      */
     public static String provisionalDescription(com.jiangyuefengyu.redstonecircuit.carrier.CarrierId carrier) {
         if (backendClass == null) {
@@ -269,10 +334,8 @@ public final class PhysicsCompat {
     }
 
     /**
-     * Mod-list lookup that tolerates being called before the list exists.
-     *
-     * <p>The class is named in the signature so callers do not have to import FML; the actual check
-     * is a plain {@code ModList} query.
+     * Mod-list lookup that tolerates being called before the list exists; the FML class is named in the
+     * signature so callers do not have to import it.
      */
     public static boolean loaded(String modId) {
         net.neoforged.fml.ModList mods = net.neoforged.fml.ModList.get();
@@ -288,8 +351,7 @@ public final class PhysicsCompat {
             backendLookupDone = true;
             if (sableLoaded() || createLoaded()) {
                 try {
-                    // Only the constructor/static initialiser of the compat half runs here; it too
-                    // checks the mod list before it touches anything mod-specific.
+                    // Only the compat half's static initialiser runs here, and it checks the mod list too.
                     backendClass = Class.forName(BACKEND, true, PhysicsCompat.class.getClassLoader());
                 } catch (ClassNotFoundException | LinkageError absentOrUnusable) {
                     RCConfig.LOGGER.info("[redstonecircuit] physics compat: {} is not available ({})",
@@ -305,11 +367,9 @@ public final class PhysicsCompat {
     }
 
     /**
-     * Calls a static method on the compat half.
-     *
-     * <p>A failure here is a bug in this mod, not a missing dependency - the backend was found and a
-     * mod is installed - so it is logged rather than swallowed silently. It must still never
-     * propagate: a diagnostic must not be able to take the server down.
+     * Calls a static method on the compat half. A failure here is a bug in this mod rather than a missing
+     * dependency - the backend was found and a mod is installed - so it is logged rather than swallowed; but
+     * it must still never propagate, because a diagnostic must not take the server down.
      */
     @Nullable
     private static Object invoke(Class<?> owner, String name, Class<?>[] parameterTypes, Object... args) {

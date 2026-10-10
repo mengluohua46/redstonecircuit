@@ -20,37 +20,17 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Vector3d;
 
 /**
- * The Sable half of the P1 diagnostics: everything {@code /rc physics} prints that Sable can answer.
+ * The Sable half of the {@code /rc physics} diagnostics: everything that report prints that Sable can
+ * answer. It is <b>read-only</b> - every method is a query or a string builder - and safe with Sable absent,
+ * because it is reached only through {@code PhysicsCompat}, which resolves it by name after a real
+ * {@code ModList} check.
  *
- * <p>This class exists to settle the three questions P0 could only answer from bytecode. It is
- * <b>read-only</b>: it calls no {@code set*}, registers nothing, and keeps no state. Every method
- * here is either a query or a string builder.
- *
- * <h2>What it is measuring, and why</h2>
- * <ol>
- *   <li><b>What {@code Sable.HELPER.getContaining} really means.</b> P0 read
- *       {@code getContaining(Level,int,int)} and found it looks up "which sub-level plot occupies
- *       this world chunk", with no vertical component - so an ordinary block on the ground, in a
- *       chunk some sub-level's plot happens to cover, is expected to come back <em>non-null</em>.
- *       {@link #containing(Level, BlockPos)} prints the raw answer and
- *       {@link #looksLikeGround(Level, BlockPos, SubLevelAccess)} says whether the block there is
- *       still an ordinary block, which is the combination that decides whether this call may be used
- *       as "is this position inside a moving structure".</li>
- *   <li><b>Which local coordinate space a sub-level's own blocks live in.</b> P0 found two: the plot
- *       grid ({@code LevelPlot.toLocal/toGlobal}) and {@code EmbeddedPlotLevelAccessor}'s
- *       "local to {@code plot.getCenterBlock()}" space. {@link #roundTrip(SubLevel)} checks that the
- *       second one is exactly "local position in the world, before the pose is applied", which is
- *       what P1 has to write into the store.</li>
- *   <li><b>Whether the enumeration P1 would use is the right one.</b> {@link #describeSubLevels}
- *       walks {@code SubLevelContainer.getAllSubLevels()} and prints, per sub-level, the identity P1
- *       would key on, the local bounds a host block's coordinates would be relative to, the
- *       world-space bounds, and how many Create contraptions are attached to its plot.</li>
- * </ol>
- *
- * <h2>Why this is safe when Sable is absent</h2>
- * The class is only ever reached through {@code PhysicsCompat}, which resolves it by name after a
- * real {@code ModList} check, and it implements nothing from Sable. With Sable absent its methods are
- * never invoked, so the types named here are never resolved.
+ * <p>Three questions it settles: what {@code getContaining} really means (it looks up which sub-level plot
+ * occupies a world chunk, with no vertical component, so an ordinary block in a covered chunk comes back
+ * non-null - {@link #containing} prints the raw answer and {@link #looksLikeGround} says whether the block
+ * there is still an ordinary one), which local coordinate space a sub-level's own blocks live in
+ * ({@link #roundTrip}), and whether {@code getAllSubLevels} is the right enumeration
+ * ({@link #describeSubLevels}).
  */
 final class SableReport {
 
@@ -65,8 +45,8 @@ final class SableReport {
     /**
      * The raw {@code getContaining} answer, exactly as Sable returns it.
      *
-     * <p>Deliberately not wrapped in anything: if this comes back non-null for an ordinary block on
-     * the ground, that is the finding, and it must be visible in the log unedited.
+     * <p>Not wrapped in anything: if this comes back non-null for an ordinary block on the ground, that is
+     * the finding, and it must be visible in the log unedited.
      */
     static SubLevelAccess containing(Level level, BlockPos worldPos) {
         return SableCompanionAccess.getContaining(level, worldPos);
@@ -76,10 +56,10 @@ final class SableReport {
      * Whether a position Sable says belongs to a sub-level is nonetheless still an ordinary block in
      * the world.
      *
-     * <p>This is the practical form of P0's warning. A moved block leaves air behind, so
+     * <p>This is the practical form of that warning: a moved block leaves air behind, so
      * {@code worldState.isAir() && containing != null} means the position really is inside a moving
-     * structure. {@code !isAir() && containing != null} means {@code getContaining} is reporting the
-     * plot grid, not the block, and must not be used as the P1 predicate.
+     * structure, while {@code !isAir() && containing != null} means {@code getContaining} is reporting the
+     * plot grid rather than the block, and is not a usable predicate.
      */
     static boolean looksLikeGround(Level level, BlockPos worldPos, SubLevelAccess containing) {
         return containing != null && !level.getBlockState(worldPos).isAir();
@@ -89,9 +69,9 @@ final class SableReport {
      * Every sub-level whose world-space bounds intersect a one-block box around {@code worldPos}, and
      * which actually contains the point.
      *
-     * <p>Two different questions are answered here on purpose: {@code getAllIntersecting} is Sable's
-     * own spatial query, and {@code boundingBox().contains(x+0.5, y+0.5, z+0.5)} is the cheap,
-     * understandable version of the same thing. They disagreeing is itself useful information.
+     * <p>Two different questions are answered here: {@code getAllIntersecting} is Sable's own spatial query,
+     * and {@code boundingBox().contains(x+0.5, y+0.5, z+0.5)} is the cheap, understandable version of the
+     * same thing. Their disagreeing is itself information.
      */
     static List<SubLevel> intersecting(Level level, BlockPos worldPos) {
         List<SubLevel> found = new ArrayList<>();
@@ -131,7 +111,7 @@ final class SableReport {
     }
 
     /**
-     * Enumerates every sub-level of the level, with the three things P1 needs per sub-level and a
+     * Enumerates every sub-level of the level, with the three things the report needs per sub-level and a
      * world -&gt; local -&gt; world round trip through the pose.
      */
     static List<String> describeSubLevels(ServerLevel level, BlockPos worldPos) {
@@ -165,14 +145,13 @@ final class SableReport {
     }
 
     /**
-     * The world -&gt; local -&gt; world round trip, which is the whole coordinate contract P1 rests on.
+     * The world -&gt; local -&gt; world round trip, which is the whole coordinate contract the mod rests on.
      *
      * <p>{@code plot.getBoundingBox()} is in the same space as the positions
-     * {@code EmbeddedPlotLevelAccessor} reads (P0 verified it as {@code level.getBlockState(local.offset(center))}),
-     * so transforming a point of that box by {@code logicalPose()} must land on the block the world
-     * actually has, and transforming it back must return the original. Both directions are printed,
-     * including the angle between the two quaternions, because a mismatched convention shows up there
-     * and nowhere else.
+     * {@code EmbeddedPlotLevelAccessor} reads ({@code level.getBlockState(local.offset(center))}), so
+     * transforming a point of that box by {@code logicalPose()} must land on the block the world actually
+     * has, and transforming it back must return the original. Both directions are printed, including the
+     * angle between the two quaternions, because a mismatched convention shows up there and nowhere else.
      */
     static String roundTrip(SubLevel subLevel) {
         LevelPlot plot = subLevel.getPlot();
@@ -202,8 +181,8 @@ final class SableReport {
     }
 
     /**
-     * Reads the sub-level's own blocks at the target position, through the level accessor P1 would
-     * use, so the two coordinate spaces can be compared against the world's own answer.
+     * Reads the sub-level's own blocks at the target position, through the level accessor a carried read
+     * would use, so the two coordinate spaces can be compared against the world's own answer.
      */
     static String blocksAt(ServerLevel level, SubLevel subLevel, BlockPos worldPos) {
         LevelPlot plot = subLevel.getPlot();
@@ -219,7 +198,7 @@ final class SableReport {
         }
     }
 
-    /** The whole store, as "how many" plus the keys P1 will have to rewrite. */
+    /** The whole store, as "how many" plus the keys the report lists. */
     static List<String> describeStore(ServerLevel level) {
         List<String> out = new ArrayList<>();
         var store = com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(level);
@@ -233,7 +212,7 @@ final class SableReport {
             return out;
         }
         // Position order is map order, which is stable enough to read but not meaningful - the point
-        // is the list of world keys P1 has to be able to translate, not the order.
+        // is the list of world keys, not the order.
         int limit = Math.min(positions.size(), 24);
         StringBuilder keys = new StringBuilder("store keys=[");
         for (int i = 0; i < limit; i++) {
@@ -257,7 +236,7 @@ final class SableReport {
 
     // --------------------------------------------------------------- helpers --
 
-    /** {@code SubLevelContainer.getAllSubLevels()} - the enumeration P1 would drive its accounting from. */
+    /** {@code SubLevelContainer.getAllSubLevels()} - the enumeration the accounting would be driven from. */
     static List<? extends SubLevel> subLevels(Level level) {
         var container = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level);
         return container == null ? List.of() : container.getAllSubLevels();
@@ -320,7 +299,7 @@ final class SableReport {
      * How far the pose's orientation is from the identity, in degrees.
      *
      * <p>Not a measurement of the block's own rotation - it is the sub-level's orientation, which is
-     * what tells P1 whether "local +X" still means "world +X".
+     * what tells whether "local +X" still means "world +X".
      */
     private static double quaternionAngleDegrees(Pose3dc pose) {
         org.joml.Quaterniondc orientation = pose.orientation();

@@ -17,28 +17,19 @@ import net.neoforged.api.distmarker.OnlyIn;
 /**
  * Whether a shader pack is drawing the world, and what that changes about the overlay.
  *
- * <h2>Why the overlay has to change at all</h2>
- * Without shaders the components inside a block are drawn by a render type of our own that ignores the
- * depth test - the block's own opaque cube was drawn first, so anything that honestly tested depth from
- * inside the block would be rejected by the block's own face. Shader packs pick the program (and the
- * extra vertex attributes their shaders expect) from the <em>identity</em> of the render type, so a
- * type of ours is a stranger to them, and one that ignores depth has no surface for a deferred lighting
- * pass to light: Bliss, Eclipse and Photon dropped the components, Complementary Unbound dropped the
- * shell.
+ * <p>Without shaders the components inside a block are drawn by a render type of our own that ignores the depth test,
+ * because the block's own opaque cube was drawn first. A shader pack picks the program - and the extra vertex
+ * attributes its shaders expect - from the <em>identity</em> of the render type, so a type of ours is a stranger to it,
+ * and one that ignores depth has no surface for a deferred lighting pass to light.
  *
- * <p>With shaders on, the overlay therefore switches to vanilla render types, which means the block's
- * own cube has to go: the block is skipped while its section is being meshed (see
- * {@code BlockRenderDispatcherMixin}), and the pass draws the block itself - both sides of it, so
- * nothing behind shows through - plus the components, all with render types a pack knows by name.
+ * <p>With shaders on, the overlay therefore switches to vanilla render types, which means the block's own cube has to
+ * go: the block is skipped while its section is being meshed (see {@code BlockRenderDispatcherMixin}) and the pass
+ * draws the block itself - both sides of it, so nothing behind shows through - plus the components, all with render
+ * types a pack knows by name.
  *
- * <h2>Finding out without depending on it</h2>
- * Iris publishes {@code net.irisshaders.iris.api.v0.IrisApi}, and Oculus implements the same interface,
- * but hard-depending on either to ask one boolean would put a shader mod in everyone's jar. The class is
- * looked up reflectively instead, once, and the answer is cached; when neither is installed the lookup
- * simply fails and the overlay stays on its own render types.
- *
- * <p>One question is not enough, and that is the bug this file was fixed for: "a pack is selected" and
- * "a pack is drawing" are two different things on Iris. See {@link #shaderPackInUse()}.
+ * <p>Iris is reached reflectively ({@code net.irisshaders.iris.api.v0.IrisApi}, which Oculus also implements), so no
+ * shader mod is a hard dependency: when neither is installed the lookup fails and the overlay stays on its own render
+ * types. One question is not enough - see {@link #shaderPackInUse()}.
  */
 @OnlyIn(Dist.CLIENT)
 public final class ShaderCompat {
@@ -84,42 +75,15 @@ public final class ShaderCompat {
     /**
      * True while a shader pack is actually drawing the world. Cheap: the answer is cached for a second.
      *
-     * <h2>Two questions, not one</h2>
-     * Iris's own {@code isShaderPackInUse()} answers "a pack is <em>selected</em>". It is not the same as
-     * "those shaders are running", and it is not a thing to branch a renderer on: on the author's machine
-     * {@code iris.properties} says {@code enableShaders=false} - the log line is {@code Shaders are
-     * disabled because enableShaders is set to false in iris.properties} - and it still answers true, so
-     * the overlay took the shader path on a machine that had no shaders at all.
+     * <p><b>Two questions, not one.</b> Iris's {@code isShaderPackInUse()} answers "a pack is <em>selected</em>", which
+     * is not the same as "those shaders are running" and is not a thing to branch a renderer on: it stays true while
+     * {@code enableShaders} is false. The second question is part of the same public API
+     * ({@code IrisApi#getConfig()}, whose {@code areShadersEnabled()} is that flag), and the pack is drawing only when
+     * both answers are yes.
      *
-     * <p>The second question is part of the same public API, so it is asked as well:
-     * {@code IrisApi#getConfig()} returns an {@code IrisApiConfig} whose {@code areShadersEnabled()} is
-     * Iris's own {@code enableShaders} flag. The pack is drawing only when both answers are yes.
-     *
-     * <h2>Where the names come from</h2>
-     * Read out of the jar this build is played with,
-     * {@code iris-neoforge-1.8.14-beta.1+mc1.21.1.jar}, with {@code javap} rather than from memory:
-     *
-     * <pre>
-     *   net.irisshaders.iris.api.v0.IrisApi        static IrisApi getInstance();
-     *                                             boolean isShaderPackInUse();
-     *                                             IrisApiConfig getConfig();
-     *   net.irisshaders.iris.api.v0.IrisApiConfig  boolean areShadersEnabled();
-     *                                             void setShadersEnabledAndApply(boolean);
-     * </pre>
-     *
-     * <p>{@code IrisApiV0ConfigImpl#areShadersEnabled()} disassembles to a plain
-     * {@code Iris.getIrisConfig().areShadersEnabled()}, and {@code IrisConfig#areShadersEnabled()} to a
-     * read of its {@code enableShaders} field - the same value the startup log line quotes. Iris 1.8.14's
-     * own {@code isShaderPackInUse()} is a pipeline test ({@code getPipelineNullable()} exists and is not
-     * a {@code VanillaRenderingPipeline}), with no reference to that flag, which is exactly how the two
-     * answers came apart.
-     *
-     * <h2>Nothing here is a hard dependency</h2>
-     * Still pure reflection, still one lookup, still one answer per second. If Iris is absent, or its API
-     * cannot answer either question - an older build without {@code getConfig}, a lookup that fails, a
-     * call that throws - the answer is "no shaders", which is the safe half: the overlay's own render
-     * types always work, while the shader path is a compatibility arrangement with a pack that is not
-     * there. {@code logs/latest.log} then carries the one line that says so.
+     * <p>Still pure reflection, still one lookup, still one answer per second. If Iris is absent, or its API cannot
+     * answer either question - an older build without {@code getConfig}, a lookup that fails, a call that throws - the
+     * answer is "no shaders": the safe half, because the overlay's own render types always work.
      */
     public static boolean shaderPackInUse() {
         long now = System.currentTimeMillis();
@@ -236,10 +200,9 @@ public final class ShaderCompat {
     }
 
     /**
-     * Publishes the set of hosts the overlay draws itself, and marks the sections whose contents
-     * changed so the game rebuilds exactly those meshes - and no others.
-     *
-     * @return true when the set changed, in which case the caller's own drawing is out of date too
+     * Publishes the set of hosts the overlay draws itself, and marks the sections whose contents changed so the game
+     * rebuilds exactly those meshes - and no others. Returns true when the set changed, in which case the caller's own
+     * drawing is out of date too.
      */
     public static boolean publishHosts(List<BlockPos> hosts, boolean hiding) {
         Set<Long> next = new HashSet<>(hosts.size() * 2);

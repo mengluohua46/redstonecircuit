@@ -15,23 +15,10 @@ import org.junit.jupiter.api.Test;
 /**
  * <b>The wiring behind S1 and S2, pinned in the source.</b>
  *
- * <h2>Why this reads the source</h2>
- * Both specifications are one call or one condition at a site that cannot be reached on a bare JVM: a
- * {@code RenderType}'s class initialiser needs the vanilla registries ({@code Not bootstrapped}), and
- * {@code ClientHostCache} reaches {@code RCConfig} and {@code Minecraft}. The precedent and the style come
- * from {@code HostBufferTallyTest#drawPointsUseTheirOwnPathsBuffer}: assert the <em>shape</em> of the
- * wiring in the source, scoped to a method body by brace counting, and say in the failure message what the
- * wrong shape would cost on screen.
- *
- * <ul>
- *   <li><b>S2</b>: the entry point must call <b>both</b> walks - the origin one, unconditionally, and the
- *       pose one, additively - and the pose one keeps its own radius. A first attempt made the pose walk
- *       the only source and the author's machine stopped rendering entirely, so "the origin walk is still
- *       called" is now an assertion rather than a comment.</li>
- *   <li><b>S1</b>: {@code HostRenderPass#canSeePoint} must hand the ray's answer to {@code CarriedSight}
- *       and must contain no distance arithmetic of its own - the old {@code - 0.25} was a tolerance of
- *       exactly that kind, and the carried path has nothing else to hide a component behind.</li>
- * </ul>
+ * <p>两条规则都落在裸 JVM 上走不到的调用点（{@code RenderType} 的类初始化需要原版注册表，{@code ClientHostCache}
+ * 会碰到 {@code RCConfig} 和 {@code Minecraft}），所以这里断言源码里连线的<em>形状</em>，用大括号计数限定到方法体，
+ * 并在失败信息里说清形状错了屏幕上会付出什么代价。入口是原点遍历与姿态遍历的并集（姿态遍历只做加法、用自己的半径），
+ * 视线规则交给 {@code CarriedSight}，调用点自己不做任何距离算术。
  */
 class CarriedVisibilityWiringTest {
 
@@ -44,12 +31,11 @@ class CarriedVisibilityWiringTest {
 
         String body = bodyOf(source, "public List<Drawable> drawablesNear");
         assertTrue(body.contains("forEachNear(dim"),
-                "THE ORIGIN WALK MUST STILL BE CALLED. It is the guarantee that the entry point never hands "
-                        + "over less than it did before this round; making the pose walk the only source is "
-                        + "what produced 'now it simply does not render at all'");
+                "THE ORIGIN WALK MUST STILL BE CALLED. It is what guarantees the entry point never hands "
+                        + "over less than it did, and making the pose walk the only source renders nothing");
         assertTrue(body.contains("forEachCarrierNearPose("),
                 "and the pose walk is the addition that finds a machine which has travelled beyond the "
-                        + "origin walk's radius - the author's 'the seventh chunk away'");
+                        + "origin walk's radius");
         assertTrue(body.contains("putIfAbsent(identityOf(view), view)"),
                 "the pose walk may only ADD: `putIfAbsent` means it cannot even overwrite what the origin "
                         + "walk produced, so the union is monotone by construction");
@@ -67,7 +53,7 @@ class CarriedVisibilityWiringTest {
         assertTrue(poseWalk.contains("anchorsByPose."),
                 "the pose walk reads the pose anchor, which is the only thing that moves");
         assertFalse(poseWalk.contains("view.origin()"),
-                "and it must never fall back to the origin: that is the anchor the defect was in");
+                "and it must never fall back to the origin, which is the anchor the defect was in");
     }
 
     @Test
@@ -136,18 +122,15 @@ class CarriedVisibilityWiringTest {
                 "and the ray's two answers are handed over as S1's two cases: 'met nothing' is a rule, not "
                         + "a missing block");
         assertFalse(castSightRay.contains("0.25"),
-                "no tolerance: the old `- 0.25` was a slack around the target's squared distance, and this "
-                        + "path has nothing else to hide a component behind");
+                "no tolerance: a slack around the target's squared distance would hide a component behind it");
         assertFalse(castSightRay.contains("distanceToSqr"),
                 "and no distance comparison of any kind - S1 rule 4 is 'the ray met some other block'");
         assertFalse(canSeePoint.contains("0.25") || canSeePoint.contains("distanceToSqr"),
                 "the face of the rule holds no arithmetic either");
 
-        // The world path is a different rule on purpose and must not have been dragged into this one: its
-        // hosts are real blocks whose own face answers the ray.
+        // The world path is a different rule: its hosts are real blocks whose own face answers the ray.
         assertTrue(bodyOf(source, "private static boolean canSee(").contains("hit.getBlockPos().equals(pos)"),
-                "the world path still decides by 'the ray hit the host's own block', which is the working "
-                        + "behaviour this round must not touch");
+                "the world path still decides by 'the ray hit the host's own block', which must not change");
     }
 
     @Test
@@ -177,9 +160,8 @@ class CarriedVisibilityWiringTest {
     @DisplayName("S1: the predicate itself carries no distance sphere and no tolerance")
     void thePredicateCarriesNoTolerance() throws IOException {
         String source = readMainSource("client", "CarriedSight.java");
-        // The IMPLEMENTING overload, not the delegating one: since the two-frame form exists there are two
-        // members whose declaration starts the same way, and a guard that reads the wrong one stops
-        // guarding without failing. The trailing comma is what tells them apart.
+        // The IMPLEMENTING overload, not the delegating one: both declarations start the same way, and a guard
+        // that reads the wrong one stops guarding without failing. The trailing comma tells them apart.
         String body = bodyOf(source,
                 "static boolean isVisible(double eyeX, double eyeY, double eyeZ, BlockPos target, "
                         + "Ray ray,");
@@ -189,10 +171,9 @@ class CarriedVisibilityWiringTest {
                 "the five-argument form must stay the ordinary, one-frame question");
 
         assertFalse(source.contains("ON_TARGET ="),
-                "the rejected 'within N blocks of the target point' rule must not come back as a constant: a "
-                        + "block's face is half a block from its centre, so no such radius can admit the "
-                        + "component's own block. (The class comment names it as history, which is why this "
-                        + "checks for the declaration rather than the word.)");
+                "no 'within N blocks of the target point' rule: a block's face is half a block from its "
+                        + "centre, so no such radius can admit the component's own block - hence this checks "
+                        + "for the declaration rather than the word");
         assertFalse(body.contains("0.25"), "no tolerance in the decision");
         assertTrue(body.contains("ray.hitBlockPos().equals(target)"),
                 "rule 3 is an equality of block coordinates - the same question the world path asks");
@@ -207,8 +188,7 @@ class CarriedVisibilityWiringTest {
         assertTrue(contents.contains("RenderStateShard.NO_DEPTH_TEST"),
                 "the reason the sight rule is load-bearing: the carried contents still ignore the depth "
                         + "buffer, because the block the component lives in is drawn by the structure's own "
-                        + "renderer around it. Changing this is what the shader work tried and reverted "
-                        + "(the component disappeared), so the rule is enforced before collection instead");
+                        + "renderer around it, so the rule is enforced before collection instead");
         assertTrue(contents.contains("RenderStateShard.CULL"), "face culling is unchanged too");
         assertTrue(types.contains("CARRIED_FLUSH_ORDER = { CARRIED_CONTENTS, CARRIED_SHELL }"),
                 "and the flush order - content first, shell second - is untouched");
@@ -234,11 +214,8 @@ class CarriedVisibilityWiringTest {
                 + "so it must not be skipped silently");
     }
 
-    /**
-     * The body of the first member whose declaration starts with {@code signature}, scoped by brace
-     * counting rather than by a line window: a window still passes once the method grows, which is how a
-     * guard quietly stops guarding.
-     */
+    /** The body of the first member whose declaration starts with {@code signature}, scoped by brace counting: a
+     * line window would still pass once the method grows, which is how a guard quietly stops guarding. */
     private static String bodyOf(String source, String signature) {
         int at = source.indexOf(signature);
         assertTrue(at >= 0, "the source no longer contains '" + signature + "'; the guard is stale");

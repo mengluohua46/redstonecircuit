@@ -19,10 +19,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests the three-stage counter: claim, sync, render.
  *
- * <p>This is not about arithmetic - it is about the question a reader of {@code /rc carrier} has to be
- * able to answer without guessing: <b>which of the three stages is the one that stopped</b>. So the
- * tests here are about the counts being separable, per level, and impossible to confuse with "nothing
- * happened".
+ * <p>The counts have to be separable and per level, so a reader of {@code /rc carrier} can tell which of
+ * the three stages stopped instead of seeing "nothing happened".
  */
 class CarrierTraceTest {
 
@@ -81,8 +79,7 @@ class CarrierTraceTest {
         assertTrue(lines.get(1).contains("nothing sent"), lines.get(1));
         assertTrue(lines.get(2).contains("has not reported"), lines.get(2));
 
-        // And once something is sent, the same line reports it - so the two states are distinguishable
-        // rather than both reading as silence.
+        // Once something is sent the same line reports it, so the two states are not both silence.
         CarrierTrace.noteCarrierSent(OVERWORLD, 1);
         assertTrue(CarrierTrace.describe(OVERWORLD).get(1).contains("carriersSent=1"),
                 CarrierTrace.describe(OVERWORLD).get(1));
@@ -134,9 +131,7 @@ class CarrierTraceTest {
     @Test
     @DisplayName("the landed half of the frame report is counted, including the deferred yield")
     void landedCountersAreCountedAndPrinted() {
-        // The number this round added: a landed record passed over even though the world path had no
-        // block to draw over. It is expected to be zero - a record now draws itself in that case - so
-        // it has to be *visible*, which is what this pins down: it reaches the line a reader greps.
+        // A landed record skipped because the world path had no block to draw over; expected to stay zero.
         CarrierTrace.render(OVERWORLD).setLanded(2, 1, 0, 3);
 
         CarrierTrace.Render render = CarrierTrace.render(OVERWORLD);
@@ -170,8 +165,7 @@ class CarrierTraceTest {
 
         CarrierTrace.clear(OVERWORLD);
 
-        // Read the description before asking for the counters: asking would create an empty record,
-        // and "no record" and "a record of zeroes" are deliberately different answers.
+        // Read the description first: asking for the counters would create an empty record and hide "no record".
         assertTrue(CarrierTrace.describe(OVERWORLD).get(0).contains("nothing picked up"),
                 CarrierTrace.describe(OVERWORLD).get(0));
         assertEquals(0, CarrierTrace.claims(OVERWORLD).claimed());

@@ -34,61 +34,26 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.26, defect one: a component put into a block <em>after</em> it was physicalised went into the
- * world's store instead of the carrier's.</b>
- *
- * <h2>The author's report, and what the log settles</h2>
- * <em>"Putting a redstone component after physicalising gives no frame and no inner display, but Jade
- * shows it"</em>, and, in the same run, <em>"the wrench is unusable although there is a display; it
- * cannot actually connect"</em>. The log the report arrived with has no {@code insert} action at all
- * ({@code carrier entry trace} lines: 56, none of them a placement) and no {@code registered as a RIDING
- * host} line, yet {@code jade: carried host … -> RETAINING_REPEATER} - i.e. the component existed
- * somewhere the Jade lookup could read and nowhere the carrier layer could.
- *
- * <p>The cause is a fact about Sable that the world's click handler cannot see: a sub-level's blocks
- * <b>are</b> level blocks, stored at their own local coordinates in the plot region, so the click arrives
- * at the ordinary block-click handler carrying a coordinate that is both "a position in the level" and
- * "a host's coordinate inside a structure". The world handler won the click and wrote the component into
- * {@code InnerRedstoneStore} at the plot coordinate. Jade reads that store, so it displayed; the overlay
- * draws from the carrier index, so it drew nothing; the world bridge projects from the carrier index, so
- * nothing outside the machine could read it; and the in-structure solve walks the index <em>by
- * coordinate</em>, so the component worked inside the machine - which is exactly the shape the author
- * described.
- *
- * <h2>What is pinned here</h2>
- * The whole of the narrow exception, with no game running:
- *
- * <ol>
- *   <li><b>the decision</b> ({@code CarrierStore#ownedHostAt}): a coordinate a structure owns is
- *       recognised <b>even when the host holds nothing</b> - the state the author's click started from -
- *       while an ordinary world block, a carried host's origin and a host that has been put down are all
- *       answered {@code null};</li>
- *   <li><b>the routing</b>: that decision is what stands between the world's write and the carrier's, so
- *       with it the world store is never written at the plot coordinate and the carrier record is;</li>
- *   <li><b>the client</b>: the payload the carrier side broadcasts carries the newly inserted component,
- *       which is what the overlay's data source is built from;</li>
- *   <li><b>the regression</b>: an ordinary world block is still written by the world path, and with the
- *       switch off the exception does not fire at all.</li>
- * </ol>
- *
- * <h2>Before the fix</h2>
- * Every assertion in {@link TheWorldsOwnWrite} and {@link TheRegression} passes against the previous
- * build; the ones in {@link TheCarrierOwnsTheCoordinate} and {@link TheClientIsTold} fail, because the
- * decision and the routing did not exist - which is how the red half of this round's evidence was
- * produced.
+ * The defect: a component put into a block <em>after</em> it was physicalised went into the world's store
+ * instead of the carrier's. A sub-level's blocks <b>are</b> level blocks, stored at their own local
+ * coordinates in the plot, so such a click reaches the ordinary block-click handler carrying a coordinate
+ * that is both a level position and a host's coordinate inside a structure.
+ * <p>Pinned with no game running: that decision recognises a coordinate a structure owns <b>even when the
+ * host holds nothing</b>, and the routing then keeps the world store unwritten while the carrier record and
+ * the client payload carry the component.
  */
 class CarrierInsertPriorityTest {
 
-    /** A Sable-shaped coordinate: the plot frame the author's own claims print. */
+    /** A Sable-shaped coordinate: the plot frame a structure's own coordinates live in. */
     private static final BlockPos PLOT = new BlockPos(20481032, 127, 20481032);
 
-    /** Where the structure actually is, from the author's claim: {@code world=-12, -60, -12}. */
+    /** Where the structure actually is: the world position the pose puts that plot cell at. */
     private static final BlockPos VISIBLE = new BlockPos(-12, -60, -12);
 
     /** An ordinary world block, nowhere near any structure. */
     private static final BlockPos ORDINARY = new BlockPos(10, 64, 10);
 
-    /** From {@code carrier claim s:d315200a}: the author's carrier, and its short id in the log. */
+    /** The carrier whose short id is {@code s:d315200a} - the one the fixture's plots belong to. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("d315200a-0000-0000-0000-000000000000"));
 
@@ -105,12 +70,9 @@ class CarrierInsertPriorityTest {
     private CarrierStore.CarrierSource previousSource;
 
     /**
-     * Arms the carrier layer and opens a projection table for one dimension.
-     *
-     * <p>The layer has to be armed for a <em>level</em> query to get past its first guard, and the
-     * production form of the decision ({@code ownedHostAt(level, pos)}) is the one that matters in game -
-     * so the tests that go through the level-free form are still run against an armed layer, exactly as
-     * {@code CarrierLocalResolutionTest} does.
+     * Arms the carrier layer and opens a projection table for one dimension. The layer has to be armed
+     * for a <em>level</em> query to get past its first guard, so the tests that go through the level-free
+     * form are run against an armed layer too.
      */
     @BeforeEach
     void arm() {
@@ -160,28 +122,22 @@ class CarrierInsertPriorityTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's claim is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos}: a plain translation. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
     }
 
     /**
-     * Physicalises one host block that holds <b>nothing</b>, the way the assembly callback does.
-     *
-     * <p>The index only files a claim when the world store holds a component there - a claim that carries
-     * nothing is not a claim - so an empty physicalised block is produced the way a player produces it:
-     * the component is taken back out through the same {@code removeSlot} a retrieval uses. This is also
-     * why the resolver's {@code hitAt} refuses this host: it holds nothing, and every one of
-     * {@code hitAt}'s callers acts on the component inside. Ownership is a different question, and this
-     * fixture is the case that tells the two apart.
+     * Physicalises one host block that holds <b>nothing</b>, the way the assembly callback does. The
+     * index only files a claim over a component, so the component is taken back out through the same
+     * removal a retrieval uses - which is why {@code hitAt} refuses this host and ownership does not.
      */
     private CarriedHost physicaliseEmptyHost(CarrierId carrier, BlockPos local, BlockPos worldPos) {
         world.put(worldPos.asLong(), new Slot(ComponentType.RETAINING_REPEATER));
         index.claim(carrier, local, worldPos, new MapWorld(world));
         index.removeSlot(carrier, local);
-        // The claim moved it out of the world; the component is taken out of the host, so the block is
-        // there and holds nothing.
+        // The claim moved the component out of the world and the host was emptied, so it holds nothing.
         world.remove(worldPos.asLong());
         poses.put(carrier.uuid(), moving(local, worldPos));
         plotOwners.put(local.asLong(), carrier);
@@ -201,20 +157,14 @@ class CarrierInsertPriorityTest {
     }
 
     /**
-     * <b>The decision, asked through the production entry point by reflection.</b>
-     *
-     * <p>Reflection rather than a direct call for one reason, and it is the red half of this round's
-     * evidence: the decision and its switch did not exist before this round, so a direct call compiles
-     * only against the fixed tree. Asked reflectively, this test file <b>compiles and runs against the
-     * previous build</b>, where the method is absent - and then every assertion about a structure's own
-     * coordinate fails with a plain, readable message, which is what the author's report predicted and
-     * what the fix has to make pass.
+     * The decision, asked through the production entry point by reflection, so that this file compiles
+     * and runs against a build where the decision does not exist - and every assertion about a
+     * structure's own coordinate then fails with a plain, readable message.
      */
     @Nullable
     private CarriedBlockRemoval.Hit decisionViaReflection(BlockPos pos, boolean withPlotOwners) {
         try {
-            // The parameter types are resolved whether or not this call passes a plot owner: the
-            // signature is what is looked up, and the projection-only form passes null for it.
+            // The parameter types are resolved whether or not this call passes a plot owner.
             Class<?> ownerSource = Class.forName(
                     "com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore$PlotOwnerSource");
             java.lang.reflect.Method method = CarrierStore.class.getDeclaredMethod("ownedHostAt",
@@ -227,9 +177,7 @@ class CarrierInsertPriorityTest {
                     (CarrierStore.PoseSource) carrier -> poses.get(carrier.uuid()));
             return (CarriedBlockRemoval.Hit) result;
         } catch (ReflectiveOperationException absent) {
-            // The previous build: there is no such decision, which is exactly the defect. Answering
-            // null is "no structure owns this position" - the world keeps the click and writes its own
-            // store, which is the behaviour every red assertion below describes.
+            // No such decision on an older build, which is the defect: "no structure owns this position".
             return null;
         }
     }
@@ -245,12 +193,9 @@ class CarrierInsertPriorityTest {
     }
 
     /**
-     * The plot-owner lookup, as an instance of {@code CarrierStore$PlotOwnerSource} <b>built at
-     * runtime</b>.
-     *
-     * <p>A lambda would name the interface in this file's bytecode, and the interface did not exist
-     * before this round - so a lambda would stop this test file from compiling against the previous
-     * build, which is the one thing it must be able to do. A dynamic proxy names it only as a string.
+     * The plot-owner lookup, as an instance of the plot-owner interface <b>built at runtime</b>: a lambda
+     * would name the interface in this file's bytecode, and that interface need not exist on an older
+     * build for this file to compile against it. A dynamic proxy names it only as a string.
      */
     private Object plotOwnerProxy() {
         try {
@@ -283,14 +228,14 @@ class CarrierInsertPriorityTest {
         void anEmptiedHostIsStillTheStructuresCoordinate() {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
             assertNotNull(index.at(AUTHOR, PLOT), "the host is carried");
-            assertNull(index.at(AUTHOR, PLOT).slot(), "and holds nothing - the author's starting state");
+            assertNull(index.at(AUTHOR, PLOT).slot(), "and holds nothing, which is the state the click starts from");
 
             CarriedBlockRemoval.Hit owned = decision(PLOT);
 
             assertNotNull(owned, "ownership is not the same question as 'does it hold a component': a "
                     + "block the structure carries that the player emptied is still its coordinate, and "
                     + "that is exactly the state 'put a component into a physicalised block' starts from");
-            assertEquals("s:d315200a", owned.carrier().shortId(), "the author's own carrier");
+            assertEquals("s:d315200a", owned.carrier().shortId(), "the carrier this coordinate belongs to");
             assertEquals(PLOT, owned.localPos(), "the clicked coordinate IS the host's coordinate");
             assertEquals(VISIBLE, owned.worldPos(),
                     "and the pose names where that host is, which is the position the client draws at");
@@ -307,14 +252,10 @@ class CarrierInsertPriorityTest {
         }
 
         @Test
-        @DisplayName("P1.29: and VANILLA is stood down too - the item's own useOn would have placed a block")
+        @DisplayName("and VANILLA is stood down too - the item's own useOn would have placed a block")
         void vanillaIsStoodDownAtThatCoordinate() {
-            // THE HALF P1.26 MISSED. Declining without touching the event left the NeoForge server path to
-            // run vanilla's own item use on the same click - `Item#useOn`, i.e. a block placement at the
-            // plot coordinate - so the world still acted there, just not through this mod. The event's two
-            // action fields are what stop it, and they are NOT the same thing as cancelling: a cancelled
-            // RightClickBlock is never delivered to a `receiveCanceled=false` listener, and the carrier's
-            // listener is one of those.
+            // Declining without touching the event leaves the server path to run vanilla's own item use, a
+            // placement at the plot coordinate. The two action fields stop it; cancelling never reaches us.
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
 
             CarrierClickPriority.Owned owned = owned(PLOT);
@@ -329,7 +270,7 @@ class CarrierInsertPriorityTest {
         }
 
         @Test
-        @DisplayName("P1.29: the ordinary world block keeps BOTH halves of the world's answer")
+        @DisplayName("the ordinary world block keeps BOTH halves of the world's answer")
         void anOrdinaryCoordinateKeepsEverything() {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
 
@@ -376,8 +317,8 @@ class CarrierInsertPriorityTest {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
 
             assertNull(worldSlot(PLOT),
-                    "this is the defect in one assertion: the previous build left the component HERE, "
-                            + "which is why Jade showed it and the overlay did not");
+                    "the world store must hold nothing here: a component written there would display in the "
+                            + "world and nowhere the overlay draws from");
             assertFalse(world.containsKey(PLOT.asLong()),
                     "and not even an empty node was created at the plot coordinate");
         }
@@ -399,8 +340,8 @@ class CarrierInsertPriorityTest {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
             CarriedInsert.apply(index, AUTHOR, PLOT, Direction.NORTH, true, ComponentType.DUST, false);
 
-            // The no-plot-lookup form: only the projection table can answer, and it names the world
-            // position the pose computed. A click can arrive in either frame, and both are the same host.
+            // Only the projection table can answer this form, and it names the world position the pose
+            // computed; both frames name the same host.
             CarriedBlockRemoval.Hit projected = projectionOnly(VISIBLE);
             assertNotNull(projected, "the projection table is keyed by the world position the pose names");
             assertEquals(AUTHOR, projected.carrier());
@@ -436,19 +377,15 @@ class CarrierInsertPriorityTest {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
             CarriedInsert.apply(index, AUTHOR, PLOT, Direction.EAST, true, ComponentType.REPEATER, false);
 
-            // The walk the payload is actually built from, asserted directly - `carrierPayload` itself
-            // needs a level for its dimension, and this is the same loop over the same records.
-            // (`HostSync#carriedHostsOf(null)` is deliberately NOT called: it goes straight to
-            // `CarrierStore#indexOf(level)`, and a null level there is an NPE by design - the level-free
-            // form is the one below, and this test does not need the level-dependent one.)
+            // The walk the payload is built from, asserted directly: the level-free form is the one below.
             List<CarriedHost> live = index.liveHostsOf(AUTHOR);
             assertEquals(1, live.size(), "the inserted host is in the list the client is sent");
             assertEquals(PLOT, live.get(0).localPos());
             assertEquals(ComponentType.REPEATER, live.get(0).slot().type);
             assertFalse(live.get(0).landed(), "and it is riding, which is the condition that list filters on");
 
-            // ...and in the record shape the payload is made of, which is what the client index - the
-            // overlay's data source - is rebuilt from. Same fields, same coordinate frame.
+            // ...and in the record shape the payload is made of, which is what the client index is
+            // rebuilt from: same fields, same coordinate frame.
             CarrierIndex.CarriedView view = new CarrierIndex.CarriedView(AUTHOR, live.get(0).localPos(),
                     live.get(0).origin(), live.get(0).at(), live.get(0).slot().copy());
             assertEquals(PLOT, view.localPos(), "the client is keyed by the structure's own coordinate");
@@ -477,10 +414,8 @@ class CarrierInsertPriorityTest {
         void theWorldStillWritesTheSameSlot() {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
 
-            // This is `InnerRedstoneInteraction#tryPlace`, in the three lines that matter: the state the
-            // decision leaves reachable is the same state, and the write is the same write. It is what the
-            // unit-test suite already pins (`InnerRedstoneDataTest`, the GameTests' placement cases), so
-            // the one thing asserted here is that the new gate does not stand in its way.
+            // The same slot write the world has always made: the one thing asserted here is that the new
+            // gate does not stand in its way.
             Slot slot = new Slot(ComponentType.TORCH);
             slot.power = ComponentType.TORCH.initialPower();
             slot.facing = Direction.NORTH;
@@ -523,20 +458,18 @@ class CarrierInsertPriorityTest {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
             CarriedInsert.apply(index, AUTHOR, PLOT, Direction.NORTH, true, ComponentType.DUST, false);
 
-            // Standing still, the host's own local coordinate projects onto the position beside the
-            // player, and a click there is the structure's - which is the author's case and the fix.
+            // Standing still, the host's local coordinate projects onto the position beside the player.
             CarriedBlockRemoval.Hit here = projectionOnly(VISIBLE);
             assertNotNull(here, "while the structure is there, that world position is its host");
             assertEquals(AUTHOR, here.carrier());
             assertEquals(PLOT, here.localPos());
 
-            // Now the machine flies: the same host, the same local coordinate, a different world position.
-            // The projection table is rebuilt every tick from the live pose, so the answer follows it.
+            // Now the machine flies: the same host and local coordinate, a different world position.
+            // The table is rebuilt every tick from the live pose, so the answer follows it.
             BlockPos flown = new BlockPos(20, 70, 30);
             CarrierPose moved = moving(PLOT, flown);
             poses.put(AUTHOR.uuid(), moved);
-            // The tick boundary: the table is rebuilt from the live poses, which is what makes the
-            // answer follow the machine instead of remembering where it was.
+            // The tick boundary, which is what makes the answer follow the machine.
             table.begin(DIMENSION, true);
             table.put(DIMENSION, new CarrierProjection.ProjectedHost(AUTHOR, PLOT, flown, moved, null, 0));
 
@@ -584,8 +517,8 @@ class CarrierInsertPriorityTest {
             poses.put(other.uuid(), moving(PLOT, VISIBLE));
             plotOwners.put(PLOT.asLong(), other);
 
-            // Both branches are asked; the projection table answers this dimension's entry, so the answer
-            // is whichever frame asked first - and it is a real host, not a guess.
+            // Both branches are asked; the projection table answers this dimension's entry, so either
+            // carrier may be the one named - and it is a real host, not a guess.
             CarriedBlockRemoval.Hit owned = decision(PLOT);
             assertNotNull(owned, "the position is still owned by a structure - refusing to act on the "
                     + "component is `hitAt`'s business, not ownership's");

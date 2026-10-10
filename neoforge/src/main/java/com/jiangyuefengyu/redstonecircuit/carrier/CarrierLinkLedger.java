@@ -10,36 +10,14 @@ import net.minecraft.core.Direction;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>The judgement line for a wrench link, written whether the link succeeded or was refused.</b>
+ * The judgement line for a wrench link, written whether the link succeeded or was refused.
  *
- * <h2>The defect this answers</h2>
- * The author's report was <em>"the wrench is unusable - there is a display but it cannot connect"</em>,
- * and the log's answer to every attempt was one sentence:
- *
- * <pre>
- *   carrier s:f3b2d036: link refused: nothing picked yet, at local=20481032, 128, 20483080
- * </pre>
- *
- * <p>That line names neither <b>which</b> block was picked, nor <b>which</b> block the click was on, nor
- * <b>why</b> the pair was rejected - and in that particular run the pick was not missing at all: it was
- * in another structure. Four facts have to be on the line for the next log to be readable without a
- * second run:
- *
- * <ol>
- *   <li><b>the pick</b>: which structure and which coordinate the near end is in;</li>
- *   <li><b>the target</b>: which structure and coordinate this click landed on;</li>
- *   <li><b>the side</b>: which face of the structure's own frame the line runs along - or why no side
- *       exists (not neighbours, no pick, another structure, an empty host);</li>
- *   <li><b>the value</b>: what the connection became when it did change, so "it linked" and "it linked to
- *       the same state it already had" are different lines.</li>
- * </ol>
- *
- * <h2>Why this is a class and not a few {@code String.format}s at the call site</h2>
- * The rule "which refusal is which" is exactly the rule that was wrong, and it is arithmetic over
- * {@link CarriedTool.Action} - so it lives here, with no level, no player and no packet, and the unit
- * tests pin every reason. The production caller passes both ends in and logs whatever comes back.
- *
- * <p>Nothing here writes anything: it is a description of a decision that has already been made.
+ * <p>Four facts have to be on the line for a log to be readable without a second run: <b>the pick</b> - which
+ * structure and coordinate the near end is in - <b>the target</b>, the side the line runs along in the
+ * structure's own frame (or why no side exists), and <b>the value</b> the connection became, so that "it linked"
+ * and "it linked to the state it already had" are different lines. It is a class rather than a few formats at
+ * the call site because "which refusal is which" is arithmetic over {@link CarriedTool.Action} with no level,
+ * player or packet in it, and the unit tests pin every reason. Nothing here writes.
  */
 public final class CarrierLinkLedger {
 
@@ -49,12 +27,8 @@ public final class CarrierLinkLedger {
         /** The line changed: both ends were written. */
         LINKED("linked"),
         /**
-         * <b>The line changed across two structures, and BOTH records were written.</b>
-         *
-         * <p>The author's own machine: two separately physicalised blocks standing side by side are two
-         * sub-levels, so every connection they tried was this case. Since P1.27 it is drawn rather than
-         * refused, and this reason is what a reader greps for - {@code link linked ACROSS STRUCTURES}
-         * with four coordinates, two per structure.
+         * <b>The line changed across two structures, and BOTH records were written.</b> Two separately
+         * physicalised blocks standing side by side are two sub-levels, so this is the ordinary case for them.
          */
         LINKED_ACROSS("linked ACROSS STRUCTURES (both records were written, each in its own frame)"),
         /** A cross-structure line whose far end holds nothing: only the near end could be pinned. */
@@ -75,35 +49,20 @@ public final class CarrierLinkLedger {
         /** A pick exists, and it is in another structure. */
         PICKED_ELSEWHERE("the pick is in another structure"),
         /**
-         * <b>The two ends are the same host, and there was nothing left to clear.</b>
-         *
-         * <p>The world's own gesture for shift-right-clicking the selected block is "drop every override on
-         * it", and when there was nothing left to drop the carrier side keeps the pick and says so rather
-         * than denying it (see {@code CarriedTool#clearChecked}). The first half of the sentence is
-         * unchanged - {@code CarrierCrossLinkTest} greps for it - and the second half now says what the
-         * click actually did, because "already automatic" and "cleared" are two different answers to one
-         * gesture and the author has to be able to tell them apart on the line.
+         * <b>The two ends are the same host, and there was nothing left to clear.</b> The pick is kept and the line
+         * says what the click actually did, because "already automatic" and "cleared" are two different answers.
          */
         SAME_HOST("the pick and the click are the same host, and there was nothing left to clear on it "
                 + "(every side already decides for itself)"),
         /**
-         * <b>The click dropped every override on the host - not a line, the opposite of one.</b>
-         *
-         * <p>Shift-right-clicking the picked block itself is the world's own "let it decide for itself
-         * again", so the line says that rather than "linked": a reader who greps for {@code link linked}
-         * must not find a clear among them.
+         * <b>The click dropped every override on the host - not a line, the opposite of one.</b> Shift-right-clicking
+         * the picked block is the world's own "let it decide for itself again", so the line says so.
          */
         CLEARED("cleared: every override on this block is gone, so it decides for itself again"),
         /**
-         * <b>Not a refusal at all: this click simply picked the near end of a line.</b>
-         *
-         * <p>A plain (non-shift) wrench click on a carried host is the world's own <em>select</em> gesture,
-         * and the ledger had no case for it - so it fell through to {@link #OTHER} and every such click
-         * printed {@code link refused: not a link}, which reads like a failure and is not one. The author's
-         * own log has eight of those lines, one per click, each with the picked coordinate and the clicked
-         * coordinate identical (the same block clicked over and over): the tool was working exactly as it
-         * should and the judgement line said it was not. This is the honest name for what happened, and it
-         * is greppable as its own phrase.
+         * <b>Not a refusal at all: this click simply picked the near end of a line.</b> A plain wrench click on a
+         * carried host is the world's own <em>select</em> gesture, so the line is written without the "refused"
+         * prefix - it neither wrote nor refused anything.
          */
         SELECTED("picked the near end of a line"),
         /** The click landed on a host the wrench is not routed to (no case observed; kept total). */
@@ -122,20 +81,10 @@ public final class CarrierLinkLedger {
     }
 
     /**
-     * One link, as the log line needs it.
-     *
-     * @param linked whether a line was really written to both ends
-     * @param reason how it is named
-     * @param pickedCarrier the near end's structure, or {@code null} when nothing was picked
-     * @param pickedLocalPos the near end's coordinate inside it, or {@code null}
-     * @param pickedComponent a short description of the near end's component, or {@code null}
-     * @param targetCarrier the structure the click landed on
-     * @param targetLocalPos the clicked coordinate inside it
-     * @param side the side the line runs along, in the structure's own frame, or {@code null}
-     * @param state the connection state that now stands on that side, or {@code null}
-     * @param farSide the <b>other</b> structure's own direction for the same line, when the line runs
-     *     across two structures; {@code null} for a line inside one structure, where the two ends' sides
-     *     are each other's opposites and printing both would be noise
+     * One link, as the log line needs it: whether a line was really written to both ends, the reason, the pick
+     * (structure, coordinate and component), the clicked end, the side the line runs along in the structure's own
+     * frame, the connection state now standing on it, and {@code farSide} - the <b>other</b> structure's own
+     * direction for the same line, which is null for a line inside one structure.
      */
     public record LinkLine(boolean linked, Reason reason, @Nullable CarrierId pickedCarrier,
                            @Nullable BlockPos pickedLocalPos, @Nullable String pickedComponent,
@@ -143,18 +92,9 @@ public final class CarrierLinkLedger {
                            @Nullable String state, @Nullable String farSide) {
 
         /**
-         * One line, in a fixed field order, with every one of the four facts present.
-         *
-         * <p>Written so that a reader can tell the five failures apart by eye: {@code reason=} names the
-         * decision, {@code picked=} and {@code on=} name the two ends, and {@code side=} is
-         * {@code ?} exactly when no side could be named.
-         *
-         * <p><b>The head is three-valued, because {@link Reason#SELECTED} is not a verdict.</b>
-         * {@code link } means a line was written, {@code link refused: } means the gesture was refused, and
-         * a select click - which neither wrote nor refused anything - is written without either prefix, so
-         * the line reads as the statement it is. Before P1.33 a select click fell through to
-         * {@link Reason#OTHER} and printed {@code link refused: not a link}, which said a working gesture
-         * had failed.
+         * One line, in a fixed field order, with every one of the four facts present: {@code reason=} names the
+         * decision, {@code picked=} and {@code on=} name the two ends, and {@code side=} is {@code ?} exactly when no
+         * side could be named. The head is three-valued, because {@link Reason#SELECTED} is not a verdict.
          */
         public String describe() {
             return head()
@@ -191,35 +131,14 @@ public final class CarrierLinkLedger {
     }
 
     /**
-     * <b>The judgement line for the third kind of line: one end inside a structure, the other a block of
-     * the world.</b>
+     * The judgement line for the third kind of line: one end inside a structure, the other a block of the world.
      *
-     * <h2>Why this is its own writer rather than a branch of {@link #of}</h2>
-     * {@link #of} is written against a click that resolved to a <b>carried host</b>, so every line it
-     * builds has an {@code on=<carrier>} end. This gesture is the one case where there is no such end: the
-     * player shift-right-clicked an <b>ordinary world block</b> while a carried host was picked, and the
-     * whole point is that nothing at that coordinate belongs to us. Printing {@code on=<some carrier>}
-     * would be a lie about which carrier owns the block, and printing nothing would put this gesture back
-     * into the silence P1.27 removed.
-     *
-     * <p>So the line names the same four facts in the same order and adds the two that make the gesture
-     * distinguishable from a cross-structure line - the two <b>world</b> positions, because the end that was
-     * pinned and the end that was pointed at are one face apart in the world and in two different frames:
-     *
-     * <pre>
-     *   carrier s:d315200a: locked OUTSIDE the structure picked=s:d315200a local=1, 0, 0 (DUST) side=east
-     *       (world -12, -60, -11 at -13, -60, -11) state=ON: no carrier owns that block and it holds no
-     *       embedded component, so only this end is pinned and every other side is cut
-     * </pre>
-     *
-     * <p><b>{@code OUTSIDE} is the word a reader greps.</b> {@code LINKED_ACROSS} means "two structures,
-     * both records written"; this means "one structure, the world block is not a record anywhere, only the
-     * near side was pinned" - two completely different facts that used to be the same nothing. There is no
-     * {@code on=} end, and that is the honest shape: there is no carrier at the clicked coordinate.
-     *
-     * @param action the action the decision returned; only a {@link CarriedTool.Action.LockedOutside}
-     *     produces a line here
-     * @param index the carrier index, for the component's name
+     * <p>{@link #of} is written against a click that resolved to a carried host, so every line it builds has an
+     * {@code on=<carrier>} end; this gesture is the one case where there is none. So the line names the same four
+     * facts in the same order and adds the two that make it distinguishable from a cross-structure line - the two
+     * <b>world</b> positions, because the end that was pinned and the end that was pointed at are one face apart in
+     * the world and in two different frames. {@code OUTSIDE} is the word a reader greps; only a
+     * {@link CarriedTool.Action.LockedOutside} produces a line here.
      */
     @Nullable
     public static String outsideLine(@Nullable CarriedTool.Action action,
@@ -228,11 +147,8 @@ public final class CarrierLinkLedger {
             return null;
         }
         Slot slot = slotAt(index, outside.carrier(), outside.localPos());
-        // WRITTEN OUT RATHER THAN THROUGH `LinkLine#describe`, because the first three words of a judgement
-        // line are what a reader greps and this line's are `locked OUTSIDE the structure` - where a
-        // `LinkLine` would have had to print an `on=<carrier>` end for a block that belongs to no carrier
-        // and would then have said `link not a link` in front of it (Reason.OTHER's text). The four facts
-        // are the same four, in the same order, plus the two world positions.
+        // Written out rather than through LinkLine#describe: the first three words of a judgement line are what a
+        // reader greps, and a LinkLine would have printed an `on=<carrier>` end for a block no carrier owns.
         return "locked OUTSIDE the structure"
                 + " picked=" + outside.carrier().shortId() + " local=" + outside.localPos().toShortString()
                 + (slot == null ? " (empty)" : " (" + WrenchLinks.describe(slot) + ")")
@@ -245,29 +161,13 @@ public final class CarrierLinkLedger {
     }
 
     /**
-     * <b>The judgement line for P1.32's inside lock: one end inside a structure, the other a block of the
-     * same structure that holds no component.</b>
+     * The judgement line for the inside lock: one end inside a structure, the other a block of the same structure
+     * that holds no component.
      *
-     * <p>Its twin is {@link #outsideLine}; the two are the same rule (<em>nothing is embedded on that side,
-     * so only this end is pinned</em>) with the far end in two different places, and the ledger has to make
-     * them, and a cross-structure line, distinguishable at a glance:
-     *
-     * <pre>
-     *   carrier s:c22611c6: locked INSIDE the structure picked=s:c22611c6 local=20481032, 127, 20481032 (DUST)
-     *       side=east (local 20481032, 127, 20481032 at 20481032, 127, 20481033) state=ON: the far end is a
-     *       device inside this structure with no component of its own, so only this end is pinned and every
-     *       other side is cut
-     * </pre>
-     *
-     * <p><b>{@code locked INSIDE the structure}</b> is the phrase a reader greps, and the pair printed is
-     * {@code (local A at B)} rather than {@code (world A at B)} - both ends are in the structure's own frame
-     * here, so a world position would be a second conversion of numbers the reader can already check against
-     * {@code local=}. There is no {@code on=} end for the same reason {@code outsideLine} has none: the far
-     * block holds no component, so no record was written at it.
-     *
-     * @param action the action the decision returned; only a {@link CarriedTool.Action.LockedInside}
-     *     produces a line here
-     * @param index the carrier index, for the component's name
+     * <p>Its twin is {@link #outsideLine}; the two are the same rule - <em>nothing is embedded on that side, so
+     * only this end is pinned</em> - with the far end in two different places. {@code locked INSIDE the structure}
+     * is the phrase a reader greps, and the pair printed is {@code (local A at B)} rather than a world pair,
+     * because both ends are in the structure's own frame here.
      */
     @Nullable
     public static String insideLine(@Nullable CarriedTool.Action action,
@@ -288,14 +188,9 @@ public final class CarrierLinkLedger {
     }
 
     /**
-     * What one wrench action did, in the form the log needs - as a pure function.
-     *
-     * @param action what the wrench decided; {@code null} means no action was produced at all
-     * @param index the carrier index, for the connection state the line should report
-     * @param picked the near end's structure, or {@code null} when nothing was picked
-     * @param pickedLocalPos the near end's coordinate, or {@code null}
-     * @param carrier the structure the click landed on
-     * @param localPos the clicked coordinate
+     * What one wrench action did, in the form the log needs - a pure function of the action. {@code picked} and
+     * {@code pickedLocalPos} are the pick as <em>this click</em> saw it, and {@code index} names the connection
+     * state the line reports.
      */
     public static LinkLine of(@Nullable CarriedTool.Action action, @Nullable CarriedHostIndex index,
                               @Nullable CarrierId picked, @Nullable BlockPos pickedLocalPos,
@@ -310,10 +205,8 @@ public final class CarrierLinkLedger {
                     localPos, linked.localSide().getName(), linked.state().name(), null);
         }
         if (action instanceof CarriedTool.Action.CrossLinked linked) {
-            // THE AUTHOR'S OWN CASE, and the line has to carry FOUR coordinates: two structures, each
-            // with the coordinate the line was written into, plus each structure's OWN direction for it -
-            // because the two directions are in two different frames and comparing them is the only way a
-            // reader can check the conversion.
+            // Four coordinates: two structures, each with the coordinate the line was written into, plus each
+            // structure's OWN direction for it - the two directions are in two different frames.
             return new LinkLine(true, Reason.LINKED_ACROSS, linked.carrier(), linked.localPos(),
                     pickedComponent(index, linked.carrier(), linked.localPos()), linked.farCarrier(),
                     linked.farLocalPos(), linked.localSide().getName(), linked.state().name(),
@@ -325,18 +218,15 @@ public final class CarrierLinkLedger {
                     far.farLocalPos(), far.localSide().getName(), far.state().name(), null);
         }
         if (action instanceof CarriedTool.Action.FarEndEmpty far) {
-            // The side is asked between the two coordinates the ACTION named, which is the pair the line
-            // was actually drawn between - not between the click and an argument that may name another
-            // structure.
+            // The side is asked between the two coordinates the ACTION named, not between the click and an
+            // argument that may name another structure.
             return new LinkLine(true, Reason.TARGET_HOST_EMPTY, pickedCarrier, pickedAt,
                     pickedDescription, carrier, localPos,
                     localDirection(far.localPos(), far.towards()),
                     connectionState(index, carrier, far.localPos(), far.towards()), null);
         }        if (action instanceof CarriedTool.Action.Selected selected) {
-            // A PLAIN SELECT CLICK (P1.33 commit C). Not a link attempt and not a refusal: the near end of
-            // the next line is this host. Both ends are therefore named from the ACTION - the click's own
-            // host - rather than from the ledger, which has just been written with it; a line built from
-            // the action cannot disagree with the action.
+            // Not a link attempt and not a refusal: the near end of the next line is this host, and both ends are
+            // named from the ACTION, so the line cannot disagree with it.
             Slot slot = slotAt(index, selected.carrier(), selected.localPos());
             return new LinkLine(false, Reason.SELECTED, selected.carrier(), selected.localPos(),
                     slot == null ? null : WrenchLinks.describe(slot), selected.carrier(),
@@ -358,8 +248,7 @@ public final class CarrierLinkLedger {
                     carrier, localPos, null, null, null);
         }
         if (action instanceof CarriedTool.Action.PickedElsewhere elsewhere) {
-            // The near end is named from the ACTION, which is the one place that knows which structure
-            // the pick is really in - the argument above is only "the pick as this click saw it".
+            // Named from the ACTION, the one place that knows which structure the pick is really in.
             Slot slot = slotAt(index, elsewhere.pickedCarrier(), elsewhere.pickedLocalPos());
             return new LinkLine(false, Reason.PICKED_ELSEWHERE, elsewhere.pickedCarrier(),
                     elsewhere.pickedLocalPos(), slot == null ? null : WrenchLinks.describe(slot),

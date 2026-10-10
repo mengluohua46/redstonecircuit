@@ -12,24 +12,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The frame summary's zero-quad verdict must compare <em>one</em> frame's numbers.</b>
+ * The frame summary's zero-quad verdict must compare <em>one</em> frame's numbers.
  *
- * <h2>The defect this pins, and where it was seen</h2>
- * The summary and the carried geometry are recorded by <b>different render stages</b>: with no shader
- * pack the summary is written from the world stage ({@code AFTER_ENTITIES}) and the quads are emitted two
- * stages later ({@code AFTER_TRANSLUCENT_BLOCKS}). The summary of frame <i>N</i> therefore carries frame
- * <i>N</i>'s collection beside frame <i>N-1</i>'s quads, and the verdict - "N hosts were collected and not
- * one quad came out" - fired on <b>every frame in which a host first appeared</b>, because the previous
- * frame had nothing to draw yet.
- *
- * <p>That false alarm is in the author's own log (2026-09-28 08:14:02, the single non-settled frame line
- * of the session, with the geometry counters still at their initial zeros) and in the working session
- * before it (2026-09-27 15:49:50.941, whose very next line shows 60 shell quads and 2 of 2 hosts drawn).
- * It reads as "the renderer emitted nothing", which is the one reading that was <em>not</em> true.
+ * <p>The summary and the carried geometry are recorded by <b>different render stages</b>: with no shader pack the
+ * summary is written from the world stage ({@code AFTER_ENTITIES}) and the quads are emitted two stages later
+ * ({@code AFTER_TRANSLUCENT_BLOCKS}). The summary of frame <i>N</i> therefore carries frame <i>N</i>'s collection
+ * beside frame <i>N-1</i>'s quads, so the verdict - "N hosts were collected and not one quad came out" - fires on
+ * every frame in which a host first appeared, because the previous frame had nothing to draw yet, and reads as "the
+ * renderer emitted nothing", which is not true.
  *
  * <p>The fix is that the collected count travels with the geometry it produced
- * ({@code CarrierTrace.Render#setGeometry(..., hostsCollected, ...)}), so the verdict always compares a
- * frame against itself. The live numbers are unchanged; only which two numbers are compared.
+ * ({@code CarrierTrace.Render#setGeometry(..., hostsCollected, ...)}), so the verdict always compares a frame against
+ * itself; the live numbers are unchanged.
  */
 class CarrierGeometryVerdictTest {
 

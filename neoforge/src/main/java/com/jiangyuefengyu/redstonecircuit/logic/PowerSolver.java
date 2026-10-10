@@ -10,36 +10,18 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 
 /**
- * The rules for everything that can live inside a host block.
+ * The rules for everything that can live inside a host block: each component's output strength, and the
+ * directions it leaves by.
  *
- * <h2>One value per component</h2>
- * Every component's output strength lives in one place, and this class decides what that value should
- * be and which directions it leaves by. Dust is <em>solved</em> (its value is a function of the whole
- * network); a torch, repeater and comparator are <em>driven</em> (their value follows their input,
- * after a delay); a lever, button and plate are <em>manual</em> (the player or an entity sets them).
+ * <p>Dust is <em>solved</em> (a function of the whole network), a torch, repeater or comparator is
+ * <em>driven</em> (it follows its input after a delay), and a lever, button or plate is <em>manual</em>.
+ * Directions follow vanilla's diodes: a repeater or comparator reads {@code facing} and emits on
+ * {@code facing.getOpposite()}, a torch does not signal into the block it hangs on, and dust reads and
+ * emits on every side. A hop between two wires costs one, every other hop costs nothing.
  *
- * <h2>Where the directions come from</h2>
- * Vanilla's diodes read from {@code FACING} and put their signal out on the opposite side; a torch
- * does not signal towards the block it hangs on. Inner components keep those rules, which is what
- * makes {@link net.minecraft.world.level.block.DiodeBlock} wiring knowledge transfer directly:
- *
- * <pre>
- *   dust                      reads every side, emits on every side
- *   torch                     reads its attachment side, emits on the other five
- *   repeater / comparator     reads {@code facing}, emits on {@code facing.getOpposite()}
- *   lever / button / plate    reads nothing, emits on every side
- * </pre>
- *
- * <h2>Attenuation</h2>
- * A wire hop costs one, a source block does not - exactly as in vanilla, where a torch lights wire to
- * 15 but wire only lights the next wire to 14. So a neighbouring {@link ComponentType#DUST} is worth
- * one less than its value, and everything else is worth its value.
- *
- * <h2>The wrench</h2>
- * The wrench overrides the rules above. A side it <b>locked</b> is open, a side it <b>cut</b> is dead,
- * and - the part that matters - once any side is locked the component's routing is <em>explicit</em>:
- * every side that was not locked is dead too. So a lock says "this is the line", not merely "these two
- * are joined", and redstone laid against any other face cannot sneak in. See {@link #Locks}.
+ * <p>The wrench overrides all of it: a locked side is open, a cut side is dead, and once any side is
+ * locked the routing is explicit - every side not locked is dead too, so a lock says "this is the line"
+ * and redstone laid against another face cannot sneak in. See {@link #Locks}.
  */
 public final class PowerSolver {
 
@@ -54,14 +36,10 @@ public final class PowerSolver {
     /**
      * One component's connection overrides, as the rules need them.
      *
-     * <p>Three booleans per side rather than one state, because "the wrench cut this" and "this was left
-     * out of a lock" have to be told apart: an explicit cut stops a component reading that side, while
-     * being left out of a lock only stops it talking to neighbours - a diode must still read its own
-     * input, or locking anything on it would switch the component off.
-     *
-     * @param open the wrench locked this side: the signal goes out here whatever the neighbours say
-     * @param explicitlyCut the wrench cut this side by hand: nothing goes in or out
-     * @param routingLocked the component has at least one locked side, so its routing is explicit
+     * <p>Three booleans per side rather than one state, because "the wrench cut this" and "this was left out
+     * of a lock" have to be told apart: an explicit cut stops a component reading that side, while being left
+     * out of a lock only stops it talking to neighbours - a diode must still read its own input, or locking
+     * anything on it would switch the component off.
      */
     public record Locks(boolean open, boolean explicitlyCut, boolean routingLocked) {
 
@@ -87,24 +65,15 @@ public final class PowerSolver {
     }
 
     /**
-     * Whether the component's output also counts as <b>strong</b> power towards the side a query came
-     * from - vanilla's {@code getDirectSignal}.
+     * Whether the component's output also counts as <b>strong</b> power towards the side a query came from -
+     * vanilla's {@code getDirectSignal}. Weak power is only ever seen by the block it is asked about, while
+     * strong power is carried onwards by a solid block, which is what stops a host block from behaving like a
+     * redstone block. A lever, button or plate gives none, dust gives none in practice, and only a repeater or
+     * comparator charges the block in front of it.
      *
-     * <p>Strong and weak power are not the same thing in vanilla, and the difference is what stops a
-     * block from becoming a redstone block: <b>weak</b> power is only ever seen by the block it is
-     * asked about, while <b>strong</b> power is carried onwards by a solid block to everything around
-     * it. So a lever at the far side of a stone block does not light a lamp on the near side, whereas
-     * a repeater pushed into that stone does - because only the repeater gives strong power.
-     *
-     * <p>Vanilla's rules, and the reason this matters: a lever, button or plate gives none, dust gives
-     * none in practice, and only a repeater or comparator charges the block in front of it. So a lever
-     * on the far side of a stone block does not light a lamp on the near side, while a repeater pushed
-     * into that stone does.
-     *
-     * @param direction where the signal would travel: from this component towards the neighbour asking,
-     *     the same frame {@link #emitsToward} uses. Vanilla's {@code getDirectSignal} is handed the
-     *     opposite of this - see the note on directions in {@code BlockStateSignalMixin} - and converts
-     *     before calling in, so every rule in this class speaks one frame.
+     * <p>{@code direction} is where the signal would travel: from this component towards the neighbour asking,
+     * the same frame {@link #emitsToward} uses. Vanilla's {@code getDirectSignal} is handed the opposite of
+     * this and converts before calling in, so every rule in this class speaks one frame.
      */
     public static boolean directSignalToward(ComponentType type, Direction facing, Direction direction,
                                              Locks locks) {
@@ -112,15 +81,12 @@ public final class PowerSolver {
             return false;
         }
         if (type.isDiode()) {
-            // A diode strongly powers the block in front of it, which is what lets it drive a wire on
-            // the far side of a solid block - exactly as it does in vanilla. FACING points at the
-            // input, so the block in front is the opposite side. The 维持 (retaining) repeaters are
-            // diodes here too: they only differ in the strength they hand on, not in how they hand it.
+            // A diode strongly powers the block in front - FACING points at the input, so that is the opposite
+            // side - and the 维持 repeaters are diodes here too, differing only in the strength they hand on.
             return direction == facing.getOpposite();
         }
-        // Everything else is a weak source, just like in vanilla: a lever never charges a block, and
-        // dust only powers what it actually touches. That is what keeps a host block from behaving
-        // like a redstone block and charging every solid block around it.
+        // Everything else is a weak source, as in vanilla: a lever never charges a block and dust only powers
+        // what it touches, which keeps a host block from charging every solid block around it.
         return false;
     }
 
@@ -131,28 +97,13 @@ public final class PowerSolver {
     }
 
     /**
-     * What a stored component reports to a vanilla signal query, or {@code 0} when it does not answer.
+     * What a stored component reports to a vanilla signal query, or {@code 0} when it does not answer: the
+     * weak query is answered on the directions the component emits towards, the strong query only by the diode
+     * in front of which it sits, and neither by a component the wrench has closed.
      *
-     * <p>The whole of "a host block is a signal source, and it is exactly as good a source as the
-     * device inside it": the weak query is answered on the directions the component emits towards, the
-     * strong query only by the diode in front of which it sits, and neither is answered at all by a
-     * component the wrench has closed.
-     *
-     * <p><b>The direction is in the component's own frame.</b> A host block standing on the ground has
-     * no frame of its own - local and world are the same there - but a host riding a structure that has
-     * been turned does, and its caller is responsible for turning the world query back through the
-     * pose's quaternion before calling in (see {@code CarrierDirections#localDirection}). That is the
-     * one reason this is a public method with the rule spelled out rather than two lines inside the
-     * mixin: the direction conversion is the part that must not be got wrong, and a unit test can only
-     * hold it if both halves are reachable without a game.
-     *
-     * @param emitted where the signal would travel: from this component <em>towards</em> the neighbour
-     *     asking, which is the opposite of the direction vanilla hands a signal query
-     * @param strong whether the caller is the strong-power query ({@code getDirectSignal})
-     * @param neighbourHoldsComponent whether the block asking also holds a component of ours - see the
-     *     note in {@code BlockStateSignalMixin}: a host block is the component inside it, not a block of
-     *     stone, so it must not also conduct strong power onwards into that component
-     * @param hostConductsStrongPower the config switch that restores strict vanilla block semantics
+     * <p>The direction is in the component's own frame: a host riding a turned structure has one, and its
+     * caller has to turn the world query back through the pose before calling in - which is the reason this is
+     * a public method with the rule spelled out rather than two lines inside the mixin.
      */
     public static int signalAnswer(Slot slot, Direction emitted, boolean strong,
                                    boolean neighbourHoldsComponent, boolean hostConductsStrongPower) {
@@ -175,9 +126,9 @@ public final class PowerSolver {
     /**
      * Whether this component's output leaves it towards {@code direction}.
      *
-     * <p>Note what a lock does <em>not</em> do here: it stops the signal leaving along unpinned sides,
-     * but it never changes where the component would have emitted anyway. Forcing a side open is the
-     * other half, and is what makes "route a repeater sideways" possible.
+     * <p>Note what a lock does <em>not</em> do here: it stops the signal leaving along unpinned sides without
+     * changing where the component would have emitted anyway. Forcing a side open is the other half, and is
+     * what makes "route a repeater sideways" possible.
      */
     public static boolean emitsToward(ComponentType type, Direction facing, Direction direction,
                                       Locks locks) {
@@ -198,6 +149,14 @@ public final class PowerSolver {
             case DOUBLE_RETAINING_REPEATER:
             case COMPARATOR:
                 // Diodes are one-way by definition: everything goes out the far side.
+                return direction == facing.getOpposite();
+            case CONTROLLER:
+            case TRANSFORMER:
+            case CLOCK:
+            case EXTENDER:
+                // One-way like a diode - it reads 正面 and answers on 背面 - but not a diode: neither the
+                // controller nor the transformer pushes strong power into the block in front. All four must
+                // answer on one face only, since the plate and the component inside a block are one device.
                 return direction == facing.getOpposite();
             default:
                 return true;
@@ -223,9 +182,8 @@ public final class PowerSolver {
     /**
      * Whether this component takes its input from {@code direction}.
      *
-     * <p>A lock does not stop a driven component reading its own input side: locking a repeater's
-     * output sideways must not switch the repeater off. An explicit cut <em>does</em> stop it, which is
-     * what makes {@code /rc connect ... off} a way to disable one input of a comparator.
+     * <p>A lock does not stop a driven component reading its own input side, while an explicit cut does - which
+     * is what makes the cut a way to disable one input of a comparator.
      */
     public static boolean readsToward(ComponentType type, Direction facing, Direction direction,
                                       Locks locks) {
@@ -249,11 +207,12 @@ public final class PowerSolver {
             case DOUBLE_REPEATER:
             case DOUBLE_RETAINING_REPEATER:
             case COMPARATOR:
+            case CONTROLLER:
+            case EXTENDER:
                 return direction == facing;
             default:
-                // Dust reads every side. The manual sources are never driven, so their answer here is
-                // never consulted - but claiming they read everything keeps the default branch honest
-                // for any future type that is neither driven nor manual.
+                // Dust reads every side, and the manual sources are never driven - claiming they read everything
+                // keeps this branch honest for a future type that is neither driven nor manual.
                 return true;
         }
     }
@@ -281,7 +240,7 @@ public final class PowerSolver {
      * {@code facing}, and a lock on one of them is a lock the player asked for.
      */
     private static boolean isInputSide(ComponentType type, Direction facing, Direction direction) {
-        return type.isDriven() && direction == facing;
+        return type.hasInputSide() && direction == facing;
     }
 
     // ------------------------------------------------------------ propagation --
@@ -319,9 +278,8 @@ public final class PowerSolver {
     }
 
     /**
-     * What the inner network delivers to {@code self} at {@code pos} from {@code direction}.
-     *
-     * @return 0 when the component does not read that side, otherwise what arrives after the hop
+     * What the inner network delivers to {@code self} at {@code pos} from {@code direction}: 0 when the
+     * component does not read that side, otherwise what arrives after the hop.
      */
     public static int innerFrom(PowerEnvironment env, BlockPos pos, Direction direction,
                                 PowerEnvironment.Node self) {
@@ -336,16 +294,10 @@ public final class PowerSolver {
     }
 
     /**
-     * What survives the hop between two components.
-     *
-     * <p>Vanilla charges this to the wire that <em>receives</em>: a wire's strength is
-     * {@code max(sources around it, best neighbouring wire - 1)}, so a torch lights a wire to fifteen
-     * while wire only lights the next wire to fourteen. Modelling it as the receiver's cost is what
-     * makes a superconducting wire possible at all - its hop costs nothing, so a run of it carries the
-     * strength it was given all the way.
-     *
-     * <p>A hop into or out of anything that is not a wire costs nothing, which is why a repeater reads
-     * a wire at full strength, exactly as it does in vanilla.
+     * What survives the hop between two components: vanilla charges it to the wire that <em>receives</em>, and
+     * modelling it as the receiver's cost is what makes a superconducting wire possible - its hop costs
+     * nothing, so a run of it carries the strength it was given all the way. A hop into or out of anything that
+     * is not a wire costs nothing, which is why a repeater reads a wire at full strength.
      */
     private static int afterHop(@Nullable PowerEnvironment.Node receiver,
                                 PowerEnvironment.Node sender, int value) {
@@ -356,37 +308,19 @@ public final class PowerSolver {
     }
 
     /**
-     * <b>The same rule, stated on types - the form a caller that is not a node of a solve can use.</b>
-     *
-     * <h2>P1.44: the reader that is not one of our nodes</h2>
-     * A hop is charged by the component that <em>receives</em> it, and the author's build has a reader
-     * that is not a node of any of our solves at all: a <b>vanilla redstone wire</b> lying next to a host
-     * block. Vanilla states that hop in its own arithmetic
-     * ({@code RedStoneWireBlock#calculateTargetStrength}: {@code return Math.max(i, j - 1)}), but its
-     * scan for the {@code j} half only ever sees a neighbour whose block state <em>is</em> a redstone
-     * wire - {@code getWireSignal}: {@code state.is(this)}. A component hidden inside an ordinary host
-     * block is a block of stone to that scan, so it landed in {@code i} (a source) instead and the hop
-     * went uncharged: the wire read the host at full strength while the host read the wire one step
-     * lower, and a line of them held each other up at fifteen.
-     *
-     * <p>This is that missing charge and <b>no second rule</b>: the reader is an ordinary wire
-     * ({@link ComponentType#DUST} - the same component at cost one), the sender is whatever the host
-     * holds, and a hop costs something only between two wires, exactly as
-     * {@link #afterHop(PowerEnvironment.Node, PowerEnvironment.Node, int)} has always said.
-     *
-     * @param receiver the component doing the reading, or {@code null} for "not one of ours" - which
-     *     answers {@code value} unchanged, the honest degradation for a caller with no identity to give
-     * @param sender the component the read was about
-     * @param value what the sender emits
+     * The same rule stated on types, for a caller that is not a node of a solve: a hop is charged by the
+     * component that <em>receives</em> it. Vanilla's wire scan only accepts a neighbour whose block state is
+     * itself wire, so a component hidden inside a host block reads as a source there and its hop went
+     * uncharged; naming the reader as an ordinary wire is what charges it. A {@code null} reader answers the
+     * value unchanged, the honest degradation for a caller with no identity to give.
      */
     public static int afterHop(@Nullable ComponentType receiver, @Nullable ComponentType sender,
                                int value) {
         if (receiver == null || sender == null || !receiver.isWire() || !sender.isWire() || value == 0) {
             return value;
         }
-        // The receiver's cost - the solve's own rule, and unchanged by P1.53. What P1.53 changed is the
-        // read at a BLOCK BOUNDARY, where the other side of the hop is a vanilla block rather than one of
-        // our nodes; see {@code BlockSignalSources#hopChargedByReader}.
+        // The receiver's cost, which is the solve's own rule. The read at a block boundary - where the other
+        // side of the hop is a vanilla block rather than one of our nodes - is charged elsewhere.
         return Math.max(0, value - receiver.hopCost());
     }
 
@@ -435,26 +369,28 @@ public final class PowerSolver {
     public static int desiredOutput(PowerEnvironment env, BlockPos pos, PowerEnvironment.Node self) {
         Direction input = self.facing();
         int signal = inputFrom(env, pos, input, self);
+        // The number is recorded here because a screen cannot re-derive it: a component inside a machine is
+        // read through the structure's own view, so a screen that asked the level instead would show 0 while
+        // the device worked. Recorded where it is read, so "what the screen shows" and "what the circuit used"
+        // are the same number by construction.
+        self.noteInput(signal);
         switch (self.type()) {
             case TORCH:
                 // Lit by default; anything reaching its attachment side puts it out.
                 return signal == 0 ? MAX_POWER : 0;
             case REPEATER:
             case DOUBLE_REPEATER:
-                // Any input at all comes out at full strength, which is the whole point of a repeater.
+                // Any input at all comes out at full strength; that is what a repeater is for.
                 return signal > 0 ? MAX_POWER : 0;
             case RETAINING_REPEATER:
             case DOUBLE_RETAINING_REPEATER:
-                // The same relay, except that it hands on what it was given: seven in, seven out. The
-                // delay is unchanged, so a pulse shorter than it still disappears.
+                // The same relay, except that it hands on what it was given: seven in, seven out. The delay is
+                // unchanged, so a pulse shorter than it still disappears.
                 return clamp(signal);
             case COMPARATOR:
-                // THE BACK INPUT HAS TWO HALVES, AND VANILLA READS BOTH. A redstone signal is the half
-                // this mod always had; the other is the neighbouring block's own analogue output, which
-                // is the only way a cake (one per bite), a cauldron, a chest or a hopper is read at all -
-                // vanilla's `ComparatorBlock#getInputSignal` asks `getAnalogOutputSignal` first and adds
-                // the wire reading after it. Without it an inner comparator can see a wire and a lever
-                // and nothing else, which is the author's report.
+                // The back input has two halves and vanilla reads both: a redstone signal, and the neighbouring
+                // block's own analogue output - the only way a cake, a cauldron, a chest or a hopper is read at
+                // all, since vanilla asks the analogue output first and adds the wire reading after it.
                 int back = Math.max(signal, clamp(env.analogOutput(input)));
                 int side = sideInput(env, pos, input, self);
                 if (self.mode() == ComparatorMode.SUBTRACT) {
@@ -462,6 +398,20 @@ public final class PowerSolver {
                 }
                 // Compare: pass the back signal through, but only while it is at least the sides.
                 return back >= side ? back : 0;
+            case CONTROLLER:
+                // The controller's rule over the strength standing at its 正面 - the face it was mounted on,
+                // since the clicked face is what is stored. Combinational: no delay of its own, like the plate.
+                return self.controller().answer(signal);
+            case TRANSFORMER:
+                // The transformer's rule over the strength standing at its 正面, with no input meaning 0:
+                // combinational like the controller, and it reads its own face for the same reason.
+                return TransformerRule.answer(signal, self.transformer());
+            case EXTENDER:
+                // 信号延长器 hands its 正面 straight through - the strength it was given, nothing shaped, nothing
+                // delayed. With nothing arriving it keeps answering what it was already answering, because that is
+                // the hold: the deadline belongs to the tick pass that owns the level (only it knows when the hold
+                // runs out, and it writes the 0 itself), so re-deriving an answer here would cut the hold short.
+                return signal > 0 ? clamp(signal) : clamp(self.power());
             default:
                 return clamp(self.power());
         }
@@ -470,12 +420,10 @@ public final class PowerSolver {
     /**
      * The strongest of a comparator's side inputs.
      *
-     * <p>A comparator on the ground reads the two sides either side of its back input, which is what
-     * vanilla does and what {@code getClockWise} names. A comparator <em>inside</em> a block can also be
-     * mounted on the top or bottom face (R5), and then its input axis is vertical - at which point there
-     * is no "clock-wise" side at all, and asking for one throws: that is the crash this method exists to
-     * prevent. A vertical comparator reads all four horizontal sides instead, which is the same idea
-     * (everything perpendicular to the back input) with the plane it is missing filled in.
+     * <p>A comparator on the ground reads the two sides either side of its back input. A comparator
+     * <em>inside</em> a block can also be mounted on the top or bottom face, and then its input axis is
+     * vertical - where there is no clock-wise side at all and asking for one throws. A vertical comparator
+     * reads all four horizontal sides instead: the same idea, with the plane it is missing filled in.
      */
     public static int sideInput(PowerEnvironment env, BlockPos pos, Direction facing,
                                 PowerEnvironment.Node self) {

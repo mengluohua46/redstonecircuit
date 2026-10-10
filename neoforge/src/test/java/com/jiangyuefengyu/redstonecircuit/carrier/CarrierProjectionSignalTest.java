@@ -17,26 +17,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.20, ability two: the world's own inner solve reads the output of a host a structure is
- * carrying.</b>
+ * The world's own inner solve reads the output of a host a structure is carrying.
  *
- * <h2>The direction the author asked for</h2>
- * "World -> inside the carrier" already worked: {@code CarrierSpace} merges the world half and the
- * structure half, so a lever on the ground feeds the redstone inside a passing machine. The other way
- * round did not: a component inside an ordinary block standing in the world could not see a carried
- * host's output, so a machine could light a lamp but not the redstone inside the block beside it.
- *
- * <h2>What is pinned here, and where the rule lives</h2>
- * Two readers answer "what does the host projected here emit towards this world direction": vanilla's
- * own signal query (through {@code BlockStateSignalMixin}, which is what a lamp or a piston reads) and
- * the mod's world-side inner solve. Both now go through {@link CarrierProjection#emittedToward}, and
- * that is what these tests pin - the direction conversion, the emission rule, the weak/strong split, and
- * the fact that a host which has been turned answers for the direction it now faces.
- *
- * <p>A machine turned by ninety degrees is the case that matters: the component inside it reads and
- * emits along its <em>own</em> sides, so the same world side answers differently before and after the
- * turn, and a reader that forgot to convert the direction would answer the pre-turn value for the rest
- * of the flight.
+ * <p>Both readers of that answer - vanilla's signal query (through {@code BlockStateSignalMixin}, which
+ * is what a lamp or a piston reads) and the mod's world-side inner solve - go through
+ * {@link CarrierProjection#emittedToward}, and that is what these tests pin: the direction conversion,
+ * the emission rule, the weak/strong split, and the fact that a host which has been turned answers for
+ * the direction it now faces.
  */
 class CarrierProjectionSignalTest {
 
@@ -103,21 +90,19 @@ class CarrierProjectionSignalTest {
         CarrierProjection.ProjectedHost afterHost = host(after, slot);
 
         // Local north is world north before the turn and world WEST after a +90 degrees turn about Y
-        // (CarrierDirections#worldDirection's convention), so the world side that reads the diode is
-        // north before and west after. The component did not change; the structure did.
+        // (CarrierDirections#worldDirection's convention): the component did not change, the structure did.
         assertEquals(15, CarrierProjection.emittedToward(beforeHost, Direction.NORTH, false, false));
         assertEquals(0, CarrierProjection.emittedToward(beforeHost, Direction.WEST, false, false));
 
         int afterWest = CarrierProjection.emittedToward(afterHost, Direction.WEST, false, false);
         assertEquals(15, afterWest,
-                "the same world side the diode now faces reads it: the conversion went through the "
-                        + "pose, which is the whole of 'the world reads a turned machine'");
+                "the same world side the diode now faces reads it: the conversion goes through the pose");
         assertEquals(0, CarrierProjection.emittedToward(afterHost, Direction.NORTH, false, false),
-                "and the side it used to face is silent");
+                "and the side it faced before is silent");
         assertNotEquals(
                 CarrierProjection.emittedToward(beforeHost, Direction.WEST, false, false), afterWest,
-                "the two poses genuinely disagree about the same world side - otherwise this test would "
-                        + "pass on a reader that ignored the pose entirely");
+                "the two poses disagree about the same world side, so a reader that ignored the pose "
+                        + "would fail here");
     }
 
     @Test
@@ -132,8 +117,7 @@ class CarrierProjectionSignalTest {
         // The torch hangs on the block below it, so it does not drive it. Asked from below, the
         // direction from the asker towards the host is UP, i.e. the emitted direction is DOWN.
         assertEquals(0, CarrierProjection.emittedToward(host, Direction.UP, false, false),
-                "the face it is attached to is dead, exactly as in the world (the author confirmed this "
-                        + "behaviour is correct)");
+                "the face it is attached to is dead, exactly as in the world");
         assertEquals(15, CarrierProjection.emittedToward(host, Direction.DOWN, false, false),
                 "and every other face is live");
         assertEquals(15, CarrierProjection.emittedToward(host, Direction.EAST, false, false));

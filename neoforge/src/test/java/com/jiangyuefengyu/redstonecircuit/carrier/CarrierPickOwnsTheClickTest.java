@@ -31,61 +31,27 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.35 commit B: "I picked the block inside the machine, shift-clicked the ordinary block beside it,
- * and was told 已清除所有连接 - and not one lock judgement was ever reached."</b>
+ * Which layer owns a wrench shift-click while a carrier host is picked, and what the carrier answers with.
  *
- * <h2>What the author's own log contains, counted</h2>
- * <pre>
- *   picked the near end of a line        15      the pick really was recorded
- *   locked OUTSIDE the structure          2      the OTHER side of the same machine, where the world's own
- *   locked INSIDE the structure           6      rule happened to decline and the click fell through
- *   wrench clear at -16, -60, -15 -> CLEARED  13  the world's own wrench, on the world's own ledger
- *   carrier lock attempt?                 0      ← the line P1.34 added, never once written
- *   link refused                          0
- *   NOT_ADJACENT / NOT_OUTSIDE / NOT_INSIDE / FAR_END_…   0, 0, 0, 0
- *   INSIDE: …  /  OUTSIDE: …              0
- * </pre>
+ * <p>The world's ledger and the carrier's ledger are separate maps, and the world's listener runs first. So a
+ * carrier pick followed by a shift-click on a world block was decided by the world's own rule that drops every
+ * override: it cleared the connection, put that sentence on the action bar and cancelled the event, and the
+ * carrier's listener was never called - every answer it can give is absent, which is "not refused, never asked".
  *
- * <p>The two ledgers are separate maps and nothing kept them in step, and {@code InnerRedstoneInteraction}
- * runs <b>before</b> the carrier's listener: the carrier pick was made last, the clicked coordinate was a
- * world block the <em>world</em> ledger still had selected from an earlier click, and the world's own
- * "shift-click the block you picked again drops every override" won the click - cleared it, put 「已清除…」
- * on the action bar, and cancelled the event. The carrier's listener was never called at all, which is why
- * every answer it can give is absent from that log: <b>not refused - never asked</b>.
+ * <p>What is pinned here: the rule that decides the layer, asked by name over its whole table (a live carrier
+ * pick owns the wrench's shift half, and nothing else does); the wiring, over the source, where the world's own
+ * wrench asks that rule once the click is already wrench-shaped and answers {@code WrenchOutcome.CARRIER} - both
+ * action fields FALSE and <b>not</b> cancelled, so the carrier's listener answers it, while the world's select
+ * half drops the carrier pick; the words and the line being one decision, since {@code needsANamedAnswer} is
+ * asked by both halves of {@code reportOutside}; and the trace reaching the acted-on path as well as the refused
+ * one.
  *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>the rule that decides the layer</b> ({@code CarrierClickPriority#theCarrierPickOwnsThisShiftClick}),
- *       asked by name over its whole table: a live carrier pick owns the wrench's shift half, and nothing
- *       else does;</li>
- *   <li><b>the wiring, over the source</b> - the world's own wrench asks that rule at the one point where
- *       the click is already known to be wrench-shaped, before the goggles gate, and answers
- *       {@code WrenchOutcome.CARRIER}: both action fields FALSE and <b>not</b> cancelled, so the carrier's
- *       listener answers it. The world's select half drops the carrier pick, which is what keeps the world's
- *       own line reachable after one carrier pick;</li>
- *   <li><b>the words and the line are one decision</b> - {@code needsANamedAnswer} is asked by both halves
- *       of {@code reportOutside}, so no status can speak on the action bar without writing a line, or the
- *       reverse. That is the author's contradiction, stated as an invariant over the whole enum;</li>
- *   <li><b>the trace reaches the acted-on path too</b> - the line P1.34 added is written for a lock that
- *       succeeded, not only for one that was refused (a successful lock returns before the refused tail,
- *       which is where P1.34 put the only call);</li>
- *   <li><b>the answer exists</b> - the author's own click, driven through the real decision, is
- *       {@code LOCKED} with the {@code OUTSIDE} line, and "nothing picked" is {@code NOTHING_PICKED} with a
- *       step that says so;</li>
- *   <li><b>no new language keys</b> - the two statuses that used to write a line and say nothing reuse the
- *       world's own sentences, and both keys are asserted to exist in both language files.</li>
- * </ol>
- *
- * <h2>Why the new rule is asked by name</h2>
- * The red half of this round's evidence is a real run against the build <em>before</em> it, where this
- * method does not exist: the reflective lookup fails, every call answers "the world keeps the click", and
- * every assertion that expects the carrier to own the click fails as a plain assertion failure. The rows
- * that expect {@code false} stay green there on purpose - the old build's wrong answer coincides with the
- * right one on those - and they are the rows that keep this rule from swallowing the world's own wrench.
+ * <p>The rule is asked through reflection so this file still compiles against a build without it, where every
+ * call answers "the world keeps the click".
  */
 class CarrierPickOwnsTheClickTest {
 
-    /** The author's own carrier, from {@code carrier s:0c184903}. */
+    /** The carrier this fixture drives, keyed by a sub-level id. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("0c184903-0000-0000-0000-000000000000"));
 
@@ -95,21 +61,17 @@ class CarrierPickOwnsTheClickTest {
     /** The picked host, inside the structure. */
     private static final BlockPos LOCAL = new BlockPos(20481032, 127, 20481032);
 
-    /** Where the author's pose put it: {@code world=-17, -60, -15} in their log. */
+    /** Where the pose puts it: the world cell {@code -17, -60, -15}. */
     private static final BlockPos WORLD = new BlockPos(-17, -60, -15);
 
-    /** The ordinary world block beside it - the block the author shift-clicked. */
+    /** The ordinary world block beside it. */
     private static final BlockPos WORLD_BESIDE = WORLD.east();
 
     // ------------------------------------------------------------ the rule --
 
     /**
-     * {@code CarrierClickPriority#theCarrierPickOwnsThisShiftClick(boolean, boolean, boolean, boolean)},
-     * asked by name so this file runs against the previous build.
-     *
-     * <p>On that build the method does not exist and the answer is {@code false}: the world keeps the
-     * shift-click, which is exactly the defect (the carrier's gesture is never entered). Every assertion
-     * below that expects the carrier to own the click is therefore red there.
+     * {@code CarrierClickPriority#theCarrierPickOwnsThisShiftClick(boolean, boolean, boolean, boolean)}, asked
+     * by name so this file still runs against a build without the rule, where the answer is {@code false}.
      */
     private static boolean thePickOwns(boolean wrench, boolean sneaking, boolean carriedWrench,
                                        boolean picked) {
@@ -153,12 +115,11 @@ class CarrierPickOwnsTheClickTest {
         }
 
         @Test
-        @DisplayName("the author's own click: picked inside the machine, then shift-clicked the world block")
+        @DisplayName("picked inside the machine, then a shift-click on the world block beside it")
         void theAuthorsClickIsTheCarriers() {
             assertTrue(thePickOwns(true, true, true, true),
-                    "this is the click from the author's log - `picked the near end of a line` followed by a "
-                            + "shift-click one tick later - and it must reach the carrier layer instead of "
-                            + "the world's own `wrench clear … -> CLEARED`");
+                    "a pick followed a tick later by a shift-click must reach the carrier layer instead of "
+                            + "the world's own wrench clear");
         }
 
         @Test
@@ -166,8 +127,8 @@ class CarrierPickOwnsTheClickTest {
         void thePlainClickIsNotTheCarriers() {
             assertFalse(thePickOwns(true, false, true, true),
                     "a plain right-click with a live carrier pick is the world's own SELECT half (and it "
-                            + "forgets the carrier pick - see the wiring below), so the action bar can never "
-                            + "say 「已清除…」 through this clause: the world must be the one to answer it");
+                            + "forgets the carrier pick - see the wiring below), so the world has to be the "
+                            + "one that answers it");
         }
 
         @Test
@@ -263,7 +224,7 @@ class CarrierPickOwnsTheClickTest {
                             + "default `receiveCanceled=false` listener, so cancelling here would delete the "
                             + "very delivery this handover exists to hand over");
             assertTrue(source.contains("if (outcome == WrenchOutcome.CONSUMED) { event.setCanceled(true); }"),
-                    "while the world's OWN answer still cancels, exactly as it did before");
+                    "while the world's own answer still cancels");
         }
 
         @Test
@@ -283,7 +244,7 @@ class CarrierPickOwnsTheClickTest {
                             + "handover above can never hold the world's own wrench hostage for the rest of "
                             + "a session: picking a world host hands the shift-click straight back");
             assertTrue(source.contains("import com.jiangyuefengyu.redstonecircuit.carrier.CarriedSelection;"),
-                    "which is the one carrier-side name this commit adds to the world handler");
+                    "the one carrier-side name the world handler needs");
         }
 
         @Test
@@ -298,8 +259,7 @@ class CarrierPickOwnsTheClickTest {
             assertTrue(world < carrier,
                     "the world's listener is registered FIRST, which is the whole reason the handover has to "
                             + "be written on the world side: a click it consumes never reaches the carrier's "
-                            + "listener at all. This assertion is here so a future reorder is a decision and "
-                            + "not an accident");
+                            + "listener at all, so a reorder here has to be a decision rather than an accident");
         }
     }
 
@@ -353,23 +313,23 @@ class CarrierPickOwnsTheClickTest {
         }
 
         @Test
-        @DisplayName("reportOutside asks that predicate on both halves, and no `||` chain is left")
+        @DisplayName("reportOutside asks that predicate on both halves")
         void bothHalvesReadIt() {
             String source = flatCarrierHandler();
             int first = source.indexOf("if (needsANamedAnswer(status)) {");
             int second = source.indexOf("if (needsANamedAnswer(status)) {", first + 1);
 
             assertTrue(first > 0, "the action bar half reads it");
-            assertTrue(second > first, "and the ledger half reads the same one - this is the fix");
+            assertTrue(second > first, "and the ledger half reads the same one");
             assertFalse(source.contains("|| decision.status() == OutsideStatus."),
-                    "the two hand-written lists that could drift apart are gone");
+                    "so no hand-written status list can drift from the predicate");
             assertTrue(source.contains("message(player, CarrierMessages.refused(refusalMessage(status)));"),
                     "the sentence comes from one mapping, which is the only place a status can acquire "
                             + "words");
         }
 
         @Test
-        @DisplayName("no new language keys: the two that had a line and no sentence reuse the world's own")
+        @DisplayName("no new language keys: both statuses reuse the world's own sentences")
         void noNewLanguageKeys() throws IOException {
             String source = flatCarrierHandler();
             for (String key : new String[] {"message.redstonecircuit.wrench.not_adjacent_carrier",
@@ -379,8 +339,8 @@ class CarrierPickOwnsTheClickTest {
                         "the refusal mapping must use " + key);
                 for (String language : new String[] {"zh_cn.json", "en_us.json"}) {
                     assertTrue(language(language).contains("\"" + key + "\""),
-                            language + " must already hold " + key + " - this commit adds no key, so every "
-                                    + "sentence it can show is one CarrierMessageTextTest already renders");
+                            language + " must already hold " + key + " - no key is added, so every sentence "
+                                    + "it can show already exists");
                 }
             }
         }
@@ -394,7 +354,7 @@ class CarrierPickOwnsTheClickTest {
     // ------------------------------------------------------------------ trace --
 
     @Nested
-    @DisplayName("the trace reaches the ACTED-ON path too, which is what P1.34 promised")
+    @DisplayName("the trace reaches the ACTED-ON path too, not only the refused one")
     class TheLockAttemptTrace {
 
         @Test
@@ -404,9 +364,9 @@ class CarrierPickOwnsTheClickTest {
 
             assertTrue(source.contains("null, inside, pickedPosForTrace(player, true)); reportOutside("
                             + "serverLevel, player, inside, \"RIGHT_CLICK_BLOCK\");"),
-                    "the inside gesture's SUCCESS path has to write the trace before it reports: P1.34 put "
-                            + "the call only at the end of the refused path, which a lock returns before, so "
-                            + "`grep \"carrier lock attempt?\"` found nothing on a lock that WORKED");
+                    "the inside gesture's SUCCESS path has to write the trace before it reports: a call at the "
+                            + "end of the refused path only is never reached by a lock that succeeded, so the "
+                            + "trace would name no successful lock at all");
             assertTrue(source.contains("null, outside, pickedPosForTrace(player, false)); reportOutside("
                             + "serverLevel, player, outside, \"RIGHT_CLICK_BLOCK\");"),
                     "and the same for the outside gesture");
@@ -461,16 +421,15 @@ class CarrierPickOwnsTheClickTest {
         }
     }
 
-    /** The translation the author's log printed for that structure: {@code LOCAL -> WORLD}. */
+    /** The translation that carries {@code LOCAL} to {@code WORLD}. */
     private static CarrierPose moving() {
         return CarrierPose.of(new Vector3d(WORLD.getX() - LOCAL.getX(), WORLD.getY() - LOCAL.getY(),
                 WORLD.getZ() - LOCAL.getZ()), new Quaterniond());
     }
 
     /**
-     * {@code CarrierInteraction#needsANamedAnswer(OutsideStatus)}, asked by name so this file compiles and
-     * runs against the build before it - where the two hand-written lists are still separate and there is
-     * no such predicate, so the answer is {@code false}.
+     * {@code CarrierInteraction#needsANamedAnswer(OutsideStatus)}, asked by name so this file still runs against
+     * a build where there is no such predicate and the answer is {@code false}.
      */
     private static boolean named(CarrierInteraction.OutsideStatus status) {
         try {
@@ -495,16 +454,13 @@ class CarrierPickOwnsTheClickTest {
     }
 
     @Nested
-    @DisplayName("the answer itself: this click can no longer end with no answer at all")
+    @DisplayName("the answer itself: this click always reaches a named answer")
     class TheAnswerExists {
 
         /**
-         * <b>The author's own click, driven through the real decision.</b>
-         *
-         * <p>The pick is a host of {@link #AUTHOR} and the click is the world block beside it: the decision
-         * is {@code LOCKED} and its line is the one a report greps for. This answer was unreachable in the
-         * author's session - not because the decision was wrong, but because the world's listener consumed
-         * the click a moment earlier.
+         * The same click, driven through the real decision: the pick is a host of {@link #AUTHOR} and the click
+         * is the world block beside it, so the decision is {@code LOCKED} and its line is the one a report greps
+         * for.
          */
         @Test
         @DisplayName("picked + an adjacent world block ⇒ LOCKED, with the OUTSIDE line")
@@ -522,8 +478,7 @@ class CarrierPickOwnsTheClickTest {
 
             assertNotNull(decision, "the decision exists on this build");
             assertEquals("LOCKED", String.valueOf(read(decision, "status")),
-                    "the author's click is a lock, once the carrier layer is allowed to see it: "
-                            + decision);
+                    "the click is a lock once the carrier layer is allowed to see it: " + decision);
             Object action = read(decision, "action");
             assertNotNull(action, "and it wrote something");
             assertTrue(String.valueOf(read(decision, "blockedBy")).startsWith("locked"),
@@ -549,7 +504,7 @@ class CarrierPickOwnsTheClickTest {
                     "and the step says that the near end was what was missing, so a report can tell "
                             + "\"nothing picked\" from \"nothing answered\": " + blockedBy);
             assertFalse(named(CarrierInteraction.OutsideStatus.NOTHING_PICKED),
-                    "it is deliberately silent on both halves: it is the world's own wrench gesture");
+                    "it is silent on both halves: it is the world's own wrench gesture");
             assertTrue(named(CarrierInteraction.OutsideStatus.NOT_ADJACENT),
                     "while a real refusal is named on both - the invariant above, read from here");
         }

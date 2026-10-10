@@ -25,38 +25,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The entry trace's format, its bounds and its throttle - asserted offline.</b>
+ * <b>The entry trace's format, its bounds and its throttle.</b>
  *
- * <h2>Why these particular things are pinned</h2>
- * This round adds no behaviour: it adds the log lines that are supposed to answer "did the click reach
- * us, at which coordinate, and what did the resolver make of it". Everything that could make those lines
- * useless is invisible in game and is therefore pinned here:
- *
- * <ul>
- *   <li><b>the three outcomes are written verbatim.</b> A reader greps {@code MATCH}, {@code MISS} or
- *       {@code REFUSED}; if a layout change renamed one, the acceptance procedure would silently read
- *       nothing;</li>
- *   <li><b>the throttle is one line per shape per window.</b> The same failing click repeated must not
- *       fill the log, and a click on a world with no carrier at all must share one shape whatever its
- *       coordinate - which is the whole of "an unrelated click never spams";</li>
- *   <li><b>a MATCH is never throttled.</b> It is a real action; a player doing two turns in a row must
- *       see two lines;</li>
- *   <li><b>the candidate list is bounded twice over and uses the CURRENT projection.</b> {@code K}
- *       carriers by {@code M} hosts, with the world position computed from the pose rather than read from
- *       the record's {@code origin} - which is the coordinate-frame confusion the list exists to expose.
- *       The author's own machine was picked up at {@code local=20481031,128,20524040} and is drawn at
- *       {@code world=2775,77,-1393}, and a list that printed the origin instead would have made that look
- *       correct;</li>
- *   <li><b>the break ledger is bounded</b>, because it is the only place "no break event ever arrived for
- *       this host" can be read from.</li>
- * </ul>
+ * <p>The three outcomes are written verbatim, so a grep finds MATCH, MISS or REFUSED; the throttle is one
+ * line per shape per window and never throttles a MATCH; the candidate list is bounded to K carriers by M
+ * hosts and prints the CURRENT projection rather than the record's origin.
  */
 class CarrierEntryTraceTest {
 
     private static final CarrierId MINE =
             CarrierId.contraption(UUID.fromString("00000000-0000-0000-0000-000000004001"));
 
-    /** The pose of the author's own machine: position from §18, and a rotation to make it non-identity. */
+    /** The machine's position, with a rotation so the pose is not the identity. */
     private static final Vector3d AT = new Vector3d(2775.0, 77.0, -1395.0);
 
     @BeforeEach
@@ -94,8 +74,7 @@ class CarrierEntryTraceTest {
                     "MAIN_HAND", "minecraft:redstone x1", "component", outcome, "detail");
             assertTrue(line.contains("-> " + outcome.name() + " "), "the arrow and the outcome: " + line);
         }
-        // ...and the outcome is the only one of the three words in a line that named it, so a reader
-        // cannot mistake a MISS whose reason mentions MATCH for a hit.
+        // A MISS whose reason mentions MATCH must not be mistaken for a hit.
         String miss = CarrierEntryTrace.entryLine("E", "p", "1, 2, 3", "up", "MAIN_HAND", "empty",
                 "bare hand", CarrierEntryTrace.Outcome.MISS, "no host");
         assertFalse(miss.contains("-> MATCH"));
@@ -151,8 +130,8 @@ class CarrierEntryTraceTest {
         assertTrue(structureFrame.contains("rawIsLocal=false"),
                 "the click arrived somewhere else, and that fact is the useful one: " + structureFrame);
 
-        // The break path resolves through CarriedBlockRemoval#resolve, which answers a Destroyed and not
-        // a Hit: the line must say so rather than have a `via=` invented for it.
+        // The break path answers a destruction rather than a hit: the line must say so instead of having a
+        // frame invented for it.
         String described = CarrierEntryTrace.matchDetail(CarrierEntryTrace.Outcome.MATCH, null, local,
                 "carrier=c:1 local=1, 2, 3");
         assertTrue(described.contains("no Hit record"), described);
@@ -164,7 +143,7 @@ class CarrierEntryTraceTest {
         assertEquals("not a carried host",
                 CarrierEntryTrace.matchDetail(CarrierEntryTrace.Outcome.MISS, null, local, null));
 
-        // The detail is appended after the pair, which is where the acceptance line's reason lives.
+        // The detail is appended after the pair, which is where the reason belongs.
         String withNote = CarrierEntryTrace.matchDetail(CarrierEntryTrace.Outcome.MATCH,
                 new CarriedBlockRemoval.Hit(MINE, local, world, pose(0.0), true), local, "turned to input");
         assertTrue(withNote.endsWith("turned to input"), withNote);
@@ -342,10 +321,8 @@ class CarrierEntryTraceTest {
         assertEquals("OFF_HAND", CarrierEntryTrace.handText(InteractionHand.OFF_HAND));
         assertEquals("?", CarrierEntryTrace.posText(null));
         assertEquals("-", CarrierEntryTrace.whoOf(null));
-        // An ItemStack is deliberately never built here: reading one's registry entry needs the game's
-        // bootstrap, and a trace helper that needed it could not be asserted offline at all. A null hand
-        // is the "no hand at all" case - a break event with no player, or the self-healing sweep - and it
-        // must be distinguishable in the line from an empty one.
+        // An ItemStack is never built here: reading its registry entry needs the game's bootstrap, which a
+        // trace helper asserted offline does not have.
         assertEquals("n/a", CarrierEntryTrace.itemText(null), "no hand at all is not an empty hand");
         assertEquals("n/a", CarrierEntryTrace.toolText(null));
     }
@@ -374,9 +351,8 @@ class CarrierEntryTraceTest {
         assertTrue(detail.contains("resolvedWorld=2776, 77, -1395"), detail);
         assertTrue(detail.contains("dropPos=2776, 77, -1395"), detail);
         assertTrue(detail.contains("type=DUST"), detail);
-        // The names are deliberately not the bare `carrier=/local=/world=` the Hit tail uses: one break
-        // line carries both records, and the two legitimately name different positions in the
-        // structure-frame case.
+        // The names differ from the hit tail's: one break line carries both records, and the two name
+        // different positions in the structure-frame case.
         assertFalse(detail.contains(" local="), detail);
         assertFalse(detail.contains(" world="), detail);
         assertEquals("resolved to nothing", CarrierEntryTrace.destroyDetail(null));

@@ -27,29 +27,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>Specification S2: the carried set is the UNION of the origin walk and the pose walk.</b>
+ * Specification S2: the carried set is the UNION of the origin walk and the pose walk.
  *
- * <h2>The defect, and the regression that followed the first attempt</h2>
- * The author measured the defect: "once the physical structure is far enough from where it was placed, the
- * internal components and the frame stop being drawn; the seventh chunk away from the chunk the component
- * was placed in and the rendering is gone." Six sections of radius plus one - the radius of the render
- * path's walk, keyed on each host's <b>origin</b>: a fixed point in the world that a moving machine leaves
- * behind.
+ * <p>The origin walk is keyed on each host's <b>origin</b> - a fixed point in the world that a moving machine leaves
+ * behind - so it stops reaching a structure once that structure has travelled far enough; the pose walk finds such a
+ * structure but has nothing to answer with when the anchor is empty (a carrier the client holds no pose for) or the pose
+ * is outside the camera's frame.
  *
- * <p>The first fix made the pose-anchored walk the <b>only</b> source and the author's next report was
- * "now it simply does not render at all". That is the shape these tests exist to forbid, and it is not a
- * detail: an empty anchor (a carrier the client holds no pose for), or a pose whose position is not in the
- * camera's frame, stops being a missed optimisation and becomes a total loss. So S2 is a union:
- *
- * <ol>
- *   <li>{@code forEachNear} - the origin walk - runs <b>always</b>, unconditionally: whatever it found
- *       before this round, it still finds ({@code theOriginWalkStillFinds..., theOriginRadiusIsAlways...},
- *       {@code anEmptyAnchorCostsNothing});</li>
- *   <li>{@code forEachCarrierNearPose} - the pose walk - is <b>added</b>, and can only add: it is what
- *       finds a machine that has travelled beyond the origin radius
- *       ({@code thePoseWalkAddsAStructureThatHasMovedAway}), and it is folded in with {@code putIfAbsent}
- *       ({@code theUnionOfBothWalksIsContainedInTheResult}, {@code oneHostFoundByBothWalks...}).</li>
- * </ol>
+ * <p>So the origin walk runs <b>always</b>, unconditionally ({@code forEachNear}), and the pose walk is only ever
+ * <b>added</b> ({@code forEachCarrierNearPose}), folded in with {@code putIfAbsent} - a replacement rather than a union
+ * would turn a missed optimisation into a total loss.
  */
 class CarrierIndexPoseAnchorTest {
 
@@ -120,7 +107,7 @@ class CarrierIndexPoseAnchorTest {
     @DisplayName("S2 rule 1: the origin walk still finds a host whose pose is nowhere near the camera")
     void theOriginWalkStillFindsWhatItAlwaysDid() {
         // The pose is twenty-plus sections away, so the pose walk finds nothing at all here. Only the
-        // origin walk can answer - which is exactly the case that made the first attempt draw nothing.
+        // origin walk can answer - which is the case the origin walk exists for.
         CarrierIndex.CarriedView host = host(CARRIER, pos(1, 0, 0), CAMERA);
         index.applySnapshot(OVERWORLD, List.of(host), Map.of(CARRIER, poseAt(FAR_AWAY)));
 
@@ -136,7 +123,7 @@ class CarrierIndexPoseAnchorTest {
     @DisplayName("S2 rule 1: an empty pose anchor costs nothing - the origin walk answers regardless")
     void anEmptyAnchorCostsNothing() {
         // No pose for the carrier at all: `poses` empty, `anchorsByPose` empty. Under a pose-only entry
-        // point this is "nothing is drawn anywhere", which is the author's second report.
+        // point this is "nothing is drawn anywhere".
         CarrierIndex.CarriedView host = host(CARRIER, pos(1, 0, 0), CAMERA);
         index.applySnapshot(OVERWORLD, List.of(host), Map.of());
 

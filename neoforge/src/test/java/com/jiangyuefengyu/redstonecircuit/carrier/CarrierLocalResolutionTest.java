@@ -23,49 +23,30 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The click that arrived in the structure's own frame, and the resolver that could not read it.</b>
+ * The click that arrived in the structure's own frame, and the resolver that could not read it.
  *
- * <h2>The author's log, and what it settles</h2>
- * P1.22's acceptance run produced <b>101 trace lines and 101 of them were MISS</b>, and the coordinates
- * say the whole thing:
+ * <p>A click's raw coordinate <b>is</b> the record's local coordinate, so the resolver has to ask the index for
+ * its own key rather than invert the pose - a question about a <em>world</em> position.
  *
- * <pre>
- *   carrier tool trace: hook RIGHT_CLICK_BLOCK called by Meng_LuoHua raw=20481032, 127, 20499464
- *       face=up tool=wrench -> MISS (MISS: no live carried host answers for this position)        x 72
- *   ... raw=20481032, 128, 20501512 ... -> MISS                                                   x 28
- *   carrier claim s:b22c7587 world=-30, -60, -40 local=20481032, 127, 20499464 type=RETAINING_REPEATER
- *   carrier claim s:088a5ad7 world=-31, -60, -40 local=20481032, 128, 20501512 type=DUST
- * </pre>
- *
- * <p>The click's raw coordinate <b>is</b> the record's local coordinate, character for character, and
- * the claim is eighteen seconds older than the click. So the record was there, live, under exactly that
- * key - and the resolver answered nothing, because it looked the record up by inverting the pose (a
- * question about a <em>world</em> position) rather than by asking the index for its own key.
- *
- * <h2>What is asserted here</h2>
- * The six carriers of that world, at the coordinates that log gives, one host each; the two the author
- * clicked are among them. Then, with <b>no level and no projection entry</b> - only the index and the
- * poses - the coordinate resolves to the right record, under the right carrier, with the world position
- * the author's own claim names. And the things that must keep NOT resolving: a landed record, a
- * contraption whose local coordinate equals an ordinary world block, two carriers at one coordinate, a
- * carrier with no pose, and a pose that cannot round-trip the block.
- *
- * <p>The "before" half is asserted too: the same resolver with the local-coordinate branch switched off
- * (which is exactly its pre-P1.24 shape) answers <b>null</b> for these inputs - the author's 101 misses,
- * reproduced offline.
+ * <p>Asserted: with no level and no projection entry, and only the index and the poses, the coordinate resolves
+ * to the right record, under the right carrier, with the world position its own claim names. Also asserted are
+ * the things that must keep NOT resolving - a landed record, a contraption whose local coordinate equals an
+ * ordinary world block, two carriers at one coordinate, a carrier with no pose, and a pose that cannot
+ * round-trip the block - and the same resolver with the local-coordinate branch switched off, which answers
+ * {@code null} for these inputs.
  */
 class CarrierLocalResolutionTest {
 
     /**
-     * From the log: the carrier the author clicked seventy-two times. The UUID's first eight hex digits
-     * are the ones the log's {@code s:b22c7587} short id prints.
+     * The carrier at the first clicked coordinate; the UUID's first eight hex digits are the ones its
+     * {@code s:…} short id prints.
      */
     private static final CarrierId THE_REPEATER =
             CarrierId.subLevel(UUID.fromString("b22c7587-0000-0000-0000-000000000000"));
     private static final BlockPos REPEATER_LOCAL = new BlockPos(20481032, 127, 20499464);
     private static final BlockPos REPEATER_WORLD = new BlockPos(-30, -60, -40);
 
-    /** And the one it clicked twenty-eight times, {@code s:088a5ad7} in the log. */
+    /** The carrier at the second clicked coordinate, {@code s:088a5ad7}. */
     private static final CarrierId THE_DUST =
             CarrierId.subLevel(UUID.fromString("088a5ad7-0000-0000-0000-000000000000"));
     private static final BlockPos DUST_LOCAL = new BlockPos(20481032, 128, 20501512);
@@ -83,9 +64,9 @@ class CarrierLocalResolutionTest {
     /**
      * Arms the carrier layer and opens the projection table for one dimension.
      *
-     * <p>The layer has to be armed for the resolver to get past its first guard, and the projection table
-     * has to be able to name a dimension because the level-free form has no level to ask - the same two
-     * pieces of global state {@code CarriedBlockRemovalTest} sets up, and both restored afterwards.
+     * <p>The layer has to be armed for the resolver to get past its first guard, and the projection table has
+     * to be able to name a dimension because the level-free form has no level to ask. Both are restored
+     * afterwards.
      */
     @BeforeEach
     void arm() {
@@ -93,9 +74,9 @@ class CarrierLocalResolutionTest {
         CarrierStore.install(new BareSource());
         CarrierStore.projection().clearAll();
         CarrierStore.projection().begin(Level.OVERWORLD, true);
-        // One entry somewhere else, so the table can name its dimension (`onlyDimension`) and still
-        // answers nothing at the coordinates under test. That is the honest picture: the projection table
-        // is keyed by WORLD positions, and these clicks never carried one.
+        // One entry somewhere else, so the table can name its dimension (`onlyDimension`) and still answer
+        // nothing at the coordinates under test: the projection table is keyed by WORLD positions, and these
+        // clicks never carried one.
         CarrierStore.projection().put(Level.OVERWORLD, new CarrierProjection.ProjectedHost(THE_DUST,
                 new BlockPos(9, 9, 9), new BlockPos(9, 9, 9), CarrierPose.at(new Vector3d(9.0, 9.0, 9.0)),
                 new Slot(ComponentType.DUST), 0));
@@ -124,7 +105,7 @@ class CarrierLocalResolutionTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's six claims are translations. */
+    /** A pose that carries {@code local} to {@code worldPos}: the claims here are translations. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
@@ -137,7 +118,7 @@ class CarrierLocalResolutionTest {
         poses.put(carrier.uuid(), moving(local, worldPos));
     }
 
-    /** The author's world: six carriers, one host each, at the coordinates the log gives. */
+    /** The fixture world: six carriers, one host each, at the coordinates the clicks name. */
     private void theAuthorsWorld() {
         carry(CarrierId.subLevel(UUID.randomUUID()), new BlockPos(20481032, 127, 20485128),
                 new BlockPos(-61, -60, 5), new BlockPos(-61, -60, 5), ComponentType.SUPERCONDUCTOR);
@@ -157,27 +138,26 @@ class CarrierLocalResolutionTest {
         return carrier -> poses.get(carrier.uuid());
     }
 
-    // -------------------------------------------------------------- the defect --
+    // -------------------------------------------------- coordinate-only resolution --
 
     @Test
-    @DisplayName("the author's clicked coordinate resolves by coordinate alone - and did not before")
+    @DisplayName("the clicked coordinate resolves by coordinate alone")
     void theClickedCoordinateResolvesWithNoPoseRoundTripAndNoProjectionEntry() {
         theAuthorsWorld();
         CarrierStore.PoseSource poses = poseSource();
 
-        // BEFORE: the resolver exactly as P1.22 left it - the projection table plus the pose round trip,
-        // and nothing that asks the index by its own key. This is the author's log, reproduced offline:
-        // the record is live, the coordinate matches it character for character, and the answer is still
-        // "no hit".
+        // Without the local-coordinate branch: the projection table plus the pose round trip, and nothing
+        // that asks the index by its own key. The record is live and the coordinate matches it, and the
+        // answer is still "no hit".
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), index, REPEATER_LOCAL, null, null),
-                "the pre-P1.24 resolver answers nothing at this coordinate: 101 misses, one shape");
+                "without the local-coordinate branch the resolver answers nothing at this coordinate");
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), index, DUST_LOCAL, null, null));
 
-        // AFTER: the index is asked with the coordinate the click carried.
+        // With the branch: the index is asked with the coordinate the click carried.
         CarriedBlockRemoval.Hit hit = CarrierStore.hitAt(null, CarrierStore.projection(), index,
                 REPEATER_LOCAL, null, poses);
         assertNotNull(hit, "the record is keyed by exactly this coordinate and it is live");
-        assertEquals("s:b22c7587", hit.carrier().shortId(), "the carrier the author's own claim names");
+        assertEquals("s:b22c7587", hit.carrier().shortId(), "the carrier its own claim names");
         assertEquals(THE_REPEATER, hit.carrier());
         assertEquals(REPEATER_LOCAL, hit.localPos(),
                 "and the local coordinate IS the clicked coordinate - nothing was inverted");
@@ -200,7 +180,7 @@ class CarrierLocalResolutionTest {
         theAuthorsWorld();
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), index, new BlockPos(-79, -60, 16),
                         null, poseSource()),
-                "the author clicked one plain world block too, and that MISS was correct");
+                "a plain world block is nobody's local coordinate");
     }
 
     // --------------------------------------------------------- what must not change --
@@ -210,7 +190,7 @@ class CarrierLocalResolutionTest {
     void aLandedRecordIsStillNotAHit() {
         theAuthorsWorld();
         index.release(THE_REPEATER, REPEATER_LOCAL, landing -> REPEATER_WORLD, new MapWorld(world));
-        assertTrue(index.at(THE_REPEATER, REPEATER_LOCAL).landed(), "the setup is the point");
+        assertTrue(index.at(THE_REPEATER, REPEATER_LOCAL).landed(), "the record is landed first");
 
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), index, REPEATER_LOCAL, null,
                         poseSource()),
@@ -224,9 +204,9 @@ class CarrierLocalResolutionTest {
     @DisplayName("a Create contraption's local coordinate is never matched to a level coordinate")
     void aContraptionIsNeverMatchedByALevelCoordinate() {
         // A contraption host whose LOCAL coordinate is (1, 0, 0) - a perfectly ordinary world block's
-        // coordinate. A contraption's blocks are not level blocks, so a level position can never be one
-        // of its local coordinates; if this branch did not refuse it, breaking a world block at (1,0,0)
-        // would consume the record and drop the component of a machine somewhere else entirely.
+        // coordinate. A contraption's blocks are not level blocks, so a level position can never be one of
+        // its local coordinates; without this refusal, breaking a world block at (1,0,0) would consume the
+        // record and drop the component of a machine somewhere else entirely.
         carry(CarrierId.contraption(UUID.randomUUID()), A_WORLD_BLOCK, A_WORLD_BLOCK,
                 new BlockPos(2775, 77, -1395), ComponentType.RETAINING_REPEATER);
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), index, A_WORLD_BLOCK, null,
@@ -292,12 +272,12 @@ class CarrierLocalResolutionTest {
         // another index - and an empty one answers nothing.
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), new CarriedHostIndex(),
                 REPEATER_LOCAL, null, poseSource()));
-        // ...and with the branch switched off there is still no answer, which is the pre-fix shape.
+        // ...and with the branch switched off there is still no answer.
         assertNull(CarrierStore.hitAt(null, CarrierStore.projection(), index, REPEATER_LOCAL, null, null));
     }
 
     @Test
-    @DisplayName("the trace explains the fix, in the resolver's own words")
+    @DisplayName("the trace names the local-coordinate match, in the resolver's own words")
     void theExplanationNamesTheLocalCoordinateMatch() {
         theAuthorsWorld();
         CarrierEntryTrace.Miss miss = new CarrierEntryTrace.Miss();

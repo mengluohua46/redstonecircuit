@@ -5,6 +5,7 @@
   "mixins": [
     "BlockStateSignalMixin",
     "RedStoneWireBlockMixin",
+    "SignalGetterMixin",
     "ServerLevelNeighborNotifyMixin",
     "DiodeBlockNeighborNotifyMixin"
   ],

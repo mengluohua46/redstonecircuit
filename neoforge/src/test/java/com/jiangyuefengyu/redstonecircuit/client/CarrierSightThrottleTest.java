@@ -8,42 +8,26 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>The throttle arithmetic, asserted as a boolean sequence rather than as a count of lines.</b>
+ * The throttle arithmetic, asserted as a boolean sequence rather than as a count of lines: counting the lines a loop
+ * produces makes the answer a property of the loop - where it starts, where it ends, whether the tick the line was
+ * written at is inside the range - rather than a statement of the rule.
  *
- * <h2>Why the previous round's numbers were all off by one</h2>
- * Its tests drove a loop and counted how many <em>lines</em> came out. That number is a property of the
- * loop - of where it starts, where it ends, and whether the tick the line was written at is inside the
- * range - and every one of those three was got wrong once: ten windows of a changing line "should" be
- * ten lines and produced eleven, and an unchanged settlement "should" be one visit in 2,400 frames and
- * produced two. The arithmetic was never stated anywhere, so there was nothing to check it against.
+ * <p>The rules are functions from a clock reading to a boolean, and what is asserted is the <b>sequence of those
+ * booleans</b> over a stated range: a window opens when {@code now - last >= window}, pinned at its boundary - false at
+ * {@code last + window - 1} and true at {@code last + window}; the first call of a session is always due, so "one line
+ * per window" cannot be read as "and none at all on the first frame"; and two minutes of an unchanged picture produces
+ * <b>exactly one</b> due answer, {@code false} on every tick from 1 to 2399 and {@code true} at 2400.
  *
- * <p>Here the rules are functions from a clock reading to a boolean, and what is asserted is the
- * <b>sequence of those booleans</b> over a stated range:
- *
- * <ul>
- *   <li>a window opens when {@code now - last >= window}, and the test pins that choice at its boundary -
- *       false at {@code last + window - 1}, true at {@code last + window} - because "is it
- *       {@code >=} or {@code >}" is exactly the kind of thing that used to be assumed rather than
- *       stated;</li>
- *   <li>the first call of a session is always due, and the test pins that too, so "one line per window"
- *       cannot be read as "and none at all on the first frame";</li>
- *   <li>two minutes of an unchanged picture produces <b>exactly one</b> due answer,
- *       {@code false} on every tick from 1 to 2399 and {@code true} at 2400.</li>
- * </ul>
- *
- * <p>Nothing here sleeps, runs a game, or captures a log: every input is a {@code long} and every output
- * is a {@code boolean}.
+ * <p>Nothing here sleeps, runs a game, or captures a log: every input is a {@code long} and every output a
+ * {@code boolean}.
  */
 class CarrierSightThrottleTest {
 
     /**
-     * The convention, at both of its boundaries.
-     *
-     * <p>A window of 100 ticks opened at tick 0 is false at 1..99 and true at 100 - and it is true
-     * because {@code now - last >= window}, not because {@code now % window == 0}. The modulo reading is
-     * deliberately not the one taken: it needs every caller to be aligned to the same phase, it makes
-     * tick 0 both "the first call" and "the first window" - two rules for one instant - and it would make
-     * a client that starts at tick 17 open its first window at 100 rather than 117.
+     * The convention, at both of its boundaries. A window of 100 ticks opened at tick 0 is false at 1..99 and true at
+     * 100 - and it is true because {@code now - last >= window}, not because {@code now % window == 0}: the modulo
+     * reading would need every caller aligned to the same phase, would make tick 0 both "the first call" and "the first
+     * window", and would make a client that starts at tick 17 open its first window at 100 rather than 117.
      */
     @Test
     @DisplayName("a window is 100 ticks wide, closed on the left and open at exactly 100")
@@ -63,13 +47,10 @@ class CarrierSightThrottleTest {
     }
 
     /**
-     * <b>Ten windows of a changing line are ten lines, and their boundaries are named.</b>
-     *
-     * <p>Written as an explicit running {@code last}: the line is due at the start of each window and
-     * only then, and the sequence is driven for exactly 1,000 ticks so the answer is a property of the
-     * rule rather than of a loop bound. The old test's "ten windows produced eleven lines" came from
-     * counting the line written at tick 0 as being inside the loop's range as well; here the written
-     * ticks are listed and asserted, so there is nothing to be off by one about.
+     * Ten windows of a changing line are ten lines, and their boundaries are named. Written as an explicit running
+     * {@code last}: the line is due at the start of each window and only then, and the sequence is driven for exactly
+     * 1,000 ticks so the answer is a property of the rule rather than of a loop bound. The written ticks are listed and
+     * asserted, so there is nothing to be off by one about.
      */
     @Test
     @DisplayName("a changing line is due once per window: 0, 100, 200, ... 900 in 1,000 ticks")
@@ -94,11 +75,8 @@ class CarrierSightThrottleTest {
     }
 
     /**
-     * <b>The headline bound: two minutes of an unchanged picture is one due answer.</b>
-     *
-     * <p>{@code false} on every tick from 1 to 2,399 and {@code true} at 2,400 - asserted tick by tick,
-     * because that is the claim. This is the assertion the previous round failed: it counted 2,399
-     * frames and expected the heartbeat to be outside them, then found two visits inside 2,400.
+     * The headline bound: two minutes of an unchanged picture is one due answer - {@code false} on every tick from 1 to
+     * 2,399 and {@code true} at 2,400, asserted tick by tick, because that is the claim.
      */
     @Test
     @DisplayName("an unchanged picture is due for the first time at exactly 2400 ticks")
@@ -147,18 +125,10 @@ class CarrierSightThrottleTest {
     }
 
     /**
-     * <b>The B1 gate: a change is floored, and an unchanged settlement is bounded by both clocks.</b>
-     *
-     * <p>Three sequences on one rule, because the rule has three branches and the defect it was written
-     * against (59 visits in 2,400 frames) lived in the interaction between them:
-     *
-     * <ol>
-     *   <li>nothing seen yet: due;</li>
-     *   <li>a change: due as soon as the 40-tick floor has passed, and not before;</li>
-     *   <li>no change: due only when <b>both</b> the 100-tick window and the 2,400-tick heartbeat have
-     *       passed - asserted as {@code false} throughout 1..2399 and {@code true} at 2400, which is the
-     *       single due answer two minutes of silence is allowed.</li>
-     * </ol>
+     * The B1 gate: a change is floored, and an unchanged settlement is bounded by both clocks. Three sequences on one
+     * rule, because the rule has three branches: nothing seen yet is due; a change is due as soon as the 40-tick floor
+     * has passed and not before; no change is due only when <b>both</b> the 100-tick window and the 2,400-tick heartbeat
+     * have passed, which is the single due answer two minutes of silence is allowed.
      */
     @Test
     @DisplayName("the sweep is floored on a change and bounded by both clocks otherwise")
@@ -182,8 +152,8 @@ class CarrierSightThrottleTest {
                 due++;
             }
         }
-        assertEquals(0, due, "an unchanged settlement must not be visited inside the heartbeat - which is"
-                + " the 59-visits-in-2400-frames defect: " + due + " visit(s)");
+        assertEquals(0, due, "an unchanged settlement must not be visited inside the heartbeat: " + due
+                + " visit(s)");
         assertTrue(CarrierSightThrottle.sweepDue(true, false, heartbeat, 0L, 0L, floor, window,
                 heartbeat), "and the heartbeat brings it back, exactly once");
         assertFalse(CarrierSightThrottle.sweepDue(true, false, heartbeat + 1L, heartbeat, heartbeat,

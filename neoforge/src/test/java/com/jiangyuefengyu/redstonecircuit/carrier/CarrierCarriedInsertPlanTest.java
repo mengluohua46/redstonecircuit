@@ -33,65 +33,39 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * <b>P1.27, defect A: "the world side stood down, and nobody took over".</b>
+ * Shift + a component on a carried block: the gesture chain, the entry trace's ordering, and the placement
+ * decision.
  *
- * <h2>The author's report, and the state the log left the question in</h2>
- * <em>"物理化之后再放元件依旧不显示"</em> - physicalise a block, put a component into it, and nothing is
- * drawn. The previous round's log settles one half of it and leaves the other half open:
+ * <p>The world insert declines at a structure's own coordinate, so the carrier side has to take the placement
+ * over - and a click that arrived and was filtered out ({@code CarrierGesture} answering NONE, with the entry
+ * point returning before its first trace line) prints the same nothing as a click that never arrived at all.
  *
- * <pre>
- *   world insert declined: this position belongs to carrier s:4a3b8622 local=20481032, 127, 20481032 …   x44
- *   carrier s:…: insert local=… registered as a RIDING host; projected at …                              x0
- * </pre>
- *
- * <p>So P1.26's narrow exception <b>works</b>: the world really does stand down at a structure's own
- * coordinate. What never happened is the carrier side recording the placement. Every
- * {@code carrier entry trace} line in that log is a wrench, a bare hand or a break - not one of them
- * holds a component - which leaves two possibilities that the log cannot tell apart:
- *
- * <ul>
- *   <li><b>the click never arrived</b> - another listener consumed it, or the client never sent it. Then
- *       no line is possible and none should appear;</li>
- *   <li><b>the click arrived and was filtered out</b> - {@code CarrierGesture} answered {@code NONE},
- *       and the entry point returned <em>before</em> its first trace line, so "not ours" and "never
- *       called" printed the same nothing.</li>
- * </ul>
- *
- * <h2>What is pinned here</h2>
- * <ol>
- *   <li><b>the trace comes before every early return</b> for a click the carrier layer could be about:
- *       a component in hand always leaves a line, whatever the resolver then answers;</li>
- *   <li><b>the gesture chain of the author's own action</b> - Shift + right-click with a redstone
- *       component in hand - is a {@code PLACEMENT}, in both hand orders, and is never mistaken for the
- *       bare-hand switch or for "nobody's";</li>
- *   <li><b>the decision itself</b>, {@code CarrierInteraction#planPlacement}: an <em>empty</em> carried
- *       host accepts the component, the slot lands in the carrier record, the item is spent exactly
- *       once, and the second delivery of one click is answered by name instead of silently;</li>
- *   <li><b>the world store is never written at that coordinate</b> - the defect as the author
- *       experienced it: Jade displayed the component and the overlay drew nothing because the write went
- *       to the wrong store.</li>
- * </ol>
- *
- * <h2>Before the fix</h2>
- * {@code setSinkForTests} does not exist, so this file does not compile against the previous tree -
- * which is stated plainly rather than papered over, and the red half of the evidence is the
- * {@code CarrierEntryTrace} emission count the first nested class asserts (one line for a component,
- * zero for a plank) plus the absent {@code planPlacement}.
+ * <p>What is pinned here: the trace comes before every early return, so a component in hand always leaves a
+ * line whatever the resolver then answers; the gesture chain of that action - Shift + right-click with a
+ * redstone component in hand - is a {@code PLACEMENT} in both hand orders and is never mistaken for the
+ * bare-hand switch or for "nobody's"; the decision itself accepts the component into an <em>empty</em> carried
+ * host, lands the slot in the carrier record, spends the item exactly once, and answers the second delivery of
+ * one click by name rather than silently; and the world store is never written at that coordinate, which is
+ * what makes Jade and the overlay agree.
  */
 class CarrierCarriedInsertPlanTest {
 
-    /** The author's own plot coordinate: {@code local=20481032, 127, 20481032}. */
+    /** The plot coordinate a Sable sub-level answers at: {@code local=20481032, 127, 20481032}. */
     private static final BlockPos PLOT = new BlockPos(20481032, 127, 20481032);
 
     /** Where that structure really stands: {@code world=-7, -60, -11}. */
     private static final BlockPos VISIBLE = new BlockPos(-7, -60, -11);
 
-    /** The author's carrier, from {@code carrier claim s:4a3b8622}. */
+    /** The carrier this fixture drives, keyed by the same kind of id a claim uses. */
     private static final CarrierId AUTHOR =
             CarrierId.subLevel(UUID.fromString("4a3b8622-0000-0000-0000-000000000000"));
 
     private static final ResourceKey<Level> DIMENSION = ResourceKey.create(Registries.DIMENSION,
             ResourceLocation.parse("redstonecircuit:carriercarriedinsertplantest"));
+
+    /** The entry point's own source, for the one wiring assertion a name-anchored reader cannot serve. */
+    private static final String INTERACTION_SOURCE =
+            "src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierInteraction.java";
 
     private final CarriedHostIndex index = new CarriedHostIndex();
     private final Map<Long, Slot> world = new HashMap<>();
@@ -152,18 +126,18 @@ class CarrierCarriedInsertPlanTest {
         }
     }
 
-    /** A pose that carries {@code local} to {@code worldPos}: the author's claim is a translation. */
+    /** A pose that carries {@code local} to {@code worldPos}: the claim is a translation. */
     private static CarrierPose moving(BlockPos local, BlockPos worldPos) {
         return CarrierPose.of(new Vector3d(worldPos.getX() - local.getX(),
                 worldPos.getY() - local.getY(), worldPos.getZ() - local.getZ()), new Quaterniond());
     }
 
     /**
-     * Physicalises one host block that holds <b>nothing</b> - the author's starting state.
+     * Physicalises one host block that holds <b>nothing</b> - the starting state every placement needs.
      *
-     * <p>The index only files a claim when the world store holds a component there, so an empty
-     * physicalised block is produced the way a player produces it: claim with a component, then take it
-     * back out through the same {@code removeSlot} a retrieval uses.
+     * <p>The index only files a claim when the world store holds a component there, so an empty physicalised
+     * block is produced the way a player produces it: claim with a component, then take it back out through
+     * the same {@code removeSlot} a retrieval uses.
      */
     private CarriedHost physicaliseEmptyHost(CarrierId carrier, BlockPos local, BlockPos worldPos) {
         world.put(worldPos.asLong(), new Slot(ComponentType.RETAINING_REPEATER));
@@ -185,9 +159,9 @@ class CarrierCarriedInsertPlanTest {
         @Test
         @DisplayName("shift-right-click with a component in hand is a PLACEMENT, and leaves a NONE line")
         void aHeldComponentAlwaysLeavesALine() {
-            // THE LINE THE AUTHOR'S LOG NEVER HAD, built by the production report method itself. The only
-            // thing this test supplies is what the two hands hold, because a unit test has no ServerPlayer
-            // - and what the hands hold is the whole input of the gesture rule either way.
+            // A line built by the production report method itself. The only thing this test supplies is what
+            // the two hands hold, because a unit test has no ServerPlayer - and what the hands hold is the
+            // whole input of the gesture rule either way.
             CarrierGesture.Kind gesture = CarrierInteraction.noteGestureForTests(
                     new CarrierGesture.Hold(false, false, true, false), CarrierGesture.Hold.NOTHING, true,
                     PLOT, Direction.UP);
@@ -197,7 +171,7 @@ class CarrierCarriedInsertPlanTest {
 
             String line = lastLine();
             assertNotNull(line, "a click holding a component MUST leave a trace line: this is the one fact "
-                    + "whose absence made the previous log unreadable");
+                    + "whose absence makes the log unreadable");
             assertTrue(line.contains("-> NONE"), line);
             assertTrue(line.contains("gesture=PLACEMENT"), "and it names the gesture the rule decided on: "
                     + line);
@@ -210,19 +184,18 @@ class CarrierCarriedInsertPlanTest {
         @Test
         @DisplayName("the trace is emitted BEFORE any early return, in the production source")
         void theTraceComesBeforeTheGate() {
-            // THE ORDERING IS THE FIX, not the formatting. P1.26's entry point asked the gesture first and
-            // returned on NONE without a line, so a click holding a component and a click that never
-            // arrived were indistinguishable. The order is asserted here on the production method's own
-            // body, because it is the one thing a unit test cannot observe from the outside: every other
-            // assertion in this file would still hold if the call sat after the gate.
+            // The ordering is the point, not the formatting: an entry point that asks the gesture first and
+            // returns on NONE without a line makes a click holding a component and a click that never arrived
+            // indistinguishable. The order is asserted on the production method's own body, because it is the
+            // one thing a unit test cannot observe from the outside.
             String body = CarrierInteraction.sourceOf("onRightClickBlock");
             int report = body.indexOf("noteGesture(player");
             int gate = body.indexOf("Kind.NONE");
             assertTrue(report >= 0, "the entry point must call noteGesture: " + body);
             assertTrue(gate >= 0, "and it must still ask the rule: " + body);
             assertTrue(report < gate,
-                    "noteGesture must come BEFORE the `Kind.NONE` early return - that ordering IS the fix "
-                            + "for 'world insert declined x44 / registered as a RIDING host x0'");
+                    "noteGesture must come BEFORE the `Kind.NONE` early return - that ordering is what makes "
+                            + "an unanswered click visible at all");
             int resolve = body.indexOf("CarrierStore.hitAt");
             assertTrue(resolve < 0 || report < resolve,
                     "and before the resolver, so a click that never reaches a host is still reported");
@@ -262,8 +235,7 @@ class CarrierCarriedInsertPlanTest {
             assertEquals(CarrierGesture.Kind.SWITCH, CarrierGesture.emptyHandGesture(false));
             assertEquals(CarrierGesture.Kind.NONE,
                     CarrierGesture.of(component, new CarrierGesture.Hold(true, false, false, false), true),
-                    "and a tool in the other hand owns the click - the tool beats the component, in the "
-                            + "author's own words");
+                    "and a tool in the other hand owns the click: the tool beats the component");
             // The other order of the same click: the delivery for the empty hand. It is NOBODY's, and
             // `suppressedByTheOtherHand` is what tells the entry point to consume it rather than let the
             // world underneath act on it.
@@ -284,7 +256,7 @@ class CarrierCarriedInsertPlanTest {
         void anEmptyHostAcceptsTheComponent() {
             physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
             assertNotNull(index.at(AUTHOR, PLOT), "the host is carried");
-            assertNull(index.at(AUTHOR, PLOT).slot(), "and holds nothing - the author's starting state");
+            assertNull(index.at(AUTHOR, PLOT).slot(), "and holds nothing - the starting state");
 
             PlacementPlan plan = plan(true, ComponentType.RETAINING_REPEATER, Direction.UP);
 
@@ -310,8 +282,7 @@ class CarrierCarriedInsertPlanTest {
             plan(true, ComponentType.RETAINING_REPEATER, Direction.UP);
 
             assertFalse(world.containsKey(PLOT.asLong()),
-                    "the defect in one assertion: the previous build left the component HERE, which is why "
-                            + "Jade showed it and the overlay did not");
+                    "a component left HERE is why Jade showed it and the overlay did not");
         }
 
         @Test
@@ -384,11 +355,91 @@ class CarrierCarriedInsertPlanTest {
         return LINES.isEmpty() ? null : LINES.get(LINES.size() - 1);
     }
 
+    // ------------------------------------------------- the host's own rule --
+
+    @Nested
+    @DisplayName("a physicalised block that cannot hold redstone refuses it, as it does standing still")
+    class TheHostRuleReachesTheCarrierRecord {
+
+        @Test
+        @DisplayName("sneaking with a component in hand, and the block still refuses it")
+        void aBlockThatMayNotHostRefusesTheInsert() {
+            physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
+
+            PlacementPlan plan = plan(true, ComponentType.RETAINING_REPEATER, Direction.UP, false, false);
+
+            assertNotNull(plan, "the click is still decided - a refusal with a name, never a silence");
+            assertEquals(CarriedInsert.Action.NOT_A_HOST, plan.action(), String.valueOf(plan));
+            assertFalse(plan.acted(), "nothing was stored");
+            assertFalse(plan.consumesItem(), "and nothing is spent: the world's own refusal spends nothing "
+                    + "either, so a player cannot lose a component to a glass block");
+            assertNull(index.at(AUTHOR, PLOT).slot(),
+                    "物理化后的玻璃、结构方块、工作台、台阶: the click is refused and the carrier record is left "
+                            + "exactly as it was");
+        }
+
+        @Test
+        @DisplayName("the same click on a block that may hold one still stores it")
+        void anOrdinaryHostStillStores() {
+            physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
+
+            PlacementPlan plan = plan(true, ComponentType.RETAINING_REPEATER, Direction.UP, false, true);
+
+            assertEquals(CarriedInsert.Action.INSERT, plan.action(), String.valueOf(plan));
+            assertNotNull(index.at(AUTHOR, PLOT).slot(),
+                    "an ordinary carried block still takes the component");
+        }
+
+        @Test
+        @DisplayName("and a bare hand still takes the component back OUT of it")
+        void aRetrievalIsNeverRefused() {
+            physicaliseEmptyHost(AUTHOR, PLOT, VISIBLE);
+            plan(true, ComponentType.RETAINING_REPEATER, Direction.UP);
+
+            PlacementPlan taken = plan(true, null, Direction.UP, false, false);
+
+            assertEquals(CarriedInsert.Action.RETRIEVE, taken.action(), String.valueOf(taken));
+            assertNull(index.at(AUTHOR, PLOT).slot(),
+                    "the world's own retrieval (InnerRedstoneInteraction#tryRetrieve) asks nothing about the "
+                            + "host either, so a component a player put in must always come back out - "
+                            + "refusing it here would trap it in a block that stopped being a legal host");
+        }
+
+        @Test
+        @DisplayName("the placement path asks the world's own rule, of the structure's own view")
+        void thePlacementPathAsksTheHostRule() {
+            // The body is read from the file rather than through `CarrierInteraction#sourceOf`, because that
+            // helper anchors on a NAME's first occurrence and this method is CALLED (from the gesture switch)
+            // a long way above its own definition - so it would hand back the caller's block instead.
+            String body = interactionSource();
+
+            assertTrue(body.contains(
+                            "CarrierStore.hostAcceptsComponent(hit.carrier(), hit.localPos())"),
+                    "the click's host state is read from the structure, because a physicalised block's state "
+                            + "is not in the level to be read");
+            String decision = CarrierInteraction.sourceOf("planPlacement");
+            assertTrue(decision.contains(
+                            "CarriedInsert.apply(index, carrier, localPos, hostAcceptsComponent,"),
+                    "and the answer is handed to the same rule that decides everything else about the "
+                            + "placement, rather than to a second copy of it: " + decision);
+        }
+
+        /** {@code CarrierInteraction}'s own source; see {@link #thePlacementPathAsksTheHostRule}. */
+        private static String interactionSource() {
+            try {
+                return java.nio.file.Files.readString(java.nio.file.Path.of(INTERACTION_SOURCE));
+            } catch (java.io.IOException unreadable) {
+                throw new AssertionError("CarrierInteraction's source could not be read at "
+                        + INTERACTION_SOURCE, unreadable);
+            }
+        }
+    }
+
     // ----------------------------------------------------------- the plumbing --
 
-    // THE CALL BELOW IS THE DECISION ITSELF, called by name because it did not exist before this round:
-    // `planPlacement` is what turned "Shift + a component on a carried host" from a code path nobody could
-    // point at into a function with five inputs and one answer.
+    // The call below is the decision itself, called by name: `planPlacement` is what turns "Shift + a
+    // component on a carried host" from a code path nobody could point at into a function with five inputs
+    // and one answer.
 
     /** {@code CarrierInteraction#planPlacement}, or {@code null} on a build that has no such decision. */
     @Nullable
@@ -400,15 +451,26 @@ class CarrierCarriedInsertPlanTest {
     @Nullable
     private PlacementPlan plan(boolean sneaking, ComponentType stored, @Nullable Direction localFace,
                                boolean secondDelivery) {
+        return plan(sneaking, stored, localFace, secondDelivery, true);
+    }
+
+    /**
+     * The same, with the host rule stated: {@code hostAccepts=false} is a block that may not hold a component
+     * at all - a physicalised pane of glass, a structure block, a crafting table, a slab.
+     */
+    @Nullable
+    private PlacementPlan plan(boolean sneaking, ComponentType stored, @Nullable Direction localFace,
+                               boolean secondDelivery, boolean hostAccepts) {
         try {
             Class<?> planType = Class.forName(
                     "com.jiangyuefengyu.redstonecircuit.carrier.CarrierInteraction$PlacementPlan");
             java.lang.reflect.Method method = CarrierInteraction.class.getDeclaredMethod("planPlacement",
                     CarriedHostIndex.class, CarrierId.class, BlockPos.class, Direction.class,
-                    CarrierGesture.Kind.class, ComponentType.class, boolean.class, boolean.class);
+                    CarrierGesture.Kind.class, ComponentType.class, boolean.class, boolean.class,
+                    boolean.class);
             method.setAccessible(true);
             Object result = method.invoke(null, index, AUTHOR, PLOT, localFace,
-                    CarrierGesture.Kind.PLACEMENT, stored, sneaking, secondDelivery);
+                    CarrierGesture.Kind.PLACEMENT, stored, sneaking, hostAccepts, secondDelivery);
             return result == null ? null : wrap(planType, result);
         } catch (ClassNotFoundException | NoSuchMethodException absent) {
             return null;

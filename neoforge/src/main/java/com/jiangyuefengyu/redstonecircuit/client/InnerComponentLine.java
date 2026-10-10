@@ -9,34 +9,14 @@ import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>The fields of the "what is inside this block" line, as values rather than as text.</b>
+ * The fields of the "what is inside this block" line, as values rather than as text.
  *
- * <h2>Why the numbers are separated from the words</h2>
- * Two readers ask this question and they must never answer differently: the goggles' Jade overlay for a
- * block standing in the world, and the same overlay for a block a structure is <em>carrying</em> - the
- * author's "can Jade be made to work under a physicalised block". The two reach the component through
- * different stores (the world host sync and the carrier payload), and the one thing they share is what
- * the component <em>says</em>: its type, its setting and its current state.
+ * <p>Two readers must never answer differently - the goggles' Jade overlay for a block standing in the world
+ * and for one a structure is carrying - so what the component says is decided here, once, as a translation
+ * key plus its arguments rather than as a {@code Component}.
  *
- * <p>That shared part is decided here, once, and it is deliberately a value rather than a
- * {@code Component}: a translation key plus its arguments. The overlay turns it into text, and an offline
- * unit test can assert on it without a language file, a renderer or a game - which is the only way
- * "the carried overlay shows the same fields as the world one" is checkable before it is in front of a
- * player.
- *
- * <h2>Why the state is a value and not a number</h2>
- * The same {@code power} means different things by type: a wire's strength is worth reading off, a
- * repeater's is only ever nothing or fifteen (so the mod words it as "has output"), a comparator has no
- * delay setting at all, and a switch is on or off. Encoding that in an enum keeps the <em>wording</em>
- * where wording belongs - in the Jade overlay - and keeps the <em>decision</em> here, where a test can
- * see it.
- *
- * @param type the kind of component inside the block
- * @param kind which shape the state takes for that type
- * @param power the strength, for the shapes that report one
- * @param delay the delay setting, for the shapes that have one
- * @param subtrahend true for a comparator in subtract mode, false in compare mode
- * @param powered true for a switch that is thrown, false for one that is not
+ * <p>The state is an enum rather than a bare number: the same {@code power} means different things by type,
+ * and a comparator has no delay setting while a switch is only on or off.
  */
 public record InnerComponentLine(ComponentType type, StateKind kind, int power, int delay,
                                  boolean subtrahend, boolean powered) {
@@ -54,14 +34,28 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
         /** A lever or a button: on or off. */
         SWITCH,
         /** A pressure plate, which nobody flips: its strength. */
-        PLATE
+        PLATE,
+        /**
+         * 控制器: whether it is answering, at the strength it was told to answer with; its settings live on
+         * its own screen.
+         */
+        CONTROLLER,
+        /**
+         * 红石变压器: the controller's shape, a kind of its own because its line names a strength it was set to.
+         */
+        TRANSFORMER,
+        /** 时钟源: whether it is emitting, at the strength it was set to; its period lives on the device's screen. */
+        CLOCK,
+        /**
+         * 信号延长器: whether it is answering, at the strength it is answering with - the input's own while it is
+         * arriving, and the strength it was answering with while a hold runs; both settings live on its screen.
+         */
+        EXTENDER
     }
 
     /**
-     * The line for one component, or {@code null} when there is nothing to say (no component at all).
-     *
-     * <p>The single decision both readers make, so "the world overlay and the carried overlay agree" is
-     * true by construction rather than by two switch statements being kept in step by hand.
+     * The line for one component, or {@code null} when there is nothing to say. The single decision both
+     * readers make, so "the world overlay and the carried overlay agree" holds by construction.
      */
     @Nullable
     public static InnerComponentLine of(@Nullable Slot slot) {
@@ -76,6 +70,10 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
             case TORCH -> StateKind.TORCH;
             case LEVER, BUTTON -> StateKind.SWITCH;
             case PRESSURE_PLATE -> StateKind.PLATE;
+            case CONTROLLER -> StateKind.CONTROLLER;
+            case TRANSFORMER -> StateKind.TRANSFORMER;
+            case CLOCK -> StateKind.CLOCK;
+            case EXTENDER -> StateKind.EXTENDER;
         };
         return new InnerComponentLine(slot.type, kind, slot.power, slot.delay,
                 slot.mode == ComparatorMode.SUBTRACT, slot.powered);
@@ -87,11 +85,8 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
     }
 
     /**
-     * One short, game-free rendering of this line, for a log or a test.
-     *
-     * <p><b>Not</b> what the overlay prints: that is a translated {@code Component}, because a player
-     * reads it. This is the same fields in one unlocalised phrase, so a diagnosis can say what was shown
-     * without a language file - and so a test can compare two of them.
+     * One short, game-free rendering of this line, for a log or a test. <b>Not</b> what the overlay prints:
+     * that is a translated {@code Component}, because a player reads it.
      */
     public String describe() {
         return switch (kind) {
@@ -102,16 +97,14 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
             case TORCH -> type + " " + (hasOutput() ? "lit" : "unlit");
             case SWITCH -> type + " " + (powered ? "on" : "off");
             case PLATE -> type + " out=" + power;
+            case CONTROLLER -> type + " " + (hasOutput() ? "output=" + power : "no output");
+            case TRANSFORMER -> type + " " + (hasOutput() ? "output=" + power : "no output");
+            case CLOCK -> type + " " + (hasOutput() ? "output=" + power : "no output");
+            case EXTENDER -> type + " " + (hasOutput() ? "output=" + power : "no output");
         };
     }
 
-    /**
-     * Two lines describe the same thing, field for field.
-     *
-     * <p>Written out rather than left to the record's own {@code equals} only so the intent is visible at
-     * the call site: a test that asserts "the carried overlay shows what the world overlay shows" is
-     * comparing two independently built lines, and the comparison is the assertion.
-     */
+    /** Two lines describe the same thing, field for field. */
     public boolean sameFieldsAs(@Nullable InnerComponentLine other) {
         return other != null
                 && type == other.type

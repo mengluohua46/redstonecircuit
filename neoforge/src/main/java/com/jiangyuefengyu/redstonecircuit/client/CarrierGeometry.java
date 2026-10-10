@@ -7,31 +7,13 @@ import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
 /**
- * <b>One quad of a shell face, decided once and drawn once.</b>
+ * One quad of a shell face, decided once and drawn once.
  *
- * <p>The decision is here rather than inline in the drawing loop for the reason the whole diagnostics
- * round exists: {@code carrier frame drew 1} counted <em>hosts</em>, so a host that was collected and
- * then emitted no geometry at all - every quad refused by a colour of zero, by the shader pack's
- * solid-frame rule, by the layer table - read exactly like a host that was drawn. The way to make that
- * impossible is not another counter beside the loop; it is for the loop and the counter to consult the
- * same function.
- *
- * <h2>The three skips, and what each one means on screen</h2>
- * <ul>
- *   <li>{@code tint == 0 && frame == 0 && wireFrame == 0} - <b>nothing is drawn at all</b>. Every
- *       colour resolved to zero, which is what {@code hostOverlayAlpha=0} plus
- *       {@code hostOverlayFrameAlpha=0} means. There is no shell to see and no bug in the renderer.</li>
- *   <li>{@code solidFrames && quad == 0} - the centre panel is left out. A shader pack is drawing, our
- *       shell has to use vanilla's opaque cutout type, and a translucent centre panel drawn opaquely
- *       would be a plate that hides the component inside it. The four rims are still drawn, so the
- *       block is still marked.</li>
- *   <li>{@code argb == 0} - this particular quad's colour is zero: the panel when the tint alpha is
- *       zero, the rims when the frame alpha is. The other quads are unaffected.</li>
- * </ul>
- *
- * <p>Only the first of those three produces the failure this round is about - a collected host with
- * zero geometry - which is why {@link Shape#NOTHING_EMITTED} exists as a verdict rather than just as a
- * sum.
+ * <p>The decision is here rather than inline in the drawing loop, so the loop, the frame counter and the tests
+ * all consult the same function: a counter beside the loop reports what it counted, never whether geometry was
+ * really emitted. Three things skip a quad - every colour resolving to zero (nothing is drawn at all), the
+ * centre panel under a shader pack's opaque rule, and this quad's own colour being zero - and only the first is
+ * the "a host was collected and emitted nothing" verdict the diagnostics exist to name.
  */
 public final class CarrierGeometry {
 
@@ -39,27 +21,16 @@ public final class CarrierGeometry {
     public static final int CENTRE_PANEL = 0;
 
     /**
-     * The colours the debug switch substitutes, and they are deliberately ugly.
-     *
-     * <p>A frame drawn with {@code forceOverlayDraw=true} must be unmistakable on screen: a half-opaque
-     * magenta cube with a white border is a shape no configuration produces by accident, so "I turned
-     * the debug switch on and now I can see it" and "I turned the debug switch on and I still cannot"
-     * are two different observations rather than two readings of the same colour.
+     * The colours the debug switch substitutes, and they are deliberately ugly: a half-opaque magenta cube with
+     * a white border is a shape no configuration produces by accident.
      */
     public static final int FORCED_TINT = 0x80FF00FF;
     public static final int FORCED_FRAME = 0xFFFFFFFF;
 
     /**
-     * The ARGB a shell quad is drawn with, or {@code 0} when this quad is skipped.
-     *
-     * <p>The single implementation of the rule, called by both the world shell and the carried shell -
-     * and by the diagnostics, which is what makes {@code shellQuads=0} a fact rather than an opinion.
-     *
-     * @param withFrame whether this host has a border colour at all
-     * @param quad which of the face's quads, {@link #CENTRE_PANEL} for the panel
-     * @param tint the panel colour, {@code 0} when the shell has no panel
-     * @param frame the border colour, {@code 0} when there is no border
-     * @param solidFrames true while a shader pack is drawing, which leaves the panel out
+     * The ARGB a shell quad is drawn with, or {@code 0} when this quad is skipped - the single implementation of
+     * the rule, which is what makes {@code shellQuads=0} a fact rather than an opinion. {@code quad} is one of
+     * the face's quads, {@link #CENTRE_PANEL} for the panel; {@code solidFrames} leaves the panel out.
      */
     public static int shellQuadArgb(boolean withFrame, int quad, int tint, int frame,
                                     boolean solidFrames) {
@@ -71,22 +42,10 @@ public final class CarrierGeometry {
     }
 
     /**
-     * Every gate that decides whether a host's geometry may be emitted at all.
-     *
-     * <p>One record rather than eight loose fields because the same set is needed by the renderer's
-     * frame summary, by {@code /rc carrier} and by the tests, and a set that has to be kept in step by
-     * hand is how a diagnostic starts reporting on something other than what was drawn.
-     *
-     * @param overlay what {@code hostOverlayMode} resolved to, before the goggles are considered
-     * @param goggles whether the local player is wearing the redstone goggles
-     * @param showInnerComponents {@code showInnerComponents}: whether the component inside is drawn
-     * @param tint the shell panel colour, or {@code 0} when it resolves to nothing
-     * @param frame the ordinary border colour, or {@code 0}
-     * @param wireFrame the superconducting border colour, or {@code 0}
-     * @param solidFrames true while a shader pack is drawing, i.e. {@code ShaderCompat.vanillaGeometry()}
-     * @param forceEmit {@code forceOverlayDraw}: the debug switch that overrides every <em>per-host</em>
-     *     gate, so "the config switched it off" and "it was drawn and not seen" can be told apart in one
-     *     run
+     * Every gate that decides whether a host's geometry may be emitted at all - {@code tint}, {@code frame} and
+     * {@code wireFrame} are the resolved colours, {@code overlay} and {@code goggles} the visibility gates, and
+     * {@code forceEmit} the debug switch that overrides every <em>per-host</em> gate. One record rather than eight
+     * loose fields, because the frame summary, {@code /rc carrier} and the tests all need the same set.
      */
     public record Gates(RCConfig.OverlayMode overlay, boolean goggles, boolean showInnerComponents,
                         int tint, int frame, int wireFrame, boolean solidFrames, boolean forceEmit) {
@@ -109,22 +68,16 @@ public final class CarrierGeometry {
         }
 
         /**
-         * Whether the component inside is drawn.
-         *
-         * <p>{@code showInnerComponents} is the only gate: the shell being switched off does not take
-         * the component with it, which is exactly how a player ends up with a block whose inside is
-         * visible and whose frame is missing.
+         * Whether the component inside is drawn. {@code showInnerComponents} is the only gate: switching the shell
+         * off does not take the component with it.
          */
         public boolean drawsContents() {
             return forceEmit || showInnerComponents;
         }
 
         /**
-         * Why the pass drew nothing at all, or {@code null} when it runs.
-         *
-         * <p>The sentence a reader needs when the frame summary says zero: {@code OFF} is a
-         * configuration, {@code GOGGLES} without the goggles is a player who has not put them on, and
-         * either one looks identical to a bug from inside the game.
+         * Why the pass drew nothing at all, or {@code null} when it runs: {@code OFF} is a configuration, and
+         * {@code GOGGLES} without the goggles is a player who has not put them on.
          */
         public String inactiveReason() {
             if (active()) {
@@ -143,13 +96,9 @@ public final class CarrierGeometry {
         }
 
         /**
-         * The panel colour actually used, which is the configured one unless the debug switch is on.
-         *
-         * <p>{@code forceOverlayDraw} has to be able to draw something even when every colour is zero -
-         * that is the whole question it exists to answer, "does geometry reach the buffer at all" - so
-         * it substitutes an obvious magenta rather than obeying a colour that means "draw nothing".
-         * {@link #shellEmptiness} deliberately keeps reporting the <em>configured</em> zero, so the
-         * reader can still see what the unforced frame would have done.
+         * The panel colour actually used, which is the configured one unless the debug switch is on - and it
+         * substitutes an obvious magenta rather than obeying a colour that means "draw nothing". {@link #shellEmptiness}
+         * keeps reporting the <em>configured</em> zero.
          */
         public int effectiveTint() {
             return forceEmit && tint == 0 ? FORCED_TINT : tint;
@@ -162,11 +111,8 @@ public final class CarrierGeometry {
         }
 
         /**
-         * Why nothing can be emitted for this host, or {@code null} when something can.
-         *
-         * <p>Used for one host at a time in the frame report, and the wording is deliberately the
-         * sentence the acceptance procedure looks for: a host that was collected and emitted nothing
-         * has to say so in a way that cannot be mistaken for "drawn".
+         * Why nothing can be emitted for this host, or {@code null} when something can - the sentence a host that
+         * was collected and emitted nothing has to say so that it cannot be mistaken for "drawn".
          */
         public String shellEmptiness(Slot slot) {
             int hostFrame = frameFor(slot);
@@ -216,12 +162,8 @@ public final class CarrierGeometry {
         }
 
         /**
-         * The same, with the renderer's own answer to "zero shell quads, and why".
-         *
-         * <p>An extra field rather than another two counters in {@link #describe()}, because it is the
-         * one question a reader asks about a zero and the answer is a sentence, not a number: a colour
-         * of zero, a host with no slot yet, or a colour rule that refused every quad. See
-         * {@code HostRenderPass.Counter#zeroShellReason}.
+         * The same, with the renderer's own answer to "zero shell quads, and why" - a sentence rather than another
+         * counter, because a zero has several causes: a colour of zero, a host with no slot yet, a refused quad.
          */
         public static Emitted of(int shellQuads, int contentQuads, int hostsWithShell,
                                  int hostsWithContent, int hostsCollected, String shellReason,
@@ -231,10 +173,8 @@ public final class CarrierGeometry {
         }
 
         /**
-         * The verdict for a pass that collected nothing, which still has to name its gates.
-         *
-         * <p>An empty world and a switched-off overlay look identical on screen; this is the value
-         * that makes the frame summary say which one it was.
+         * The verdict for a pass that collected nothing, which still has to name its gates: an empty world and a
+         * switched-off overlay look identical on screen.
          */
         public static Emitted none(String shellReason, String contentReason) {
             return new Emitted(0, 0, shellReason, contentReason, 0, 0, 0, "");
@@ -251,11 +191,8 @@ public final class CarrierGeometry {
         }
 
         /**
-         * The alarming sentence: the host was collected, and every quad was skipped.
-         *
-         * <p>Written the long way round on purpose. {@code drew=1, shellQuads=0, contentQuads=0} is the
-         * exact shape of the author's report - the log says a host was handled and the screen shows
-         * nothing - and a reader who greps this log for the word NOTHING has to find it here.
+         * The alarming sentence: the host was collected and every quad was skipped. A reader who greps this log for
+         * the word NOTHING has to find it here.
          */
         public String describe() {
             if (nothing()) {
@@ -276,59 +213,26 @@ public final class CarrierGeometry {
     }
 
     /**
-     * <b>WHICH STAGE THE CARRIED GEOMETRY IS FLUSHED AT, as a function of the shader path.</b>
+     * Which stage the carried geometry is flushed at, as a function of the shader path: with a shader pack the
+     * carried geometry rides with the world path, and otherwise it is submitted late, after everything the
+     * structure draws.
      *
-     * <h2>The defect this decision exists for</h2>
-     * With a shader pack drawing, a physicalised block showed its frame and <b>not</b> the component
-     * inside it; without one, the same block was whole. The world path - the same vanilla
-     * {@code cutout} type and the same depth-ignoring contents - was <b>not</b> affected, and the only
-     * thing the two paths did not share was the moment they were submitted:
-     *
-     * <pre>
-     *   world path   -&gt; AFTER_ENTITIES           (before the structure draws, under a pack or not)
-     *   carried path -&gt; AFTER_TRANSLUCENT_BLOCKS (after everything, including the structure)
-     * </pre>
-     *
-     * <p>The late stage exists for a reason that is real and must be kept <b>without</b> a pack:
-     * everything the structure draws - Flywheel's visual pass at {@code blockentities}, Sable's
-     * sub-level pass even earlier - is already in the frame by then, so geometry submitted earlier for a
-     * host riding a machine is covered by the machine's own opaque blocks. See {@link #Stage}.
-     *
-     * <p>Under a pack the same lateness is what hides the component: our contents are written with a
-     * vanilla type, which <em>tests</em> depth (that is what makes Iris light them), and by
-     * {@code AFTER_TRANSLUCENT_BLOCKS} the carried block's own faces are long since in the depth buffer.
-     * The frame survives because the shell is pushed a hair outside the block
-     * ({@code HostShell.EXPAND = 0.005}); the component is inside it, so every one of its fragments fails
-     * the depth test. Submitting at the world stage instead puts the component into the frame
-     * <b>before</b> Create's contraption pass and in the same window the working world path uses.
-     *
-     * <h2>Why this is a pure value and not two {@code if}s in the renderer</h2>
-     * "Which stage" is a property of the build, and the diagnostic has to print <b>the stage that was
-     * really used</b> - a reader comparing {@code carriedQuadsFlushedAt} against the world stage is
-     * reading the answer to this very question. Keeping it here means the renderer's dispatch, the
-     * flush line and the tests all consult one function, exactly as {@link #shellQuadArgb} does for the
-     * colour rule.
-     *
-     * <p><b>Without a pack nothing here changes anything:</b> {@link #LATE} is the value it has always
-     * had, the stages, types, buffers and submission order are the ones that were there before, and
-     * {@link #sameAsBeforeShaders} exists so that is an assertion rather than a claim.
+     * <p>Under a pack our contents are written with a vanilla type, which <em>tests</em> depth, so by the late stage
+     * the carried block's own faces are already in the depth buffer and every fragment of the component inside it
+     * fails the test; the shell survives only because it is pushed a hair outside the block. Without a pack nothing
+     * changes: {@link #LATE} is the value it has always had.
      */
     public enum StagePlan {
 
         /**
-         * The stage the carried path has always used: submitted after everything the structure draws.
-         *
-         * <p>The only value without a shader pack, and the value this build printed before this decision
-         * existed.
+         * The stage the carried path has always used: submitted after everything the structure draws, and the only
+         * value without a shader pack.
          */
         LATE("minecraft:after_translucent_blocks", "the late stage (after every structure the game draws)"),
 
         /**
-         * With a shader pack: submitted with the world path, at {@code after_entities}.
-         *
-         * <p>Before Create's contraption pass (Flywheel's {@code afterEntities}, which runs immediately
-         * after {@code AFTER_ENTITIES} is dispatched) and in the same window the world path's contents
-         * reach the frame in.
+         * With a shader pack: submitted with the world path, at {@code after_entities} - before Create's contraption
+         * pass, and in the same window the world path's contents reach the frame in.
          */
         WITH_WORLD("minecraft:after_entities", "the world stage (with the world path, under a shader pack)");
 
@@ -361,11 +265,9 @@ public final class CarrierGeometry {
         }
 
         /**
-         * True when this plan is the one this build used <b>before the shader decision existed</b>.
-         *
-         * <p>Only {@link #LATE} is, and that is the whole of the "without a shader pack nothing changed"
-         * claim - the stage, and therefore the type, the buffer and the submission order with it. Named
-         * rather than written as {@code plan == LATE} at the test, so the assertion says what it means.
+         * True when this plan is the one the build used before the shader decision existed - the whole of the
+         * "without a shader pack nothing changed" claim, since the type, the buffer and the submission order all
+         * follow the stage.
          */
         public boolean sameAsBeforeShaders() {
             return this == LATE;
@@ -373,24 +275,12 @@ public final class CarrierGeometry {
     }
 
     /**
-     * <b>Which render type each half of the carried picture is written with</b>, as a function of the
-     * shader path - and the second half of the same defect as {@link StagePlan}.
+     * Which render type each half of the carried picture is written with, as a function of the shader path.
      *
-     * <h2>Why the shell and the contents differ</h2>
-     * Under a pack both halves used to be vanilla's {@code cutout}, because Iris selects its program
-     * from the render type it is handed and a type of ours is a stranger to it. That is right for the
-     * <b>shell</b>, whose quad at {@code 1.005} is in front of the block and therefore always visible.
-     * It is wrong for the <b>contents</b>: the world path's contents are <b>depth-ignoring</b>
-     * ({@code HostRenderTypes#CONTENTS} / {@code #CARRIED_CONTENTS} - {@code NO_DEPTH_TEST} with depth
-     * <em>written</em>, so a deferred pack still has a surface to light), and the no-shader carried path
-     * is depth-ignoring too. The shader path was the only place the component was asked to pass a depth
-     * test against a block that is drawn <em>around</em> it, which is precisely the thing the depth
-     * bypass exists to make impossible.
-     *
-     * <p>So the decision is deliberately split: the shell keeps vanilla's identity where a pack is
-     * drawing, and the <b>contents never change type</b> - the carried contents use
-     * {@code CARRIED_CONTENTS} on both paths, which is one behaviour to look at instead of two and the
-     * one the author has always seen work without a pack.
+     * <p>Under a pack both halves were vanilla's {@code cutout}, which is right for the <b>shell</b> - its
+     * quad sits in front of the block and is therefore always visible - and wrong for the <b>contents</b>, whose
+     * type ignores depth so that a component inside a block can be seen at all. So the shell takes vanilla's
+     * identity where a pack is drawing, and the carried contents use the depth-ignoring type on both paths.
      */
     public enum RenderPlan {
 
@@ -409,21 +299,16 @@ public final class CarrierGeometry {
         }
 
         /**
-         * Whether the carried shell uses vanilla's {@code cutout} rather than this build's own type.
-         *
-         * <p>True only where a pack is drawing, and it exists so no call site has to re-ask the shader
-         * question and get a different answer than the plan.
+         * Whether the carried shell uses vanilla's {@code cutout} rather than this build's own type: true only
+         * where a pack is drawing, so no call site has to re-ask the shader question.
          */
         public boolean vanillaShellType() {
             return this == SHADER_SHELL;
         }
 
         /**
-         * Whether the carried <b>contents</b> use vanilla's {@code cutout}.
-         *
-         * <p>Always false, on purpose, and it is a method rather than a constant so that the one place
-         * this rule lives is nameable: the contents ignore depth on both paths, because that is what
-         * makes a component inside a block visible at all. See the enum's own comment.
+         * Whether the carried <b>contents</b> use vanilla's {@code cutout}: always false, because the contents
+         * ignore depth on both paths, which is what makes a component inside a block visible at all.
          */
         public boolean vanillaContentsType() {
             return false;
