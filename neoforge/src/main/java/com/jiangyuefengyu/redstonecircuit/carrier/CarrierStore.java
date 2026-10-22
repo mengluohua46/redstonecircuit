@@ -982,6 +982,19 @@ public final class CarrierStore {
         WorldComponentAdoption.Plan plan = WorldComponentAdoption.plan(index, carrier, localPos, origin,
                 worldSlot);
         if (!plan.adopts()) {
+            // An existing live record keeps its snapshot - it is the better copy, and re-claiming would
+            // overwrite a component the player may have changed with whatever the stale world entry says -
+            // but the world entry must still go, or one block answers twice for as long as the save lasts.
+            // See WorldComponentAdoption#clearShadowedWorldEntry.
+            if (WorldComponentAdoption.clearShadowedWorldEntry(plan, slots)) {
+                CarriedHosts.get(level).setDirty();
+                if (RCConfig.debugLog()) {
+                    RCConfig.LOGGER.info("[redstonecircuit] carrier {}: removed the world entry shadowing "
+                                    + "the record that already exists at {} (the record and its snapshot "
+                                    + "are untouched; one block, one answer) {}",
+                            carrier.shortId(), plan.localPos().toShortString(), index.summary(carrier));
+                }
+            }
             return plan;
         }
         // `fill`, not `claim`: the contents are read from the plot coordinate (the world store's own key)
@@ -1499,15 +1512,12 @@ public final class CarrierStore {
             return null;
         }
         CarrierPose pose = poses.poseOf(owner);
-        // The origin is the world position this structure's pose puts the coordinate at RIGHT NOW, through
-        // the same function and the same arithmetic the adoption uses - so a record filed here and a record
-        // adopted there name the same block, and a pose that cannot be read refuses rather than guessing
-        // (see WorldComponentAdoption#originFor for why a guess would be the plot coordinate millions of
-        // blocks from anywhere a player can go).
-        BlockPos origin = WorldComponentAdoption.originFor(pos,
-                pose == null ? null : local -> pose.blockCentre(
-                        new org.joml.Vector3d(local.getX(), local.getY(), local.getZ()),
-                        new org.joml.Vector3d()));
+        // The origin is the block this structure is DRAWN in for that coordinate, through the projection the
+        // renderer and the world-side queries use - one answer for "where is this host", so a record filed
+        // here and a record adopted elsewhere name the same block. A pose that cannot be read refuses rather
+        // than guessing (see WorldComponentAdoption#originFor for why a guess would be the plot coordinate
+        // millions of blocks from anywhere a player can go).
+        BlockPos origin = WorldComponentAdoption.originFor(pose, pos);
         if (origin == null) {
             note(miss, "the plot cell belongs to " + owner.shortId() + ", but its pose cannot name a world "
                     + "position for it, so no carrier record was filed and nothing is guessed");
@@ -1765,67 +1775,16 @@ public final class CarrierStore {
     }
 
     /**
-     * The local coordinate a world position names, or {@code null} unless the round trip through the
-     * pose puts it back on that same position.
+     * The local coordinate a world position names, or {@code null} unless the projection puts that coordinate
+     * back on that same position.
      *
-     * <p>The two halves of this resolver use two different conventions for the same block, half a block
-     * apart: {@link CarrierProjection#project} names a block by its <b>centre</b> and floors it, while
-     * the pose itself maps a block's <b>corner</b> (which is what makes {@code plot.getBoundingBox()}
-     * through the pose equal {@code SubLevel#boundingBox}, and what {@code SubLevelSpace} documents).
-     * Inverting at the world block's centre therefore lands in the middle of the candidate block's
-     * interior - and once the structure is turned, "the interior" is not a fixed set of coordinates any
-     * more, so no single rounding rule is right for every angle. The half block has to be resolved by
-     * asking the projection which of the candidates it names, which is the one direction that cannot be
-     * ambiguous.
-     *
-     * <p>Bounded by <b>eight</b> forward projections of one coordinate each - the cell the centre fell
-     * in, plus the seven neighbours the half-block ambiguity can reach - and nothing else. No loop over
-     * the index, no walk over a plot, and a pose that cannot round-trip at all (a scale of zero, one
-     * being written while it is read, a structure coming apart) names no coordinate, so nothing is
-     * dropped and nothing is interacted with on a guess. The same guard {@code SubLevelSpace} applies at
-     * claim time, repeated here because it has to hold at <em>click</em> time too.
-     *
-     * <p>Package-visible rather than private so the proof - the thing about it that is invisible in game
-     * until it is wrong - is pinned by an offline unit test, including a turn of 37.5 degrees, i.e. a
-     * pose that puts block corners at genuinely fractional coordinates.
+     * <p>The proof itself lives at {@link CarrierProjection#localBlockOf}, beside the forward projection it
+     * inverts: one answer for "which block is this" in each direction, and no second implementation that could
+     * drift from it. This form stays because the click resolver's own tests are written against it.
      */
     @Nullable
     static BlockPos localForVerified(CarrierPose pose, BlockPos worldPos) {
-        if (pose == null || worldPos == null) {
-            return null;
-        }
-        Vector3d centre = pose.transformPositionInverse(
-                new Vector3d(worldPos.getX() + CarrierPose.BLOCK_CENTRE,
-                        worldPos.getY() + CarrierPose.BLOCK_CENTRE,
-                        worldPos.getZ() + CarrierPose.BLOCK_CENTRE),
-                new Vector3d());
-        if (!centre.isFinite()) {
-            return null;
-        }
-        // The inverse lands in the middle of the candidate block's interior - and "the interior" is not
-        // the same set of coordinates once the structure is turned, which is why the request is resolved
-        // by trying the candidates and keeping the one that PROVES itself: at most four integer
-        // coordinates can contain a given point, so the four below cover the answer for any pose, and the
-        // projection is then asked which of them really is the block the player acted on.
-        //
-        // The candidates are the two cells the point can fall in, on each axis independently - the
-        // half-open interval [x, x+1) and the one below it - which is the same "it is half a block away"
-        // ambiguity between a block's corner and its centre that CarrierProjection#project has in the
-        // other direction.
-        int baseX = (int) Math.floor(centre.x);
-        int baseY = (int) Math.floor(centre.y);
-        int baseZ = (int) Math.floor(centre.z);
-        for (int dx = 0; dx >= -1; dx--) {
-            for (int dy = 0; dy >= -1; dy--) {
-                for (int dz = 0; dz >= -1; dz--) {
-                    BlockPos candidate = new BlockPos(baseX + dx, baseY + dy, baseZ + dz);
-                    if (worldPos.equals(CarrierProjection.project(pose, candidate))) {
-                        return candidate;
-                    }
-                }
-            }
-        }
-        return null;
+        return CarrierProjection.localBlockOf(pose, worldPos);
     }
 
     /**

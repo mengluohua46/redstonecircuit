@@ -7,17 +7,17 @@ import com.jiangyuefengyu.redstonecircuit.structure.StructurePreview;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
 import com.mojang.blaze3d.vertex.PoseStack;
 
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.geom.EntityModelSet;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
-import net.minecraft.client.model.geom.EntityModelSet;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 
 /**
  * The structure in the player's hand - and, because this is the same code path, the structure in the inventory slot.
@@ -56,6 +56,27 @@ public final class StructureItemRenderer extends BlockEntityWithoutLevelRenderer
         super(blockEntities, models);
     }
 
+    /**
+     * Where this stack is being drawn from, in the probe's vocabulary: fp-r for the hand, gui for a slot in a screen.
+     *
+     * <p>It is read from the context and not guessed from a counter, because this one class draws the stack in the
+     * player's hand and in every slot of every screen - the difference between "the hand is expensive" and "the same
+     * picture is drawn several times a frame" cannot be seen from inside the draw, and it is the whole question.
+     */
+    private static String site(ItemDisplayContext context) {
+        return switch (context) {
+            case FIRST_PERSON_RIGHT_HAND -> "fp-r";
+            case FIRST_PERSON_LEFT_HAND -> "fp-l";
+            case THIRD_PERSON_RIGHT_HAND -> "tp-r";
+            case THIRD_PERSON_LEFT_HAND -> "tp-l";
+            case GUI -> "gui";
+            case GROUND -> "ground";
+            case FIXED -> "fixed";
+            case HEAD -> "head";
+            case NONE -> "none";
+        };
+    }
+
     @Override
     public void renderByItem(ItemStack stack, ItemDisplayContext context, PoseStack pose,
                              MultiBufferSource buffers, int packedLight, int packedOverlay) {
@@ -69,14 +90,20 @@ public final class StructureItemRenderer extends BlockEntityWithoutLevelRenderer
                     packedLight, packedOverlay);
             return;
         }
-        List<StructurePreviewGeometry.Cell> cells = StructurePreviewGeometry.cells(level, preview);
+        StructurePreviewGeometry.Detail detail =
+                StructurePreviewGeometry.effective(StructurePreviewGeometry.Detail.ICON);
+        List<StructurePreviewGeometry.Cell> cells = StructurePreviewGeometry.cells(level, preview, detail);
         if (cells.isEmpty()) {
             dispatcher.renderSingleBlock(RCRegistry.STRUCTURE.defaultBlockState(), pose, buffers,
                     packedLight, packedOverlay);
             return;
         }
-        // No moves here: an item is a picture of what the structure is, not of what it is doing.
-        StructurePreviewGeometry.draw(pose, buffers, cells, preview, dispatcher, null, 0L, 0.0F);
-        StructureRenderLog.drew(preview, cells.size(), "in the hand");
+        // No moves here: an item is a picture of what the structure is, not of what it is doing - and no position
+        // either, so the hand and the icon share the blueprint's picture with every placed structure whose cells are
+        // not live.
+        String site = site(context);
+        StructurePreviewGeometry.draw(pose, buffers, cells, preview, dispatcher, null, 0L, 0.0F, null, null, site,
+                detail);
+        StructureRenderLog.drew(preview, cells.size(), site);
     }
 }

@@ -352,7 +352,8 @@ public final class PocketCommand {
                 + materialized.plot() + "->" + space.plots().get(materialized.plot()).columns()
                 + " column(s); throwing its lever in the pocket", ChatFormatting.AQUA);
         RCConfig.LOGGER.info("[redstonecircuit] pocket: arch test preview: {}",
-                describe(StructureProductData.of(payload, RCConfig.structurePreviewBytes())));
+                describe(StructureProductData.of(payload, RCConfig.structurePreviewBytes(),
+                        RCConfig.structurePreviewCells())));
         ARCH.add(new ArchPending(source, pocket, materialized.plot(), payload.header().size(), true,
                 origin.offset(0, 1, 0), origin.offset(3, 1, 0), origin.offset(4, 1, 0),
                 origin.offset(6, 1, 0), source.getServer().getTickCount() + SELF_TEST_TICKS));
@@ -501,7 +502,8 @@ public final class PocketCommand {
             refuse(source, "inject test could not place its product block");
             return 0;
         }
-        product.setStructure(StructureProductData.of(payload, RCConfig.structurePreviewBytes()));
+        product.setStructure(StructureProductData.of(payload, RCConfig.structurePreviewBytes(),
+                RCConfig.structurePreviewCells()));
         product.setPlotIndex(materialized.plot());
         RCConfig.LOGGER.info("[redstonecircuit] pocket: inject test preview: {}",
                 describe(product.asProduct()));
@@ -680,7 +682,8 @@ public final class PocketCommand {
             refuse(source, "manual test could not place its product block");
             return 0;
         }
-        product.setStructure(StructureProductData.of(payload, RCConfig.structurePreviewBytes()));
+        product.setStructure(StructureProductData.of(payload, RCConfig.structurePreviewBytes(),
+                RCConfig.structurePreviewCells()));
         product.setPlotIndex(materialized.plot());
         RCConfig.LOGGER.info("[redstonecircuit] pocket: manual test preview: {}",
                 describe(product.asProduct()));

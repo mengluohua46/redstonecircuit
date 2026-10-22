@@ -124,6 +124,11 @@ public final class RCConfig {
         // panel, the pocket that holds the blocks, and how a release is paced.
         DEFAULTS.put("structureMaxSize", 48);
         DEFAULTS.put("structurePreviewBytes", 65536);
+        DEFAULTS.put("structurePreviewCells", 4096);
+        DEFAULTS.put("structurePreviewCached", true);
+        DEFAULTS.put("structurePreviewCull", true);
+        DEFAULTS.put("structurePreviewFaces", true);
+        DEFAULTS.put("structurePreviewIconDetail", true);
         DEFAULTS.put("structureCaptureContextShell", true);
         DEFAULTS.put("structureManualRange", 8.0);
         DEFAULTS.put("structureManualPulseTicks", 10);
@@ -133,6 +138,7 @@ public final class RCConfig {
         DEFAULTS.put("structureMaxLoadedPockets", 16);
         DEFAULTS.put("structureManualEntryLimit", 32);
         DEFAULTS.put("structurePocketSyncEnvironment", true);
+        DEFAULTS.put("structurePocketSounds", true);
         DEFAULTS.put("structureAllowCopy", true);
         DEFAULTS.put("structureMaxNestingDepth", 1);
         DEFAULTS.put("structureBlockBlacklist", DEFAULT_BLOCK_BLACKLIST);
@@ -477,6 +483,70 @@ public final class RCConfig {
         return intValue("structurePreviewBytes", 65536);
     }
 
+    /**
+     * How many cells the downsampled preview that travels with a structure may have.
+     *
+     * <p>Together with {@link #structurePreviewBytes()} this decides the preview's scale; the coarser of the two wins.
+     * 4,096 cells is 16³, which is the picture a 32³ structure arrives as; the range the NeoForge build documented is
+     * 1024..110592, and nothing here clamps a value the file holds - 110592 is 48³, the largest structure allowed.
+     */
+    public static int structurePreviewCells() {
+        return intValue("structurePreviewCells", 4096);
+    }
+
+    /**
+     * Whether a preview's miniature is emitted once into uploaded vertex data and redrawn, instead of rebuilt cell by
+     * cell at every draw.
+     *
+     * <p>On by default because the emission is the whole cost: a 1,405-cell miniature is about 0.5 ms of block model
+     * geometry per draw, and the same picture is drawn for the block in the world, for the stack in the hand and for
+     * the slot that stack sits in. Emitted once, a draw is one upload per render type, which is what vanilla pays for
+     * a chunk.
+     *
+     * <p>Off, the miniature is drawn one cell at a time exactly as it was before. The switch exists because this path
+     * uploads vertex data of its own, and a driver that mishandles that takes the game down: a player who sees it
+     * happen gets their picture back by turning this off on the next launch, which is worth more than any
+     * explanation.
+     */
+    public static boolean structurePreviewCached() {
+        return bool("structurePreviewCached", true);
+    }
+
+    /**
+     * Whether cells that nothing can see are dropped from a preview.
+     *
+     * <p>On by default: a cell whose six neighbours all render as a full cube shows nothing but its own faces, and a
+     * 48³ structure is 110,592 of them. Off, every cell is drawn - the bisect switch for a miniature that looks like
+     * it is missing blocks.
+     */
+    public static boolean structurePreviewCull() {
+        return bool("structurePreviewCull", true);
+    }
+
+    /**
+     * Whether a cell's faces that the picture behind it hides are left out of the emission.
+     *
+     * <p>The second half of the culling, and the bigger one: a one-cell-thick wall drops four of every cell's six
+     * faces, and the bytes a miniature uploads are what a draw actually costs (a measured 3 MB per draw of a 32³
+     * structure, about 0.7 ms). On by default. Off, every cell of the picture is emitted whole - the bisect switch for
+     * a miniature that looks like it is missing faces.
+     */
+    public static boolean structurePreviewFaces() {
+        return bool("structurePreviewFaces", true);
+    }
+
+    /**
+     * Whether a structure drawn as an icon is drawn at half the resolution.
+     *
+     * <p>A stack in the hand, in a slot, and the model hand a screen draws all show the same picture at a few dozen
+     * pixels, and each of them paid for the full one: a measured 3 MB of vertices and about 0.7 ms per draw, three
+     * times a frame in the worst case. Half the resolution is a quarter of the cells at the same silhouette. On by
+     * default. Off, every place draws the full picture - the bisect switch for an icon that looks wrong.
+     */
+    public static boolean structurePreviewIconDetail() {
+        return bool("structurePreviewIconDetail", true);
+    }
+
     /** Snapshot the ring of world around a selection when capturing it, so the product has context. */
     public static boolean structureCaptureContextShell() {
         return bool("structureCaptureContextShell", true);
@@ -520,6 +590,11 @@ public final class RCConfig {
     /** Keep the pocket's time and weather equal to the overworld's. */
     public static boolean structurePocketSyncEnvironment() {
         return bool("structurePocketSyncEnvironment", true);
+    }
+
+    /** Bridge a sound made inside a structure out to the world, at the structure block. On: silence was the bug. */
+    public static boolean structurePocketSounds() {
+        return bool("structurePocketSounds", true);
     }
 
     /** Allow the copying tier at all; it duplicates container contents along with the blocks. */

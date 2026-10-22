@@ -30,6 +30,10 @@ import org.junit.jupiter.api.Test;
  * <p>So four things are pinned here, because each of them alone leaves one of those doors open: the button follows
  * the border, no page asks the block entity, the page draws the reason where its hint goes, and both languages carry
  * that reason.
+ *
+ * <p>Two of the four are about wording as much as wiring, since the key panel submits a <b>6×6 grid of buttons</b>: its
+ * one button is labelled with the verb it would do (add, or update the selected entry), and the hint's colour says what
+ * the button can do - red with no region up, blue on a selected entry, grey otherwise.
  */
 class StructurePanelGuidanceTest {
 
@@ -46,15 +50,19 @@ class StructurePanelGuidanceTest {
                 "and never from the client's own block entity: a controller's preview is not in its sync tag, so "
                         + "there it is always false - the button was locked for ever once already that way");
 
-        for (String page : List.of("panel.add", "faces.add", "output.add")) {
+        for (String page : List.of("faces.add", "output.add")) {
             assertTrue(screen.contains("this.addButton = addRenderableWidget(Button.builder(text(\"" + page + "\")"),
                     "every page that names a cell owns the one button: " + page);
         }
+        assertTrue(screen.contains("this.addButton = addRenderableWidget(Button.builder(commitLabel()"),
+                "and the key panel owns the same one button, labelled with the verb it would do: on a 6x6 grid of "
+                        + "buttons the add button is the one that either adds a new entry or writes the selected one back");
 
-        assertTrue(screen.contains(": \"panel.noregion\").getString()"),
+        assertTrue(screen.contains("hint = text(\"panel.noregion\").getString();"),
                 "and the key panel replaces its hint with the reason, the way the two table pages do");
-        assertTrue(screen.contains("region ? 0x808080 : 0xFF5555"),
-                "in the same red the other pages use, because it is the same refusal");
+        assertTrue(screen.contains("colour = 0xFF5555;") && screen.contains("colour = 0x808080;"),
+                "in the same red the other pages use, because it is the same refusal - and grey while it does work, "
+                        + "which is what \"the colour follows whether the button can work\" means");
     }
 
     @Test

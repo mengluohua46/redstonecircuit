@@ -155,6 +155,24 @@ public class RedstoneStructureBlockEntity extends BlockEntity {
         this.markDirtyAndSync();
     }
 
+    /**
+     * Replaces one panel entry <b>in its own place</b>: the row keeps its index, and the panel is written and synced
+     * once. A remove plus an add would send the row to the end and sync the whole block entity twice, and every sync
+     * is a whole payload - a long panel would owe one per row.
+     *
+     * @return false when the panel has no such index, and the panel is then untouched
+     */
+    public boolean replaceManual(int index, ActivationTable.ManualEntry entry) {
+        if (index < 0 || index >= this.manual.size()) {
+            return false;
+        }
+        List<ActivationTable.ManualEntry> updated = new ArrayList<>(this.manual);
+        updated.set(index, entry);
+        this.manual = List.copyOf(updated);
+        this.markDirtyAndSync();
+        return true;
+    }
+
     /** Removes one panel entry by the identity an entry has: the key <b>and</b> the cell. Not by index,
      * which is a position in a list that other edits reorder. */
     public void clearManualEntry(String key, BlockPos localPos) {
@@ -453,7 +471,9 @@ public class RedstoneStructureBlockEntity extends BlockEntity {
     /** A controller that is loaded again and is still previewing has to be visible again: a chunk
      * unloading or a player re-logging in does not end a preview, which is why the region is in the save
      * file at all. {@link #setRemoved()} is the other half - while the chunk is gone the controller
-     * leaves the per-dimension list the clients are told from. */
+     * leaves the per-dimension list the clients are told from.
+     * <p>What is published here is only the position: the border goes out at the end of the tick, because
+     * this runs inside chunk loading and a broadcast reads the world back (see StructurePreviews#publish). */
     @Override
     public void setLevel(Level level) {
         super.setLevel(level);

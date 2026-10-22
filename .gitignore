@@ -70,3 +70,8 @@ build/_msg.tmp
 # dev GameTest run directory (a world, an eula and per-run configs are not source)
 run-gametest/
 **/run-gametest/
+
+# dev server run directory - the same thing for `gradlew runServer`, which is how a server-side
+# problem gets reproduced on this machine (a real world copy lands here, about 27 MB)
+run-server/
+**/run-server/

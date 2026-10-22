@@ -25,10 +25,16 @@ import org.joml.Vector3dc;
  * <em>the same</em> structure. {@link #localFor} and {@link #worldFor} are exact inverses of each other and {@link
  * #verify} proves the round trip on the spot.
  *
- * <p>Sable's pose transforms block <b>corners</b>, which is why the conversions here use
- * {@link CarrierPose#transformPosition} rather than {@link CarrierPose#blockCentre}: the block-centre form would put
- * every claimed component half a block away from the block Sable is carrying - small enough to look like a rendering
- * wobble and large enough to be wrong.
+ * <p>Sable's pose transforms block <b>corners</b>, which is why {@link #localFor} and {@link #worldFor} use
+ * {@link CarrierPose#transformPosition} rather than {@link CarrierPose#blockCentre}: they are a pair of inverses, and
+ * a pair only round-trips if both halves speak about the same point.
+ *
+ * <p>That is a statement about the <b>world-to-local</b> direction, and it does not carry over to "which world block
+ * is this host drawn in". That question is asked by the renderer, the world-side signal query, the notification pass
+ * and a carrier record's origin, all of which must name one block, and it is answered by
+ * {@link CarrierProjection#project(CarrierPose, BlockPos)} - the block's centre, floored. Rounding a corner instead
+ * agrees with it only while the structure is unturned, because a rotation carries the half block between a corner and
+ * a centre onto all three axes.
  */
 public record SubLevelSpace(java.util.UUID uuid,
                                  int localMinX, int localMinY, int localMinZ,
@@ -182,14 +188,11 @@ public record SubLevelSpace(java.util.UUID uuid,
         for (int x = localMinX; x <= localMaxX && found.size() < limit; x++) {
             for (int y = localMinY; y <= localMaxY && found.size() < limit; y++) {
                 for (int z = localMinZ; z <= localMaxZ && found.size() < limit; z++) {
-                    Vector3d world = worldFor(new BlockPos(x, y, z));
-                    if (world == null) {
-                        continue;
-                    }
-                    // The block this local coordinate is *in*, computed from the coordinate the pose
-                    // produced rather than by flooring that coordinate: see {@link #nearestWorldBlock}.
-                    BlockPos worldPos = nearestWorldBlock(world);
-                    if (hasComponent.hasComponent(worldPos)) {
+                    // The block this local coordinate is drawn in, through the one projection every reader
+                    // uses - the renderer, the world-side signal query and the notification pass. A second
+                    // answer here reports a neighbouring block as the one holding the component.
+                    BlockPos worldPos = CarrierProjection.drawnBlockOf(pose, new BlockPos(x, y, z));
+                    if (worldPos != null && hasComponent.hasComponent(worldPos)) {
                         found.add(worldPos);
                     }
                 }
@@ -199,14 +202,19 @@ public record SubLevelSpace(java.util.UUID uuid,
     }
 
     /**
-     * The block a world point falls in, given that a structure's world positions are fractional on
-     * every axis.
+     * The integer block nearest a world point - the <b>inverse-direction</b> companion of {@link #localFor},
+     * and nothing else.
      *
-     * <p>The same rounding {@link #localFor} uses, and for the same reason: a point at {@code -319.5}
-     * is nearer the block {@code -319} than the block {@code -320} that flooring would name, and the two
-     * conversions have to agree or the round trip is not the identity. A point exactly on a boundary
-     * goes to the higher block, which is harmless either way - the two candidates are half a block
-     * apart and the tolerance is a whole block.
+     * <p>It rounds rather than floors because {@link #localFor} rounds: a world block read back through the
+     * pose and written forward again has to land on the same block, or the round trip is not the identity and
+     * every claim fails its own {@link #verify}. A point exactly on a boundary goes to the higher block, which
+     * is harmless either way - the two candidates are half a block apart and the tolerance is a whole block.
+     *
+     * <p><b>Not</b> the answer to "where is this host drawn": that question is asked by the renderer, the
+     * world-side signal query, the notification pass and a carrier record's origin, all of which must name one
+     * block, and it is answered by {@link CarrierProjection#project(CarrierPose, BlockPos)} - the block's
+     * centre, floored. The two agree only while the structure is unturned, because a rotation carries the half
+     * block between a corner and a centre onto all three axes.
      */
     public static BlockPos nearestWorldBlock(Vector3dc world) {
         return new BlockPos((int) Math.round(world.x()), (int) Math.round(world.y()),
@@ -222,22 +230,6 @@ public record SubLevelSpace(java.util.UUID uuid,
 
         /** True when the block at this world position holds a redstone component. */
         boolean hasComponent(BlockPos worldPos);
-    }
-
-    /**
-     * "Where does this structure put a local coordinate right now" - what a pose answers, extracted so a
-     * caller can be handed the question without being handed a pose.
-     *
-     * <p>Exists for one caller: {@code WorldComponentAdoption#originFor}, which has to record an origin
-     * for a component that was never taken out of a world block. That decision has to be testable without
-     * a pose object and without a sub-level, and this is the smallest interface that makes it so.
-     */
-    @FunctionalInterface
-    public interface WorldLookup {
-
-        /** The world position of a local coordinate, or {@code null} when there is no pose to ask. */
-        @Nullable
-        Vector3d worldFor(BlockPos localPos);
     }
 
     /**

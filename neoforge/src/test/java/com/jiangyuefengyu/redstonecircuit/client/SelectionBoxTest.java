@@ -179,10 +179,11 @@ class SelectionBoxTest {
         String network = readMain("network", "RCNetwork.java");
         assertFalse(network.contains("public WrenchSelectionPayload(boolean hasSelection, BlockPos pos) {"),
                 "and the constructor that could leave the flag unsaid must not come back");
-        assertTrue(network.contains("private static final String VERSION = \"12\";"),
+        assertTrue(network.contains("private static final String VERSION = \"15\";"),
                 "a world position cannot describe a block a machine draws between the grid lines, so the carried "
-                        + "pick's structure and local block are on the wire and the device reading is a varint: "
-                        + "the two sides must be the same build");
+                        + "pick's structure and local block are on the wire, the device reading is a varint, a "
+                        + "blueprint upload announces the region it came from, and a panel entry can be replaced "
+                        + "by index (REPLACE_MANUAL): the two sides must be the same build");
     }
 
     // ------------------------------------------------------------- helpers --

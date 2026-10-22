@@ -618,7 +618,13 @@ public final class RCNetwork {
             /** One row of the output table: a cell, the face it drives, and the strength. */
             SET_OUTPUT, REMOVE_OUTPUT,
             /** Hands the block the structure is holding to the player and empties the slot. */
-            TAKE_OUT
+            TAKE_OUT,
+            /**
+             * One panel entry replaced whole, by the index a client presses. Appended rather than slotted in beside the
+             * other manual verbs because a verb is an ordinal on the wire: a rename changes the entry's identity, so a
+             * remove plus an add would lose it between the two steps.
+             */
+            REPLACE_MANUAL
         }
 
         /** The longest string any verb carries: a name, a key or a label, all of them 64. */
@@ -690,6 +696,13 @@ public final class RCNetwork {
                     strength, 0, 0, key, label);
         }
 
+        /** The panel's "update" button: entry {@code index} becomes {@code name} on {@code cell}, at a strength. */
+        public static StructureEditPayload manualReplace(BlockPos pos, int index, String name, BlockPos cell,
+                                                         int strength) {
+            return new StructureEditPayload(pos, Verb.REPLACE_MANUAL, index, cell.getX(), cell.getY(), cell.getZ(),
+                    strength, 0, name, "");
+        }
+
         public static StructureEditPayload entry(BlockPos pos, Verb verb, int index) {
             return new StructureEditPayload(pos, verb, index, 0, 0, 0, 0, 0, "", "");
         }
@@ -756,6 +769,8 @@ public final class RCNetwork {
                 case CLEAR_MANUAL -> StructureEdits.clearManual(level, pos);
                 case PRESS_MANUAL -> StructureEdits.pressManual(level, player, pos, edit.a());
                 case TAKE_OUT -> StructureEdits.takeOut(level, player, pos);
+                case REPLACE_MANUAL -> StructureEdits.replaceManualEntry(level, pos, edit.a(), edit.first(),
+                        new BlockPos(edit.b(), edit.c(), edit.d()), edit.e());
             };
         }
 

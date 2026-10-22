@@ -10,12 +10,14 @@ import java.util.Map;
 import java.util.Set;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.block.SuperconductingWireBlock;
 import com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierDirections;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierProjection;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierWorldSignals;
+import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.HostEntry;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
@@ -537,7 +539,7 @@ public final class InnerRedstoneNetwork {
     /**
      * Re-evaluates the component containing {@code seed}, and tells the world if the result changed.
      *
-     * @return every position in the component, so the caller can skip re-solving them
+     * @return every position the solve covered, so the caller can skip re-solving them
      */
     public static List<BlockPos> recompute(ServerLevel level, InnerRedstoneStore store, BlockPos seed) {
         List<BlockPos> component = collectComponent(level, store, seed);
@@ -554,13 +556,26 @@ public final class InnerRedstoneNetwork {
             }
         }
 
-        List<BlockPos> changed = queryingWorld(level, () -> relax(level, store, component));
+        // The component alone is not the network: a world-side superconducting run laid against it is part of
+        // it, and both halves are solved together (see collectUnion). The suppression opens before the union
+        // is collected, because collecting it reads what feeds each run - and a run must not find its own
+        // strength coming back out of the blocks it charges while that read is taken.
+        Union union;
+        List<BlockPos> changed;
+        SuperconductingWireBlock.beginSuppression();
+        try {
+            union = collectUnion(level, store, component);
+            Union solved = union;
+            changed = queryingWorld(level, () -> relax(level, store, solved));
+        } finally {
+            SuperconductingWireBlock.endSuppression();
+        }
 
         // Outwards, and only now: the solve reported 0 to the world, so a consumer woken mid-solve would latch onto the wrong state.
         for (BlockPos pos : changed) {
             notifyOutputChanged(level, pos);
         }
-        return component;
+        return union.hosts();
     }
 
     /**
@@ -1031,15 +1046,222 @@ public final class InnerRedstoneNetwork {
      */
     private static long projectedLoggedTick = Long.MIN_VALUE;
 
+    // ------------------------------------------------------- the merged solve --
+
+    /**
+     * One solve's whole subject: the hosts whose components it owns, and the <b>world-side</b> superconducting
+     * runs merged into them.
+     *
+     * <p>Kept together because neither half may be solved alone. A run laid against a host block is read by
+     * whatever is inside that block and reads it back, and in between the two there is no hop to charge - a
+     * lossless wire on both sides of one boundary is a loop of gain exactly one, so <em>every</em> pair of
+     * values is a fixed point of "solve each side from the other's current value" and fifteen stays fifteen
+     * with the lever off. Merging turns that loop into a single monotone solve whose least fixed point is
+     * reached from zero.
+     */
+    private record Union(List<BlockPos> hosts, List<RunNode> runs, Map<BlockPos, RunNode> cells) {
+    }
+
+    /** One inner wire meeting one cell of a run: the side it emits on, read fresh on every pass. */
+    private record Arrival(Slot slot, Direction towardCell) {
+    }
+
+    /**
+     * One world-side run of superconducting wire, as a <b>single node</b> of the merged solve.
+     *
+     * <p>One node rather than one per cell because a run is lossless by definition - every cell of it holds
+     * the same strength, which is what the standalone world solve writes - so splitting it up would only add
+     * hops that cost nothing. The cells that are not face-adjacent ({@code /rc} climbs and drops, where the
+     * wire steps up beside a block) are exactly the ones this collapsing keeps faithful.
+     *
+     * <p>{@link #value} starts at zero and is only ever raised by {@link #target()}. It is deliberately
+     * <b>not</b> read from the {@code POWER} of the cells it covers: that value is what this solve produces,
+     * so taking it as an input would make it its own answer, which is the latch this class removes.
+     */
+    private static final class RunNode implements PowerEnvironment.Node {
+
+        private final List<BlockPos> cells;
+
+        /** The inner wires whose value arrives here - one entry per side of a cell that holds a wire. */
+        private final List<Arrival> arrivals = new ArrayList<>();
+
+        /** The best real source anywhere in the run. Never a host holding a wire: that value is solved here. */
+        private int supply;
+
+        private int value;
+
+        RunNode(List<BlockPos> cells) {
+            this.cells = cells;
+        }
+
+        List<BlockPos> cells() {
+            return cells;
+        }
+
+        int value() {
+            return value;
+        }
+
+        /**
+         * Reads what feeds this run, once: the world's own sources, and which inner wires it touches.
+         *
+         * <p>Read once rather than per pass because none of it can change while the solve runs - the solve
+         * only ever writes wire values and, at the end, this one strength.
+         */
+        void connect(Level level, InnerRedstoneStore store) {
+            for (BlockPos cell : cells) {
+                supply = Math.max(supply, SuperconductingWireBlock.supplyAt(level, cell, store));
+                for (Direction direction : Direction.values()) {
+                    Slot held = store.slotAt(cell.relative(direction));
+                    if (held != null && held.type.isWire()) {
+                        arrivals.add(new Arrival(held, direction.getOpposite()));
+                    }
+                }
+            }
+            supply = PowerSolver.clamp(supply);
+        }
+
+        /**
+         * What this run should hold right now, given what is around it.
+         *
+         * <p>A hop out of an inner wire into the run is charged to the run, which is superconducting and so
+         * charges nothing; a hop out of the run into an inner wire is charged by {@link PowerSolver#innerFrom}
+         * to that wire. The rule is one rule in both directions - the receiver pays - and it is the reason the
+         * pair cannot hold itself up: an ordinary dust inside the block loses a step on the way in.
+         */
+        int target() {
+            int best = supply;
+            for (Arrival arrival : arrivals) {
+                if (!PowerSolver.emitsToward(arrival.slot(), arrival.towardCell())) {
+                    continue;
+                }
+                best = Math.max(best, PowerSolver.afterHop(
+                        ComponentType.SUPERCONDUCTOR, arrival.slot().type, arrival.slot().power));
+            }
+            return PowerSolver.clamp(best);
+        }
+
+        /** Raises the run to its target; true when that changed it. */
+        boolean raise() {
+            int target = target();
+            if (target <= value) {
+                return false;
+            }
+            value = target;
+            return true;
+        }
+
+        @Override
+        public ComponentType type() {
+            return ComponentType.SUPERCONDUCTOR;
+        }
+
+        @Override
+        public int power() {
+            return value;
+        }
+
+        @Override
+        public void setPower(int power) {
+            value = PowerSolver.clamp(power);
+        }
+
+        @Override
+        public Direction facing() {
+            // A wire has no input side; nothing in the rules asks a wire which way it faces.
+            return Direction.DOWN;
+        }
+
+        @Override
+        public ComparatorMode mode() {
+            return ComparatorMode.COMPARE;
+        }
+
+        @Override
+        public boolean open(Direction direction) {
+            return false;
+        }
+
+        @Override
+        public boolean explicitlyCut(Direction direction) {
+            return false;
+        }
+
+        @Override
+        public boolean routingLocked() {
+            return false;
+        }
+    }
+
+    /**
+     * The component plus every world-side run wired into it, transitively.
+     *
+     * <p>A run touching a host block joins the solve, and so does every component the run touches - two
+     * separate buried networks on one length of superconducting wire are one network, and solving them one at
+     * a time would put the run back to being each other's stored input. The walk ends because both halves
+     * only ever grow.
+     */
+    private static Union collectUnion(ServerLevel level, InnerRedstoneStore store, List<BlockPos> component) {
+        List<BlockPos> hosts = new ArrayList<>(component);
+        Set<BlockPos> known = new HashSet<>(hosts);
+        List<RunNode> runs = new ArrayList<>();
+        Map<BlockPos, RunNode> cells = new HashMap<>();
+        Deque<BlockPos> queue = new ArrayDeque<>(hosts);
+
+        while (!queue.isEmpty()) {
+            BlockPos host = queue.poll();
+            for (Direction direction : Direction.values()) {
+                BlockPos cell = host.relative(direction);
+                if (cells.containsKey(cell) || !SuperconductingWireBlock.isSuperconductor(level.getBlockState(cell))) {
+                    continue;
+                }
+                List<BlockPos> run = SuperconductingWireBlock.collectRun(level, cell);
+                if (run.isEmpty()) {
+                    continue;
+                }
+                RunNode node = new RunNode(run);
+                runs.add(node);
+                for (BlockPos member : run) {
+                    cells.put(member, node);
+                }
+                for (BlockPos member : run) {
+                    for (Direction side : Direction.values()) {
+                        BlockPos other = member.relative(side);
+                        if (store.slotAt(other) == null || known.contains(other)) {
+                            continue;
+                        }
+                        for (BlockPos reached : collectComponent(level, store, other)) {
+                            if (known.add(reached)) {
+                                hosts.add(reached);
+                                queue.add(reached);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (RunNode run : runs) {
+            run.connect(level, store);
+        }
+        return new Union(List.copyOf(hosts), List.copyOf(runs), Map.copyOf(cells));
+    }
+
     /**
      * Re-derives the component's wire values and schedules any driven component that is stale.
+     *
+     * <p>The solve covers the component <b>and every world-side superconducting run that touches a host
+     * block of it</b> ({@link #collectUnion}). That is what makes the two sides one network: a run is not a
+     * source for the wire inside the block next to it, and the inner wire is not a source for the run - each
+     * is a node of the same monotone solve, which starts from zero and is only ever raised by a real supply.
      *
      * @return the positions whose output changed <em>immediately</em> (dust only - a driven component
      *     changes later, at its scheduled tick, and reports itself then)
      */
-    private static List<BlockPos> relax(ServerLevel level, InnerRedstoneStore store,
-                                        List<BlockPos> component) {
+    private static List<BlockPos> relax(ServerLevel level, InnerRedstoneStore store, Union union) {
+        List<BlockPos> component = union.hosts();
         SolverEnvironment env = new SolverEnvironment(level, store);
+        env.owning(union.cells());
 
         // The wire solve starts from zero, so "did anything change?" has to be answered against where
         // the component was before. Driven components are NOT reset: their output is held until their
@@ -1058,7 +1280,7 @@ public final class InnerRedstoneNetwork {
         // superconducting dust does not fade: a run of it can be far longer than the fifteen blocks an
         // ordinary signal survives, and a small fixed bound would leave the far end of such a run dark
         // until the next solve.
-        int maxPasses = 2 + Math.min(component.size(), MAX_FIXPOINT_PASSES);
+        int maxPasses = 2 + Math.min(component.size() + union.runs().size(), MAX_FIXPOINT_PASSES);
         int pass = 0;
         boolean changed = true;
         while (changed) {
@@ -1074,13 +1296,26 @@ public final class InnerRedstoneNetwork {
                 if (slot == null || !slot.type.isWire()) {
                     continue;
                 }
-                env.setQueryPos(pos);
+                env.setQuery(pos, slot.type);
                 int target = PowerSolver.wireTarget(env, pos, supplyOf(env, slot), SlotNode.of(slot));
                 if (target > slot.power) {
                     slot.power = target;
                     changed = true;
                 }
             }
+            // ...and the world-side runs, whose only supply is a real one: the value they hold is what this
+            // loop computes, so the block state is read nowhere and starts from zero like every wire here.
+            for (RunNode run : union.runs()) {
+                if (run.raise()) {
+                    changed = true;
+                }
+            }
+        }
+
+        // Written before anything is told about the change, so a consumer woken by the inner half already
+        // sees the outer half's new value rather than the one it is replacing.
+        for (RunNode run : union.runs()) {
+            SuperconductingWireBlock.writeRun(level, run.cells(), run.value());
         }
 
         List<BlockPos> changedPositions = new ArrayList<>();
@@ -1092,7 +1327,7 @@ public final class InnerRedstoneNetwork {
             int before = previous.get(pos);
             if (before != slot.power) {
                 changedPositions.add(pos);
-                env.setQueryPos(pos);
+                env.setQuery(pos, slot.type);
                 // A wire being re-solved repeatedly fires this once per power step: counted always, printed only when asked.
                 SolverLog.componentChanged();
                 if (SolverLog.verbose()) {
@@ -1250,6 +1485,15 @@ public final class InnerRedstoneNetwork {
         /** The position currently being solved, needed because the queries here are position-relative. */
         private BlockPos queryPos = BlockPos.ZERO;
 
+        /**
+         * True while the position being queried holds a <b>wire</b>: only a wire takes what reaches it from a
+         * neighbouring node as a hop, so only a wire is told nothing about a run this solve owns.
+         */
+        private boolean queryingWire;
+
+        /** The world-side runs this solve owns; empty for every other caller of this environment. */
+        private Map<BlockPos, RunNode> owned = Map.of();
+
         SolverEnvironment(ServerLevel level, InnerRedstoneStore store) {
             this.level = level;
             this.store = store;
@@ -1258,6 +1502,18 @@ public final class InnerRedstoneNetwork {
 
         void setQueryPos(BlockPos pos) {
             this.queryPos = pos;
+            this.queryingWire = false;
+        }
+
+        /** As {@link #setQueryPos}, naming the component that is asking: only a wire takes a node as a hop. */
+        void setQuery(BlockPos pos, @Nullable ComponentType reader) {
+            this.queryPos = pos;
+            this.queryingWire = reader != null && reader.isWire();
+        }
+
+        /** The world cells the solve owns - see {@link Union}. */
+        void owning(Map<BlockPos, RunNode> cells) {
+            this.owned = cells;
         }
 
         @Override
@@ -1267,7 +1523,9 @@ public final class InnerRedstoneNetwork {
 
         @Override
         public Node nodeAt(int x, int y, int z) {
-            return SlotNode.of(store.slotAt(new BlockPos(x, y, z)));
+            BlockPos pos = new BlockPos(x, y, z);
+            RunNode run = owned.get(pos);
+            return run == null ? SlotNode.of(store.slotAt(pos)) : run;
         }
 
         @Override
@@ -1309,8 +1567,17 @@ public final class InnerRedstoneNetwork {
          */
         @Override
         public int externalSignal(Direction direction) {
-            // The same implementation the carrier bridge calls, under the same suppression, so the two readers cannot drift apart.
             BlockPos neighbour = queryPos.relative(direction);
+            RunNode run = owned.get(neighbour);
+            if (run != null) {
+                // A run this solve owns: its strength is an output of this very solve, not an input to it, so
+                // the state the block happens to hold is not read. A wire is told nothing and takes the value
+                // as a neighbouring node instead (see PowerSolver#wireTarget), where the hop is charged to the
+                // receiver - charging it is the whole difference between a run that fades with its source and
+                // one that holds itself up. Everything else reads the value live, because it is already solved.
+                return queryingWire ? 0 : run.value();
+            }
+            // The same implementation the carrier bridge calls, under the same suppression, so the two readers cannot drift apart.
             int vanilla = world.externalSignal(neighbour, direction);
             // One hash lookup, gated by one boolean: see projectedSignalAt.
             int projected = projectedSignalAt(level, neighbour, direction);

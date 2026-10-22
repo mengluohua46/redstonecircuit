@@ -82,7 +82,7 @@ class StructurePreviewNestingTest {
         StructurePayload payload = payloadWithNested(List.of(
                 new StructurePayload.BlockEntityEntry(new BlockPos(1, 0, 0), withPreview(inner))), 2);
 
-        StructurePreview outer = StructurePreview.ofPayload(payload, 65536);
+        StructurePreview outer = StructurePreview.ofPayload(payload, 65536, Integer.MAX_VALUE);
         assertNotNull(outer, "a payload always has a picture to give");
         int nestedCell = 1;
         int entry = outer.cells().get(nestedCell);
@@ -123,7 +123,8 @@ class StructurePreviewNestingTest {
         for (int cell = 1; cell < 40; cell++) {
             blockEntities.add(new StructurePayload.BlockEntityEntry(new BlockPos(cell, 0, 0), withPreview(inner)));
         }
-        StructurePreview outer = StructurePreview.ofPayload(payloadWithNested(blockEntities, 40), 65536);
+        StructurePreview outer = StructurePreview.ofPayload(payloadWithNested(blockEntities, 40), 65536,
+                Integer.MAX_VALUE);
         int carried = 0;
         for (CompoundTag entry : outer.palette()) {
             if (NestedPreviews.inside(entry) != null) {
@@ -133,7 +134,8 @@ class StructurePreviewNestingTest {
         assertEquals(32, carried, "a structure full of nested ones describes as many as it is allowed to and stops - a "
                 + "payload that could grow its own preview without end is one the packet finds out about");
 
-        StructurePreview squeezed = StructurePreview.ofPayload(payloadWithNested(blockEntities, 40), 512);
+        StructurePreview squeezed = StructurePreview.ofPayload(payloadWithNested(blockEntities, 40), 512,
+                Integer.MAX_VALUE);
         assertTrue(squeezed.wireBytes() > 0, "and a squeezed budget still produces a picture: " + squeezed.describe());
         boolean described = false;
         for (CompoundTag entry : squeezed.palette()) {

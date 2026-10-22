@@ -178,7 +178,7 @@ class CarrierGestureTest {
         index.claim(CARRIER, local, new BlockPos(602, 64, 602), world);
 
         assertEquals(CarriedTool.Action.NoDirection.class,
-                CarriedTool.turn(index, CARRIER, local, Direction.UP).getClass(),
+                CarriedTool.turn(index, CARRIER, local).getClass(),
                 "a piece of dust has no input side to turn");
     }
 

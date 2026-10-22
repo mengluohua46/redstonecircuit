@@ -60,6 +60,13 @@ config="${mod_id}.mixins.json"
 [[mixins]]
 config="${mod_id}.sodium.mixins.json"
 
+# Create's blueprints are vanilla structure files, so "a blueprint also carries the redstone inside its
+# blocks" needs a hook on Create's one export funnel and on its upload receiver. A separate config for
+# the same reason as Sodium's: its plugin applies nothing unless Create is installed, and every target
+# is named as a string, so this mod neither compiles against Create nor requires it.
+[[mixins]]
+config="${mod_id}.create.mixins.json"
+
 # The [[accessTransformers]] block allows you to declare where your AT file is.
 # If this block is omitted, a fallback attempt will be made to load an AT from META-INF/accesstransformer.cfg
 #[[accessTransformers]]

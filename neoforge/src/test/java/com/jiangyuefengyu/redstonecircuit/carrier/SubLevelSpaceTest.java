@@ -276,4 +276,72 @@ class SubLevelSpaceTest {
         assertEquals(10, space.worldPositionsWithComponents(pos -> true, 10).size());
         assertEquals(0, space.worldPositionsWithComponents(pos -> true, 0).size());
     }
+
+    @Test
+    @DisplayName("a turned structure's cells are looked for where the projection draws them")
+    void turnedCellsAreLookedForWhereTheyAreDrawn() {
+        // This walk is the claim's read-only half and the product driver's own answer to "where is this
+        // host": what it names has to be the block the renderer draws and the world-side query asks. Rounding
+        // the pose's own output puts the host one block away on the axes a rotation carried the half block
+        // onto, and the walk then reports a neighbouring block as the one holding the component.
+        BlockPos cell = new BlockPos(20_481_033, 132, 20_485_129);
+        for (Quaterniond turn : new Quaterniond[] {
+                new Quaterniond().rotationY(Math.PI / 2),
+                new Quaterniond().rotationY(Math.PI)}) {
+            CarrierPose pose = new CarrierPose(new Vector3d(-352.549, 171.456, 92.766), turn,
+                    new Vector3d(20_481_000.0, 100.0, 20_485_000.0), 1.0);
+            SubLevelSpace one = new SubLevelSpace(SUB_LEVEL,
+                    cell.getX(), cell.getY(), cell.getZ(), cell.getX(), cell.getY(), cell.getZ(),
+                    -352.0, 171.0, 92.0, -351.0, 172.0, 93.0, pose);
+
+            BlockPos drawn = CarrierProjection.project(pose, cell);
+            assertEquals(List.of(drawn), one.worldPositionsWithComponents(drawn::equals, 8),
+                    "a component the world store holds at the drawn block must be reported at that block: "
+                            + "drawn=" + drawn.toShortString());
+        }
+    }
+
+    @Test
+    @DisplayName("the block a claim files is the block the projection draws, at any angle")
+    void aClaimedWorldBlockComesBackAsItsOwnLocalCoordinate() {
+        // THE CLAIM'S INVERSE, PINNED WHERE IT FAILS. A world block has to be turned back into the local
+        // coordinate of the host the player acted on, and a pose transforms block CORNERS: inverting a world
+        // block and rounding the answer cannot say which of the neighbouring local coordinates produced it.
+        // At 180 degrees the rounded answer is one block out on two axes and the component is filed into a
+        // neighbouring cell of the structure - it is interacted with there, it supplies signal there, and
+        // only one block ever shows it, because there was only ever one record.
+        BlockPos local = new BlockPos(20_481_033, 132, 20_485_129);
+        for (double yaw : new double[] {0.0, 90.0, -90.0, 180.0}) {
+            CarrierPose pose = new CarrierPose(new Vector3d(-352.549, 171.456, 92.766),
+                    new Quaterniond().rotateY(Math.toRadians(yaw)),
+                    new Vector3d(20_481_000.0, 100.0, 20_485_000.0), 1.0);
+
+            BlockPos world = CarrierProjection.project(pose, local);
+            BlockPos claimed = CarrierProjection.localBlockOf(pose, world);
+
+            assertEquals(local, claimed, "the local coordinate of the block the projection named, at "
+                    + yaw + " degrees: world=" + world.toShortString());
+            assertEquals(world, CarrierProjection.project(pose, claimed),
+                    "and it projects back onto the block the claim was about, at " + yaw + " degrees");
+        }
+    }
+
+    @Test
+    @DisplayName("the claim's inverse and the click resolver's inverse are one implementation")
+    void theTwoResolversShareOneInverse() {
+        // Forward and inverse are a pair, and the pair has to be the projection's own: the claim files a local
+        // coordinate with it and the click resolver reads one back with it, so two copies of this proof is how
+        // a component ends up filed one block from the block both of them would name.
+        BlockPos local = new BlockPos(20_481_033, 132, 20_485_129);
+        for (double yaw : new double[] {0.0, 90.0, -90.0, 180.0}) {
+            CarrierPose pose = new CarrierPose(new Vector3d(-352.549, 171.456, 92.766),
+                    new Quaterniond().rotateY(Math.toRadians(yaw)),
+                    new Vector3d(20_481_000.0, 100.0, 20_485_000.0), 1.0);
+            BlockPos world = CarrierProjection.project(pose, local);
+
+            assertEquals(CarrierProjection.localBlockOf(pose, world),
+                    CarrierStore.localForVerified(pose, world),
+                    "one answer, not two, at " + yaw + " degrees");
+        }
+    }
 }

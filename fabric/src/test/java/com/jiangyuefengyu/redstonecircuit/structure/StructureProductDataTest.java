@@ -134,7 +134,7 @@ class StructureProductDataTest {
                 List.of(), List.of(stone), IndexArray.of(new int[] {0, 0, 0}, 1),
                 List.of(), List.of(), List.of());
 
-        StructureProductData product = StructureProductData.of(payload, 65536);
+        StructureProductData product = StructureProductData.of(payload, 65536, Integer.MAX_VALUE);
 
         assertEquals(payload.header().uuid(), product.id());
         assertEquals(payload.faces(), product.faces(),

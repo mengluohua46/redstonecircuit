@@ -24,13 +24,19 @@ import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.RotationRodItem;
 import com.jiangyuefengyu.redstonecircuit.item.StructureBlockItem;
 import com.jiangyuefengyu.redstonecircuit.item.SuperconductingRedstoneItem;
+import com.jiangyuefengyu.redstonecircuit.recipe.GoggleFittingRecipe;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
+import com.mojang.serialization.Codec;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.tags.TagKey;
+import net.minecraft.util.Unit;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
@@ -38,6 +44,9 @@ import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.Equipable;
+import net.minecraft.world.item.crafting.RecipeSerializer;
+import net.minecraft.world.item.crafting.SimpleCraftingRecipeSerializer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -71,6 +80,9 @@ public final class RCRegistry {
 
     public static final DeferredRegister<DataComponentType<?>> DATA_COMPONENTS =
             DeferredRegister.create(Registries.DATA_COMPONENT_TYPE, RedstoneCircuit.MODID);
+
+    public static final DeferredRegister<RecipeSerializer<?>> RECIPE_SERIALIZERS =
+            DeferredRegister.create(Registries.RECIPE_SERIALIZER, RedstoneCircuit.MODID);
 
     public static final DeferredRegister<ArmorMaterial> ARMOR_MATERIALS =
             DeferredRegister.create(Registries.ARMOR_MATERIAL, RedstoneCircuit.MODID);
@@ -445,9 +457,58 @@ public final class RCRegistry {
         return defense;
     }
 
-    /** The item id of the goggles, for the renderer's "am I wearing them" check. */
+    /**
+     * 红石眼镜 fitted into somebody else's helmet: a unit marker, because the <b>item stays whoever's it was</b> - the
+     * ability is ours, the helmet is not, and a copy of it is what the player gets back.
+     *
+     * <p>Synced, because the tooltip and the ability are both read on the client.
+     */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<Unit>> GOGGLES =
+            DATA_COMPONENTS.register("goggles",
+                    () -> DataComponentType.<Unit>builder()
+                            .persistent(Codec.unit(Unit.INSTANCE))
+                            .networkSynchronized(StreamCodec.unit(Unit.INSTANCE))
+                            .build());
+
+    /**
+     * Headwear the fitting recipe accepts <b>besides</b> anything {@link Equipable} that names the helmet slot: the
+     * escape hatch, for a mod that wears something on the head without saying so through the game's own interface.
+     * The one entry shipped is Create's engineer's goggles - they are an {@code Equipable}, so the general rule
+     * already takes them; naming them is the promise that they keep working if that ever changes.
+     */
+    public static final TagKey<net.minecraft.world.item.Item> GOGGLE_FIT_TARGETS =
+            ItemTags.create(RedstoneCircuit.id("goggle_fit_targets"));
+
+    /** 红石眼镜 fitting: one bare helmet plus one pair of goggles in, the same helmet back with the goggles inside. */
+    public static final DeferredHolder<RecipeSerializer<?>, SimpleCraftingRecipeSerializer<GoggleFittingRecipe>>
+            GOGGLE_FITTING_SERIALIZER = RECIPE_SERIALIZERS.register("goggle_fitting",
+                    () -> new SimpleCraftingRecipeSerializer<>(GoggleFittingRecipe::new));
+
+    /**
+     * Whether this stack <b>is</b> the redstone goggles - the item, or a helmet they were fitted into. The one place
+     * the question is answered: the renderer, the Jade overlay and every bare-hand rule read it, so a merged helmet
+     * takes hold everywhere at once instead of in the places somebody remembered.
+     */
     public static boolean isGoggles(ItemStack stack) {
-        return !stack.isEmpty() && stack.is(REDSTONE_GOGGLES.get());
+        return !stack.isEmpty() && (stack.is(REDSTONE_GOGGLES.get()) || stack.has(GOGGLES.get()));
+    }
+
+    /**
+     * Whether {@code stack} is headwear the goggles may be fitted into: anything the game itself puts in the helmet
+     * slot, or anything listed in {@link #GOGGLE_FIT_TARGETS}. A stack that already has them, or the goggles themselves,
+     * is not a target - which is what makes a second fitting have no recipe at all.
+     *
+     * <p>{@link Equipable} and not {@link ArmorItem}: since 1.21 a wearable is whatever says which slot it goes in, and
+     * wearing something on the head is not the same as being armour. Create's engineer's goggles are exactly that case
+     * - a plain {@code Item implements Equipable} - and so is anything else a mod builds the same way.
+     */
+    public static boolean isBareHelmet(ItemStack stack) {
+        if (stack.isEmpty() || isGoggles(stack)) {
+            return false;
+        }
+        return stack.is(GOGGLE_FIT_TARGETS)
+                || stack.getItem() instanceof Equipable wearable
+                        && wearable.getEquipmentSlot() == EquipmentSlot.HEAD;
     }
 
     /**
@@ -482,6 +543,7 @@ public final class RCRegistry {
         BLOCKS.register(modEventBus);
         BLOCK_ENTITIES.register(modEventBus);
         DATA_COMPONENTS.register(modEventBus);
+        RECIPE_SERIALIZERS.register(modEventBus);
         ARMOR_MATERIALS.register(modEventBus);
         CREATIVE_TABS.register(modEventBus);
     }

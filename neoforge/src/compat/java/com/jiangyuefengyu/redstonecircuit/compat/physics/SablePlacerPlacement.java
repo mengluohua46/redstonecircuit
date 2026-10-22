@@ -14,6 +14,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * 方块放置器's physical half, built on Sable's own assembly API.
@@ -29,6 +30,12 @@ import net.minecraft.world.item.ItemStack;
  * is not a failure the player should pay for: the block is already standing in the world, correctly placed and oriented,
  * and it simply <b>stays</b> a normal block. The item is spent either way, because either way the player got a block
  * where they pointed the machine.
+ *
+ * <p>Two things guard the assembly itself. The cell is read back immediately before the call, because what Sable moves
+ * into the new plot is that cell's block: a machine pointing at a cell that reads as air would otherwise ask for a
+ * structure with nothing in it, and a sub-level's body is weighed from its plot. And the structure that comes back is
+ * registered rather than judged, because Sable fills the plot, its bounds and the mass tracker after this call
+ * returns - the judgement belongs to a later carrier walk, and it is the judgement that switches assembly off.
  */
 final class SablePlacerPlacement {
 
@@ -61,6 +68,29 @@ final class SablePlacerPlacement {
         }
 
         try {
+            // The structure an earlier activation made is judged before this one is made, so a machine cannot
+            // assemble twice into a state that has already been shown to be unusable.
+            SableAssemblyWatch.resolvePending(level);
+            if (!PlacerAssemblyGate.assemblyAllowed()) {
+                if (RCConfig.debugLog()) {
+                    RCConfig.LOGGER.info("[redstonecircuit] block placer: the block at {} stays an ordinary block in "
+                            + "the world: assembling structures is switched off for this server run ({})",
+                            drawnTarget.toShortString(), PlacerAssemblyGate.switchedOffReason());
+                }
+                return true;
+            }
+
+            // The block Sable moves into the new plot is this cell's block, read exactly this way. So the cell is
+            // read back before the assembly: a cell that answers air makes a structure with nothing in its plot, and
+            // a plot with nothing in it is a physics body that is never given a mass.
+            BlockState source = level.getBlockState(drawnTarget);
+            if (source.isAir()) {
+                RCConfig.LOGGER.warn("[redstonecircuit] block placer: nothing was assembled at {}: the cell reads as "
+                        + "air after the placement, so there is no block for Sable to carry into a new structure",
+                        drawnTarget.toShortString());
+                return true;
+            }
+
             BoundingBox3i box = new BoundingBox3i(drawnTarget, drawnTarget);
             ServerSubLevel made = SubLevelAssemblyHelper.assembleBlocks(level, drawnTarget, List.of(drawnTarget), box);
             if (made == null) {
@@ -70,6 +100,9 @@ final class SablePlacerPlacement {
                 }
                 return true;
             }
+            // Registered, not judged: the plot's bounds and the structure's mass are written after this call returns,
+            // so a body read here would call a sound structure empty.
+            PlacerAssemblyWatch.watch(made.getUniqueId(), level.dimension(), drawnTarget, level.getGameTime());
             if (RCConfig.debugLog()) {
                 RCConfig.LOGGER.info("[redstonecircuit] block placer: Sable assembled the block at {} into a structure "
                         + "of its own (uuid {})", drawnTarget.toShortString(), made.getUniqueId());

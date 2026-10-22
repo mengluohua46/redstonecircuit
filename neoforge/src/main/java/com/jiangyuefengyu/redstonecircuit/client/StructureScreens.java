@@ -51,8 +51,12 @@ public final class StructureScreens {
         if (minecraft.screen instanceof StructureBlockScreen) {
             minecraft.setScreen(null);
         }
-        // The screen's own memory goes with the world it belonged to (see StructureScreenMemory).
+        // The screen's own memory goes with the world it belonged to (see StructureScreenMemory), and so does
+        // everything the client had been told about the structures standing in it.
         StructureScreenMemory.clear();
+        StructureLiveViews.clear();
+        // And the vertex data emitted for those structures, which belongs to the world that has just been left.
+        StructurePreviewMesh.clear();
     }
 
     private StructureScreens() {

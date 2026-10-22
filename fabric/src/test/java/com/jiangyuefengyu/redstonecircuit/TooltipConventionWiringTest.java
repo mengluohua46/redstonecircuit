@@ -34,7 +34,9 @@ class TooltipConventionWiringTest {
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RedstoneWrenchItem.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RedstoneGogglesItem.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/SuperconductingRedstoneItem.java",
-            "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RotationRodItem.java");
+            "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RotationRodItem.java",
+            "src/main/java/com/jiangyuefengyu/redstonecircuit/block/VariableRepeaterBlock.java",
+            "src/main/java/com/jiangyuefengyu/redstonecircuit/block/WeatherDetectorBlock.java");
 
     @Test
     @DisplayName("扳手式 tooltip：默认只有一行提示，按住 [Shift] 才显示概要（靠 ShiftKey，不是 TooltipFlag 的 F3+H）")

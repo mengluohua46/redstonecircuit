@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.block.StructureBlockEntity;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierProjection;
 import com.jiangyuefengyu.redstonecircuit.carrier.SubLevelSpace;
 import com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketSpace;
 
@@ -122,6 +123,10 @@ final class SableProductDriver {
                 reportGate("no sub-level container for " + level.dimension().location());
                 return;
             }
+            // The bodies of freshly assembled structures are read here rather than where they were made: a plot's
+            // bounds and a structure's mass are written after the assembly returns, so this pass is the first place
+            // they can be believed. Asked before the gates below, so a structure that is already gone is judged too.
+            SableAssemblyWatch.resolvePending(container, level);
             if (!container.getAllSubLevels().iterator().hasNext()) {
                 reportGate("the container of " + level.dimension().location()
                         + " holds no live sub-level (it was found and asked)");
@@ -344,11 +349,15 @@ final class SableProductDriver {
                     if (!state.isSignalSource()) {
                         continue;
                     }
-                    org.joml.Vector3d world = space.worldFor(cell);
-                    if (world == null) {
+                    // The block the world is woken at below, and it has to be the block this machine is DRAWN in:
+                    // the renderer and the world-side signal query answer at that block, so waking any other one
+                    // leaves the machine supplying signal from a cell nobody is looking at. See
+                    // `CarrierProjection#drawnBlockOf` for why a rounded block corner is not that block once the
+                    // structure has turned.
+                    BlockPos drawn = CarrierProjection.drawnBlockOf(space.pose(), cell);
+                    if (drawn == null) {
                         continue;
                     }
-                    BlockPos drawn = SubLevelSpace.nearestWorldBlock(world);
                     // A gate's answer is not its own state alone: it depends on its five input faces, and for a
                     // physicalised one those faces include the world outside the structure, which never notifies a plot
                     // cell (a lever in the world wakes the world's six neighbours, and the plot coordinate is not one of

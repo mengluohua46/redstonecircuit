@@ -20,6 +20,8 @@ import net.minecraft.nbt.CompoundTag;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.joml.Quaterniond;
+import org.joml.Vector3d;
 
 /**
  * Tests the bookkeeping of taking a host's data out of the world, keeping it while a structure carries
@@ -748,5 +750,41 @@ class CarriedHostIndexTest {
         assertNotNull(index.slotAt(pos(10, 64, 10), world));
         assertTrue(index.isCarried(pos(10, 64, 10)));
         assertEquals(theirs, index.carrierHolding(pos(10, 64, 10)));
+    }
+
+    // ------------------------------------- the world block a carried host answers at --
+
+    /**
+     * A carried host answers at <b>the block its structure is drawn in</b>, and this is the functional half of
+     * that promise rather than the drawing half: {@code slotAt}, {@code isCarried} and every reader built on
+     * them (the world-side signal query, the interaction that decides what it is looking at, the palette
+     * overlay) ask the reverse map by a world block. If the record is filed at a different block, the
+     * component is judged to belong to a neighbouring cell - it is interacted with there, it supplies signal
+     * there, and only one of the two blocks ever shows it, because there was only ever one record.
+     *
+     * <p>The two answers disagree the moment the structure is turned: a pose transforms block <b>corners</b>,
+     * so rounding a corner puts the host one block away on the axes the rotation carried the half block onto.
+     */
+    @Test
+    @DisplayName("a carried host answers at the block its structure is drawn in, not the block beside it")
+    void aCarriedHostAnswersWhereItIsDrawn() {
+        CarrierPose pose = CarrierPose.of(new Vector3d(100.4, 64.0, 200.6),
+                new Quaterniond().rotationY(Math.PI));
+        BlockPos local = pos(3, 0, 5);
+
+        // The origin the filing path records for that cell.
+        BlockPos origin = WorldComponentAdoption.originFor(pose, local);
+        assertNotNull(origin);
+
+        world.set(origin, dust(0));
+        assertTrue(index.claim(CONTRAPTION, local, origin, world).claimed());
+
+        BlockPos drawn = CarrierProjection.project(pose, local);
+        assertNotNull(index.slotAt(drawn, world),
+                "the block the structure is drawn in is the block that must answer for its component: "
+                        + "origin=" + origin.toShortString() + " drawn=" + drawn.toShortString());
+        assertTrue(index.isCarried(drawn), "and the host is displaced there, not beside it");
+        assertNull(index.slotAt(CarrierProjection.project(pose, local.east()), world),
+                "the cell next to it must not answer for this host");
     }
 }

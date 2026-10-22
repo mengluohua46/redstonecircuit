@@ -8,12 +8,12 @@ import org.jetbrains.annotations.Nullable;
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureLiveView;
 
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 
 /**
  * <b>What a placed structure looks like right now</b>, as far as this client has been told.
@@ -24,9 +24,10 @@ import net.fabricmc.api.Environment;
  * rewritten: these overrides are read only while drawing. Bounded like the other client caches
  * ({@link #LIMIT}), oldest first: a structure with no live view simply draws its captured preview.
  *
- * <p>The two packets that fill this are received in the client entrypoint, beside the other client-bound
- * ones, because a payload body may name no client-only type: it hands the arrays to {@link #apply} and
- * {@link #applyMoves} here.
+ * <p><b>The index is a preview cell, not a structure cell.</b> The server knows the preview, its scale and the real
+ * blocks in the pocket, so it answers for one cell of the picture at a time - what that cell looks like now - and this
+ * class only keeps the answer. A client-side conversion would be a second opinion about the same question, which is
+ * exactly how a coarsened preview came to be drawn from blocks that were behind the surface.
  */
 @Environment(EnvType.CLIENT)
 public final class StructureLiveViews {
@@ -75,9 +76,12 @@ public final class StructureLiveViews {
         long now = nowTick();
         Map<Integer, Move> moves = MOVES.computeIfAbsent(pos.immutable(), key -> new LinkedHashMap<>());
         moves.values().removeIf(move -> StructureLiveView.slideProgress(move.startTick(), now, 0.0F) >= 1.0F);
-        for (int i = 0; i < indices.length && i < states.length && i < from.length; i++) {
+        int carried = Math.min(indices.length, Math.min(states.length, from.length));
+        for (int i = 0; i < carried; i++) {
             moves.put(indices[i], new Move(states[i], from[i], now));
         }
+        // A slide moves both the cell it covers and the cell it left, so what is drawn has changed.
+        bumped(pos);
     }
 
     /** The moves being drawn for this structure, or null when it has none - the renderer's fast path. */
@@ -85,6 +89,28 @@ public final class StructureLiveViews {
     static Map<Integer, Move> movesAt(BlockPos pos) {
         return MOVES.get(pos);
     }
+
+    /**
+     * <b>How many times each placed structure's picture has changed</b>, as one number per position.
+     *
+     * <p>It exists so that the geometry cache has a key that cannot be mistaken for the blueprint: the captured
+     * preview is the same picture all world long, while a live view of a running circuit is a new picture whenever
+     * a packet arrives. Bumped on every packet that can change what is drawn and never reset except by
+     * {@link #clear()} - a revision that could repeat would hand a cached miniature back for the wrong cells.
+     *
+     * <p>Nothing here decides <em>what</em> changed: the resolved cell list is one picture, so one counter per
+     * structure is enough to say whether that picture has to be built again.
+     */
+    private static final Map<BlockPos, Integer> REVISIONS =
+            new LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<BlockPos, Integer> eldest) {
+                    return size() > LIMIT;
+                }
+            };
+
+    /** Every revision handed out, so two structures - or one structure over time - never share a number. */
+    private static int revisions;
 
     /** The client's own tick: what a slide is measured against. */
     private static long nowTick() {
@@ -123,6 +149,11 @@ public final class StructureLiveViews {
             cells.put(indices[i], state);
             applied++;
         }
+        if (applied > 0 || restart) {
+            // What this structure looks like changed, and only here is that known: a revision is what makes the
+            // cached cells stale.
+            bumped(pos);
+        }
         boolean rest = afterRestart;
         afterRestart = restart;
         boolean tell = restart || rest || ++packets % LOG_EVERY == 0;
@@ -134,11 +165,26 @@ public final class StructureLiveViews {
         }
     }
 
-    /** What the given cell of the given structure is doing now, or null when this client has not been told. */
+    /**
+     * What the given cell of the given picture is doing now, or null when this client has not been told about it.
+     *
+     * <p>{@code index} is a preview cell (see {@link com.jiangyuefengyu.redstonecircuit.structure.StructurePreviewCells}):
+     * for a picture at one cell per block the two numberings are the same, and coarser ones are answered by the server.
+     */
     @Nullable
     public static BlockState stateAt(BlockPos pos, int index) {
         Map<Integer, BlockState> cells = VIEWS.get(pos);
         return cells == null ? null : cells.get(index);
+    }
+
+    /** How many times this structure's picture has changed; {@code 0} when nothing is live there. */
+    static int revisionAt(BlockPos pos) {
+        Integer revision = REVISIONS.get(pos);
+        return revision == null ? 0 : revision;
+    }
+
+    private static void bumped(BlockPos pos) {
+        REVISIONS.put(pos.immutable(), ++revisions);
     }
 
     /** Whether this structure has anything live to draw - the renderer's fast path when it does not. */
@@ -151,6 +197,7 @@ public final class StructureLiveViews {
     public static void clear() {
         VIEWS.clear();
         MOVES.clear();
+        REVISIONS.clear();
     }
 
     private StructureLiveViews() {

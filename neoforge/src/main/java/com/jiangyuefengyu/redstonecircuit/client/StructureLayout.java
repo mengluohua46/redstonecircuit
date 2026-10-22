@@ -28,8 +28,15 @@ final class StructureLayout {
         /** A line of text that is not a widget (a hint, a state, a path). */
         LINE,
         /** A whole block of rows: {@code y} is the first row's top, {@code h} is the pitch between rows. */
-        ROWS
+        ROWS,
+        /** A filled grid of buttons: {@code x}/{@code y} is the first cell's corner, {@code w} the column pitch and
+         * {@code h} the row pitch. A cell is {@code w - }{@link #GRID_GAP_X} by {@code h - }{@link #GRID_GAP_Y}. */
+        GRID
     }
+
+    /** The gap between two grid cells: wider across than down, because a row of buttons needs the vertical room. */
+    static final int GRID_GAP_X = 4;
+    static final int GRID_GAP_Y = 2;
 
     /** A named rectangle, in the screen's own coordinates (the panel's top-left is 0,0). */
     record Slot(String id, Kind kind, int x, int y, int w, int h) {
@@ -83,25 +90,23 @@ final class StructureLayout {
         button("region.locked.button", 8, 64, 324, 18);
 
         // -------------------------------------------------- panel page --
+        // The key panel is a grid of named buttons, six by six, one button per entry: the player reads the panel
+        // here the way the placed structure will show it, and the row below edits whichever cell is selected.
         line("panel.header.line", 8, 44);
-        rows("panel.rows", 62, 20);
-        button("panel.press.button", 236, 62, 40, 18);
-        button("panel.remove.button", 280, 62, 52, 18);
-        caption("panel.key.caption", 8, 148);
-        caption("panel.cellX.caption", 126, 148);
-        caption("panel.cellY.caption", 160, 148);
-        caption("panel.cellZ.caption", 194, 148);
-        caption("panel.strength.caption", 228, 148);
-        caption("panel.label.caption", 258, 148);
-        field("panel.key.field", 8, 160, 66, 16);
-        button("panel.bind.button", 78, 160, 44, 18);
-        field("panel.cellX.field", 126, 160, 30, 16);
-        field("panel.cellY.field", 160, 160, 30, 16);
-        field("panel.cellZ.field", 194, 160, 30, 16);
-        field("panel.strength.field", 228, 160, 26, 16);
-        field("panel.label.field", 258, 160, 74, 16);
-        button("panel.add.button", 8, 182, 66, 18);
-        line("panel.hint.line", 80, 182);
+        grid("panel.grid", 8, 60, 54, 18);
+        caption("panel.key.caption", 8, 172);
+        caption("panel.cellX.caption", 126, 172);
+        caption("panel.cellY.caption", 160, 172);
+        caption("panel.cellZ.caption", 194, 172);
+        caption("panel.strength.caption", 228, 172);
+        field("panel.key.field", 8, 182, 114, 16);
+        field("panel.cellX.field", 126, 182, 30, 16);
+        field("panel.cellY.field", 160, 182, 30, 16);
+        field("panel.cellZ.field", 194, 182, 30, 16);
+        field("panel.strength.field", 228, 182, 26, 16);
+        button("panel.add.button", 8, 202, 66, 18);
+        button("panel.remove.button", 78, 202, 44, 18);
+        line("panel.hint.line", 128, 206);
         button("panel.scroll.back", 292, 44, 18, 16);
         button("panel.scroll.forward", 314, 44, 18, 16);
 
@@ -172,6 +177,10 @@ final class StructureLayout {
 
     private static void rows(String id, int top, int pitch) {
         put(new Slot(id, Kind.ROWS, 0, top, 0, pitch));
+    }
+
+    private static void grid(String id, int x, int y, int columnPitch, int rowPitch) {
+        put(new Slot(id, Kind.GRID, x, y, columnPitch, rowPitch));
     }
 
     private static void put(Slot slot) {

@@ -1,0 +1,23 @@
+{
+  "required": false,
+  "package": "com.jiangyuefengyu.redstonecircuit.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "com.jiangyuefengyu.redstonecircuit.mixin.CreateMixinPlugin",
+  "mixins": [
+    "CreateSchematicExportMixin",
+    "CreateSchematicUploadMixin",
+    "CreateSchematicSectionMixin",
+    "CreateSchematicDeployMixin",
+    "CreateSchematicPlaceMixin",
+    "CreateSchematicPacketMixin",
+    "CreateSchematicCannonMixin"
+  ],
+  "client": [
+    "CreateSchematicLoaderMixin"
+  ],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "minVersion": "0.8"
+}

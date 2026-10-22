@@ -46,14 +46,18 @@ class StructurePanelGuidanceTest {
                 "and never from the client's own block entity: a controller's preview is not in its sync tag, so "
                         + "there it is always false - the button was locked for ever once already that way");
 
-        for (String page : List.of("panel.add", "faces.add", "output.add")) {
+        for (String page : List.of("faces.add", "output.add")) {
             assertTrue(screen.contains("this.addButton = addRenderableWidget(Button.builder(text(\"" + page + "\")"),
                     "every page that names a cell owns the one button: " + page);
         }
+        // The key panel's one button is the same button: it adds the row, or writes it back over the cell the grid has
+        // selected - so it is the panel's add button under another name, not a second one.
+        assertTrue(screen.contains("this.addButton = addRenderableWidget(Button.builder(commitLabel()"),
+                "the key panel owns that button too, under the label of the verb it would do");
 
-        assertTrue(screen.contains(": \"panel.noregion\").getString()"),
+        assertTrue(screen.contains("            hint = text(\"panel.noregion\").getString();"),
                 "and the key panel replaces its hint with the reason, the way the two table pages do");
-        assertTrue(screen.contains("region ? 0x808080 : 0xFF5555"),
+        assertTrue(screen.contains("hint = text(\"panel.noregion\").getString();\n            colour = 0xFF5555;"),
                 "in the same red the other pages use, because it is the same refusal");
     }
 

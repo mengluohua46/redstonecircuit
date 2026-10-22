@@ -6,13 +6,13 @@ import com.jiangyuefengyu.redstonecircuit.block.StructureBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.structure.StructurePreview;
 import com.mojang.blaze3d.vertex.PoseStack;
 
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.world.level.Level;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 
 /**
  * The view: a placed structure draws a miniature of the blocks it stands for, inside its own block.
@@ -42,13 +42,15 @@ public final class StructureBlockEntityRenderer implements BlockEntityRenderer<S
             this.dispatcher.renderSingleBlock(product.getBlockState(), pose, buffers, packedLight, packedOverlay);
             return;
         }
-        List<StructurePreviewGeometry.Cell> cells = StructurePreviewGeometry.cells(level, preview, product.getBlockPos());
+        List<StructurePreviewGeometry.Cell> cells = StructurePreviewGeometry.cells(level, preview,
+                product.getBlockPos(), product.size());
         if (cells.isEmpty()) {
             this.dispatcher.renderSingleBlock(product.getBlockState(), pose, buffers, packedLight, packedOverlay);
             return;
         }
         StructurePreviewGeometry.draw(pose, buffers, cells, preview, this.dispatcher,
-                StructureLiveViews.movesAt(product.getBlockPos()), level.getGameTime(), partialTick);
+                StructureLiveViews.movesAt(product.getBlockPos()), level.getGameTime(), partialTick, product.size(),
+                product.getBlockPos(), "placed", StructurePreviewGeometry.Detail.FULL);
         StructureRenderLog.drew(preview, cells.size(), "inside the placed block");
     }
 }

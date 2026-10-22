@@ -33,6 +33,7 @@ public class RedstoneGogglesItem extends ArmorItem {
         RcTooltips.append(tooltip, flag, "item.redstonecircuit.redstone_goggles.tip",
                 RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.wear"),
                 RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.inside", ChatFormatting.AQUA),
+                RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.fitted"),
                 RcTooltips.required("item.redstonecircuit.redstone_goggles.tip.wrench"));
     }
 }

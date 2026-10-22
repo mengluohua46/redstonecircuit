@@ -278,12 +278,11 @@ public final class StructureEdits {
     public static Result setManualEntry(ServerLevel level, BlockPos pos, String key, BlockPos cell, int strength,
                                         String label) {
         if (key.isEmpty()) {
-            return Result.refused("an entry needs a key name (for example key.keyboard.g) - an entry with no key "
-                    + "can never be pressed");
+            return Result.refused("a button needs a name: it is what the panel shows and what identifies it");
         }
         if (key.length() > ActivationTable.MAX_KEY_LENGTH || label.length() > ActivationTable.MAX_LABEL_LENGTH) {
-            return Result.refused("a key name or label longer than " + ActivationTable.MAX_KEY_LENGTH
-                    + " characters is not something a client can poll");
+            return Result.refused("a name or label longer than " + ActivationTable.MAX_KEY_LENGTH + " characters "
+                    + "is not something a button can show");
         }
         if (strength < ActivationTable.MIN_STRENGTH || strength > ActivationTable.MAX_STRENGTH) {
             return Result.refused("a strength must be between " + ActivationTable.MIN_STRENGTH + " and "
@@ -319,6 +318,43 @@ public final class StructureEdits {
             controller.clearManualEntry(removed.key(), removed.localPos());
             return Result.done("removed entry " + index + " (" + removed.key() + " -> "
                     + removed.localPos().toShortString() + ")");
+        });
+    }
+
+    /**
+     * One panel entry replaced whole, by the index a client presses - the row's "update" button.
+     *
+     * <p>An entry's identity is its {@code (key, cell)} pair, so a rename is a <b>different</b> entry: a remove
+     * followed by an add is two edits, and between them the row is gone - a refused second half would lose it. This is
+     * one edit, and it is by index because that is what the grid of buttons shows, so the row keeps its place.
+     */
+    public static Result replaceManualEntry(ServerLevel level, BlockPos pos, int index, String name, BlockPos cell,
+                                            int strength) {
+        if (name.isEmpty()) {
+            return Result.refused("a button needs a name: it is what the panel shows and what identifies it");
+        }
+        if (name.length() > ActivationTable.MAX_KEY_LENGTH) {
+            return Result.refused("a name longer than " + ActivationTable.MAX_KEY_LENGTH + " characters is not "
+                    + "something a button can show");
+        }
+        if (strength < ActivationTable.MIN_STRENGTH || strength > ActivationTable.MAX_STRENGTH) {
+            return Result.refused("a strength must be between " + ActivationTable.MIN_STRENGTH + " and "
+                    + ActivationTable.MAX_STRENGTH + ", got " + strength);
+        }
+        return require(level, pos, controller -> {
+            Result inside = requireCellInside(controller, cell);
+            if (inside != null) {
+                return inside;
+            }
+            List<ActivationTable.ManualEntry> manual = controller.manual();
+            BlockPos local = cell.subtract(controller.preview().min());
+            ActivationTable.ManualEntry replacement = new ActivationTable.ManualEntry(name, local, strength, name);
+            if (!controller.replaceManual(index, replacement)) {
+                return Result.refused("this panel has " + manual.size() + " entr(ies), so there is no entry "
+                        + index);
+            }
+            return Result.done("replaced entry " + index + ": " + manual.get(index).key() + " -> " + name
+                    + " (local " + local.toShortString() + ") pushing " + strength);
         });
     }
 

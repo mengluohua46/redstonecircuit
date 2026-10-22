@@ -78,6 +78,10 @@ public class RedstoneCircuitClient implements ClientModInitializer {
         // read. Published to a plain boolean once per client tick - see ShiftKey for why not the tooltip flag.
         ClientTickEvents.END_CLIENT_TICK.register(client -> ShiftKey.set(Screen.hasShiftDown()));
 
+        // "The goggles are inside this helmet": the fitted item belongs to whoever the player brought, so the
+        // line is added where tooltips are drawn rather than on the item. See GoggleTooltipEvents.
+        GoggleTooltipEvents.register();
+
         // The receiver that belongs to the preview border's own cache, and the one that drops it when the
         // player leaves.
         StructurePreviewClient.register();

@@ -100,7 +100,11 @@ public final class PocketPistonGameTest {
         return claimed;
     }
 
-    @GameTest(template = "empty", timeoutTicks = 400)
+    // A round of its own: every test in a batch shares one test world, and a plot is handed back - blocks and
+    // all - when the plot board thinks nobody is using it. Too many claims in one round is enough to lose this
+    // one mid-push, which reads as "the piston never finished" when the piston was fine. Alone in a batch, the
+    // board is this test's own while it runs.
+    @GameTest(template = "empty", timeoutTicks = 400, batch = "pocket_piston")
     public void aPistonInsideAPlotFinishesItsAnimationEveryTime(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         PocketSpace space = PocketSpace.of(level);

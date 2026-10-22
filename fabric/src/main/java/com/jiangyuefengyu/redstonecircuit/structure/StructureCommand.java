@@ -636,7 +636,8 @@ public final class StructureCommand {
             return 0;
         }
         ItemStack stack = RCRegistry.structureStack(
-                StructureProductData.of(payload, RCConfig.structurePreviewBytes()));
+                StructureProductData.of(payload, RCConfig.structurePreviewBytes(),
+                        RCConfig.structurePreviewCells()));
         if (!source.getPlayer().addItem(stack)) {
             source.getPlayer().drop(stack, false);
         }

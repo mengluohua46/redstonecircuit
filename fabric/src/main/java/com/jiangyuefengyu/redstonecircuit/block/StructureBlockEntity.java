@@ -21,6 +21,7 @@ import com.jiangyuefengyu.redstonecircuit.structure.StructureOutput;
 import com.jiangyuefengyu.redstonecircuit.network.RCNetwork;
 import com.jiangyuefengyu.redstonecircuit.structure.StructurePayload;
 import com.jiangyuefengyu.redstonecircuit.structure.StructurePreview;
+import com.jiangyuefengyu.redstonecircuit.structure.StructurePreviewCells;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureWorldStore;
 import com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketDimension;
@@ -195,6 +196,8 @@ public class StructureBlockEntity extends BlockEntity {
         // The same for the outward half, and here it is also what tells the world: a new plot whose first
         // sample is non-zero has to be a change, or the neighbours would never be re-asked.
         this.outputSignals = new int[Direction.values().length];
+        // And the sample belongs to the plot before it: the cells it names are that plot's cells.
+        forgetLiveView();
         this.setChanged();
     }
 
@@ -309,6 +312,9 @@ public class StructureBlockEntity extends BlockEntity {
         this.structureId = id;
         this.name = name == null || name.isEmpty() ? PayloadHeader.DEFAULT_NAME : name;
         this.size = size;
+        // The picture this block shows is a different one from here on, so nothing the live view remembers about the
+        // old one can be compared against it - not its cells, and not its size.
+        forgetLiveView();
         this.ioMode = ioMode;
         this.nestingDepth = nestingDepth;
         this.faces = faces == null ? Map.of() : Map.copyOf(faces);
@@ -720,7 +726,7 @@ public class StructureBlockEntity extends BlockEntity {
         }
         if (changed > 0) {
             // Something moved inside, so the miniature is worth looking at every tick for a short while.
-            this.liveViewBurstUntil = Math.max(this.liveViewBurstUntil, pocket.getGameTime() + LIVE_VIEW_BURST_TICKS);
+            this.armLiveViewBurst(pocket.getGameTime());
         }
         if (changed > 0 && com.jiangyuefengyu.redstonecircuit.RCConfig.debugLog()) {
             com.jiangyuefengyu.redstonecircuit.RCConfig.LOGGER.info("[redstonecircuit] injection at {} changed {} "
@@ -965,6 +971,25 @@ public class StructureBlockEntity extends BlockEntity {
     /** The last sample sent, so the next one can be a diff rather than a resend. */
     private int[] lastLiveSample;
 
+    /**
+     * The two buffers a believed sample is written into, reused between passes - see {@link #sample}.
+     *
+     * <p>A 48³ structure is 110,592 cells, so a pass that built its arrays afresh would hand the collector 442 KB every
+     * interval, and again on every tick of a whole picture's 216 passes, for values that are dropped one pass later.
+     * Two of them, because one may still be {@link #lastLiveSample}: that one is what the new sample is compared
+     * against, so it cannot also be what the new sample is written into.
+     */
+    private final int[][] liveSampleBuffers = new int[2][0];
+
+    /** What {@link #sample} reads the world into: the placeholder rule is applied afterwards, into the sample. */
+    private int[] liveWorldBuffer = new int[0];
+
+    /**
+     * The observers that have been sent a whole picture of this structure, so the picture is not repeated on a timer
+     * for players who are already up to date - see {@link StructureLiveView#needsWholePicture}.
+     */
+    private final java.util.Set<java.util.UUID> liveViewPictureHolders = new java.util.HashSet<>();
+
     /** The cells of a full resend still to send, or null when none is in flight. */
     private StructureLiveView.Resend liveResend;
 
@@ -1011,11 +1036,53 @@ public class StructureBlockEntity extends BlockEntity {
      */
     private long liveViewBurstUntil;
 
-    /** The last time a whole sample was sent - see {@link #LIVE_VIEW_RESYNC_TICKS}. */
-    private long lastLiveResync;
+    /**
+     * Forgets everything the live view remembers about this structure: the sample it is compared against, the whole
+     * picture still being streamed, the buffers, and which observers already hold a picture.
+     *
+     * <p>Called wherever this block is given a different picture to show - another structure (a capture applied onto a
+     * placed block, a save read under a live view) or another plot. A sample of another size is not a diff against
+     * anything: {@link StructureLiveView#changed} refuses it, and that refusal would be raised inside a tick, where an
+     * exception takes the server with it. Forgetting is always the safe answer - it costs one whole picture to every
+     * observer still watching - and it is also the correct one when only the cells moved, because those observers hold
+     * cells that are no longer there.
+     */
+    private void forgetLiveView() {
+        this.lastLiveSample = null;
+        this.liveResend = null;
+        this.liveSampleBuffers[0] = new int[0];
+        this.liveSampleBuffers[1] = new int[0];
+        this.liveWorldBuffer = new int[0];
+        this.liveViewPictureHolders.clear();
+        // The armed window was cut to the old structure's volume, so it is not an allowance the new one has earned.
+        this.liveViewBurstUntil = 0;
+    }
 
-    /** How often a whole sample is sent again, so a client whose view drifted is put right without help. */
-    private static final int LIVE_VIEW_RESYNC_TICKS = 200;
+    /** How many cells this structure has, or zero before it has a size: the volume decides what a sample costs. */
+    private int liveViewCells() {
+        return this.size == null ? 0 : StructureLiveView.count(this.size);
+    }
+
+    /**
+     * The buffer the next believed sample is written into: one of the two this block entity keeps, and never
+     * {@link #lastLiveSample}, which is the value the sample is compared against.
+     */
+    private int[] sampleBuffer(int count) {
+        int slot = this.liveSampleBuffers[0] == this.lastLiveSample ? 1 : 0;
+        if (this.liveSampleBuffers[slot].length != count) {
+            this.liveSampleBuffers[slot] = new int[count];
+        }
+        return this.liveSampleBuffers[slot];
+    }
+
+    /**
+     * Arms the window in which this structure is sampled on every tick, cut to what this volume can afford - see
+     * {@link StructureLiveView#burstTicks}.
+     */
+    private void armLiveViewBurst(long gameTime) {
+        this.liveViewBurstUntil = Math.max(this.liveViewBurstUntil,
+                gameTime + StructureLiveView.burstTicks(liveViewCells(), LIVE_VIEW_BURST_TICKS));
+    }
 
     /**
      * Samples the structure's own cells on a timer and sends the cells whose block differs from the last sample, so the
@@ -1025,8 +1092,16 @@ public class StructureBlockEntity extends BlockEntity {
      * extending or dust losing its power inside the pocket was invisible from outside.
      *
      * <p>Three guards keep it affordable: only every {@link #LIVE_VIEW_INTERVAL} ticks, only when somebody is within
-     * {@link #LIVE_VIEW_RANGE}, and only for a preview drawn at scale one - a coarsened preview stands for several cells
-     * at once, so there is no cell to attribute a change to.
+     * {@link #LIVE_VIEW_RANGE}, and only while somebody is watching at all.
+     *
+     * <p>A preview coarsened by its own cell budget is sent like any other, but the cells it names are the
+     * <b>preview's</b>: a changed structure cell is attributed to the preview cell that stands for it here, and what
+     * is sent for that preview cell is recomputed from all {@code scale}³ cells behind it by the same rule the capture
+     * samples by ({@code StructurePreviewCells#representative}). This end is the only one that can do it - it has the
+     * payload, the scale and the real blocks in the pocket - and it has to be done here rather than by the client
+     * because "which cell of the group is the picture" is a question with one answer, not one answer per frame. Sending
+     * the changed cells in the structure's own numbering instead left the client to pick the last one that arrived,
+     * which is how the solid layer behind a decorated wall became the wall.
      *
      * <p>The audience is {@code drawnPos}: a carrier-local coordinate is not where the player stands, so a reach test
      * asked about the block's own position would answer "nobody is within {@link #LIVE_VIEW_RANGE}" for the whole ride.
@@ -1036,16 +1111,24 @@ public class StructureBlockEntity extends BlockEntity {
      * below hands its own position in.
      */
     void sendLiveView(ServerLevel server, ServerLevel pocket, BlockPos drawnPos) {
-        if (this.size == null || this.preview == null || this.preview.scale() != 1) {
+        if (this.size == null || this.preview == null) {
             return;
         }
         // floorMod, not `%`: a position is negative in negative coordinates, and a sign-opinionated remainder never
         // matches the positive one the game time gives.
         long gameTime = server.getGameTime();
+        // One sample reads every cell of the pocket, so what a pass costs is this structure's volume rather than what
+        // changed inside it - see StructureLiveView#sampleIntervalScale.
+        int cells = liveViewCells();
+        // Belt and braces on the rule that a remembered sample belongs to one structure: whatever wrote a size, a
+        // sample it no longer matches is compared against nothing - the comparison throws, and this runs inside a tick.
+        if (!StructureLiveView.sampleMatches(this.lastLiveSample, cells)) {
+            forgetLiveView();
+        }
+        int interval = LIVE_VIEW_INTERVAL * StructureLiveView.sampleIntervalScale(cells);
         boolean resending = this.liveResend != null;
         if (!resending && gameTime >= this.liveViewBurstUntil
-                && Math.floorMod(gameTime, LIVE_VIEW_INTERVAL)
-                        != Math.floorMod(this.worldPosition.asLong(), LIVE_VIEW_INTERVAL)) {
+                && Math.floorMod(gameTime, interval) != Math.floorMod(this.worldPosition.asLong(), interval)) {
             return;
         }
         PocketSpace.Plot plot = PocketSpace.of(pocket).plots().get(this.plotIndex);
@@ -1060,46 +1143,66 @@ public class StructureBlockEntity extends BlockEntity {
                 watchers.add(player);
             }
         }
+        java.util.Set<java.util.UUID> watching = new java.util.HashSet<>(watchers.size() * 2);
+        for (ServerPlayer player : watchers) {
+            watching.add(player.getUUID());
+        }
+        // The bookkeeping is pruned to who is watching BEFORE it is read, so a player who left the range - or left the
+        // server - stops being remembered here, and one who comes back is sent the whole picture again.
+        boolean wholePicture = !watchers.isEmpty()
+                && StructureLiveView.needsWholePicture(this.liveViewPictureHolders, watching);
+        if (wholePicture) {
+            // Recorded here, beside the question itself, and not where the pass that answers it starts: an answer this
+            // end never writes down is asked again on the next pass, and a pass that asks twice for the same audience
+            // streams the whole structure for ever. Nothing - no branch, no early exit - may sit between the two, which
+            // is what this block's own guard pins. The record is pruned by the question above, so it is this list and
+            // only this list that is bounded by who is watching now.
+            this.liveViewPictureHolders.addAll(watching);
+        }
         if (watchers.isEmpty()) {
             // Nobody is looking: forget the sample, so the next viewer gets a full picture rather than a diff against
             // a state nobody ever saw.
             this.lastLiveSample = null;
             this.liveResend = null;
+            this.liveViewPictureHolders.clear();
             return;
         }
         int[] now = sample(pocket, plot);
         if (this.lastLiveSample == null) {
-            // Nothing has ever been sent about this structure, so the first thing to send is the structure itself -
-            // and that pass counts as this structure's resend, or a fresh viewer would be sent twice within a second.
+            // Nothing has ever been sent about this structure, so the first thing to send is the structure itself.
             this.lastLiveSample = now;
-            this.liveResend = new StructureLiveView.Resend(now.length);
-            this.lastLiveResync = gameTime;
         }
-        // While something is still changing, keep looking every tick; twelve quiet ticks after it settles, look rarely
-        // again. The resync is the first thing this method decides, because a client whose view went wrong while the
-        // structure was sitting still would otherwise never be sent the one packet that heals it.
+        // While something is still changing, keep looking every tick - for as many ticks as this volume can afford.
         int[] changed = StructureLiveView.changed(this.lastLiveSample, now);
         if (changed.length > 0) {
-            this.liveViewBurstUntil = Math.max(this.liveViewBurstUntil, gameTime + LIVE_VIEW_BURST_TICKS);
+            this.armLiveViewBurst(gameTime);
         }
-        if (gameTime - this.lastLiveResync >= LIVE_VIEW_RESYNC_TICKS && this.liveResend == null) {
-            this.lastLiveResync = gameTime;
-            this.liveResend = new StructureLiveView.Resend(now.length);
+        if (wholePicture) {
+            // A whole picture starts at the first batch, even when a pass is already running: a player who walked in
+            // halfway through one would otherwise never be sent the cells it had already passed, and the client would
+            // draw the capture-time block there for as long as the structure stands (client.StructurePreviewGeometry).
+            // An observer that is already up to date pays one more pass, which is bounded by the structure's own size.
+            // A whole picture is a picture: the run is over the preview's cells, not the structure's.
+            this.liveResend = new StructureLiveView.Resend(this.preview.cellCount());
         }
-        if (this.liveResend == null && changed.length == 0) {
+        // From here on the cells this pass speaks about are the preview's: a coarsened picture has fewer of them, and
+        // which structure cell a changed one stands for is a question only this end can answer (see the javadoc above).
+        int[] changedPreview = previewCellsOf(changed);
+        if (this.liveResend == null && changedPreview.length == 0) {
             return;
         }
         // A scan of a structure does not fit in one packet, and the client's resend handler empties its view before
         // filling it - so a resend is a stream with a cursor, and it says when it starts. Handing over only the first
         // batch and recording the whole sample as sent would leave the cells above one packet stuck at capture time.
         boolean restart = this.liveResend != null && this.liveResend.first();
-        int[] batch = this.liveResend != null ? this.liveResend.next() : StructureLiveView.firstBatch(changed);
+        int[] batch = this.liveResend != null ? this.liveResend.next()
+                : StructureLiveView.firstBatch(changedPreview);
         if (this.liveResend != null && this.liveResend.done()) {
             this.liveResend = null;
         }
         int[] ids = new int[batch.length];
         for (int i = 0; i < batch.length; i++) {
-            ids[i] = Block.getId(Block.stateById(now[batch[i]]));
+            ids[i] = representativeId(now, batch[i]);
         }
         // The payload's position is this block entity's own and not the drawn one: it is the key the client's
         // renderer looks the cells up by - see the javadoc above.
@@ -1109,9 +1212,9 @@ public class StructureBlockEntity extends BlockEntity {
             ServerPlayNetworking.send(player, payload);
         }
         sendMoves(watchers);
-        if (StructureLiveView.remaining(changed) > 0 && RCConfig.debugLog()) {
+        if (StructureLiveView.remaining(changedPreview) > 0 && RCConfig.debugLog()) {
             RCConfig.LOGGER.info("[redstonecircuit] live view of {} is behind by {} cell(s); the next interval "
-                    + "carries them", this.worldPosition.toShortString(), StructureLiveView.remaining(changed));
+                    + "carries them", this.worldPosition.toShortString(), StructureLiveView.remaining(changedPreview));
         }
         // The log says which cells moved, not only how many - "the head is gone and does not come back" and "the head
         // was never sent" are otherwise the same line. Throttled to one line a second.
@@ -1119,7 +1222,7 @@ public class StructureBlockEntity extends BlockEntity {
             this.lastLiveLog = gameTime;
             RCConfig.LOGGER.info("[redstonecircuit] live view of {} sent {} cell(s){}: {}",
                     this.worldPosition.toShortString(), batch.length,
-                    restart ? " (a whole picture, first packet)" : "", describe(now, batch));
+                    restart ? " (a whole picture, first packet)" : "", describe(batch, ids));
         }
         this.lastLiveSample = claimSent(now, batch);
     }
@@ -1157,24 +1260,107 @@ public class StructureBlockEntity extends BlockEntity {
         }
     }
 
-    /** A packet's cells as "which cell, which block", in the structure's own coordinates. */
-    private String describe(int[] now, int[] batch) {
+    /** A packet's cells as "which cell of the picture, which block", in the preview's own coordinates. */
+    private String describe(int[] batch, int[] ids) {
+        Vec3i size = this.preview.size();
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < batch.length && i < LIVE_VIEW_LOG_CELLS; i++) {
             int index = batch[i];
-            int x = index % this.size.getX();
-            int z = index / this.size.getX() % this.size.getZ();
-            int y = index / (this.size.getX() * this.size.getZ());
+            int x = index % size.getX();
+            int z = index / size.getX() % size.getZ();
+            int y = index / (size.getX() * size.getZ());
             if (i > 0) {
                 text.append(", ");
             }
             text.append('(').append(x).append(',').append(y).append(',').append(z).append(")=")
-                    .append(BuiltInRegistries.BLOCK.getKey(Block.stateById(now[index]).getBlock()).getPath());
+                    .append(BuiltInRegistries.BLOCK.getKey(Block.stateById(ids[i]).getBlock()).getPath());
         }
         if (batch.length > LIVE_VIEW_LOG_CELLS) {
             text.append(", ...");
         }
         return text.toString();
+    }
+
+    /**
+     * The preview cells a pass speaks about, given the structure cells that changed: once each, in the order they were
+     * met.
+     *
+     * <p>At one cell per block the two numberings are the same and the list is handed back as it is. Coarser, several
+     * changed cells fall in one preview cell and it may only be described once - the picture has one cell there, not one
+     * per cell behind it - and a changed cell can be attributed to a preview cell that is nowhere near it in the array,
+     * so the result is deduplicated rather than sliced.
+     */
+    private int[] previewCellsOf(int[] changed) {
+        if (this.preview.scale() <= 1) {
+            return changed;
+        }
+        java.util.LinkedHashSet<Integer> cells = new java.util.LinkedHashSet<>();
+        for (int raw : changed) {
+            cells.add(StructurePreviewCells.previewIndex(raw, this.size, this.preview.scale(), this.preview.size()));
+        }
+        int[] previews = new int[cells.size()];
+        int at = 0;
+        for (int cell : cells) {
+            previews[at++] = cell;
+        }
+        return previews;
+    }
+
+    /**
+     * What one cell of the picture is now: the block the coarsening rule picks out of the {@code scale}³ structure cells
+     * behind it, or the air id when it holds nothing.
+     *
+     * <p>Read from the sample this pass just took rather than from the pocket again: the sample is the pocket's state
+     * with a moving piston's placeholder already stood in for (see {@link #sample}), and reading the pocket a second
+     * time would report the placeholder as a hole. At one cell per block the answer is the cell's own state, and this
+     * returns it unchanged - the full-detail case is not re-decided, only the coarsened one.
+     */
+    private int representativeId(int[] now, int previewCell) {
+        if (this.preview.scale() <= 1) {
+            return now[previewCell];
+        }
+        Vec3i previewSize = this.preview.size();
+        int px = previewCell % previewSize.getX();
+        int pz = previewCell / previewSize.getX() % previewSize.getZ();
+        int py = previewCell / (previewSize.getX() * previewSize.getZ());
+        Vec3i raw = this.size;
+        return StructurePreviewCells.representative(raw,
+                (x, y, z) -> now[StructureLiveView.index(x, y, z, raw)],
+                StructureBlockEntity::isEmptyState,
+                airId(),
+                px, py, pz, this.preview.scale(),
+                StructureBlockEntity::rankById);
+    }
+
+    /**
+     * Which of two state ids to draw when a coarsened cell holds as many of one block as of the other: the block whose
+     * name comes first, never the smaller id.
+     *
+     * <p>A state id is a numbering this save's registry happens to have, and a capture votes over palette indices
+     * instead; comparing the two orders against each other is how a picture on the ground and the one this server sent
+     * a moment later came out 120 cells apart, every one of them a log where a plank belonged - the extra ring that
+     * grew around every plank panel of a placed structure. The name is the one key both numberings produce, and it is
+     * read from the registry only when two ids tie.
+     */
+    private static int rankById(int left, int right) {
+        return nameOf(left).compareTo(nameOf(right));
+    }
+
+    /** The name a state id stands for, or nothing for an id this registry does not have. */
+    private static String nameOf(int id) {
+        BlockState state = Block.stateById(id);
+        return state == null ? "" : BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+    }
+
+    /** The state id a picture cell that holds nothing is sent as - resolved here so no class load touches a registry. */
+    private static int airId() {
+        return Block.getId(Blocks.AIR.defaultBlockState());
+    }
+
+    /** Whether a block state id names nothing: what the coarsening rule counts as an empty cell. */
+    private static boolean isEmptyState(int id) {
+        BlockState state = Block.stateById(id);
+        return state == null || state.isAir();
     }
 
     /**
@@ -1288,25 +1474,34 @@ public class StructureBlockEntity extends BlockEntity {
      * changed.
      */
     private int[] claimSent(int[] now, int[] sent) {
-        if (sent.length == now.length) {
+        if (sent.length == this.preview.cellCount() || this.lastLiveSample == now) {
+            // The packet carried the whole picture, or there is no earlier sample to merge with - which is the pass that
+            // recorded this very sample as the one to compare against. Remembering the sample itself says exactly the
+            // right thing in both: every cell either was sent, or is still the value it is.
             return now;
         }
-        int[] claimed = now.clone();
-        boolean[] wasSent = new boolean[now.length];
-        for (int index : sent) {
-            wasSent[index] = true;
+        if (this.preview.scale() <= 1) {
+            // One cell of the picture is one structure cell, so the batch is a list of structure cells already.
+            return StructureLiveView.remember(now, sent, this.lastLiveSample);
         }
-        for (int i = 0; i < claimed.length; i++) {
-            if (!wasSent[i] && this.lastLiveSample != null) {
-                claimed[i] = this.lastLiveSample[i];
-            }
-        }
-        return claimed;
+        // Coarser, a sent picture cell has said everything there is to say about all scale³ of its cells: leaving any of
+        // them unclaimed would report the same picture cell as changed on every pass, for ever.
+        StructurePreviewCells.claim(now, this.lastLiveSample, sent, this.size, this.preview.size(),
+                this.preview.scale());
+        return this.lastLiveSample;
     }
 
-    /** The structure's cells as block ids, in {@link StructureLiveView#index}'s order. */
+    /**
+     * The structure's cells as block ids, in {@link StructureLiveView#index}'s order, written into buffers this block
+     * entity keeps - see {@link #liveSampleBuffers}.
+     */
     private int[] sample(ServerLevel pocket, PocketSpace.Plot plot) {
-        int[] ids = new int[StructureLiveView.count(this.size)];
+        int count = StructureLiveView.count(this.size);
+        if (this.liveWorldBuffer.length != count) {
+            this.liveWorldBuffer = new int[count];
+        }
+        int[] believed = sampleBuffer(count);
+        int[] ids = this.liveWorldBuffer;
         this.sampleMoves.clear();
         for (int y = 0; y < this.size.getY(); y++) {
             for (int z = 0; z < this.size.getZ(); z++) {
@@ -1331,8 +1526,9 @@ public class StructureBlockEntity extends BlockEntity {
         }
         // The placeholder rule lives in StructureLiveView#believe. Reporting the placeholder itself is what put a hole
         // where the piston is.
-        return StructureLiveView.believe(ids, Block.getId(Blocks.MOVING_PISTON.defaultBlockState()),
-                this.lastLiveSample);
+        StructureLiveView.believeInto(ids, Block.getId(Blocks.MOVING_PISTON.defaultBlockState()),
+                this.lastLiveSample, believed);
+        return believed;
     }
     /**
      * The indicator: the brightest thing the structure is showing inside, written into the block's light property.
@@ -1399,6 +1595,7 @@ public class StructureBlockEntity extends BlockEntity {
         this.size = tag.contains("size")
                 ? Vec3i.CODEC.parse(NbtOps.INSTANCE, tag.get("size")).result().orElse(new Vec3i(1, 1, 1))
                 : new Vec3i(1, 1, 1);
+        forgetLiveView();
         this.ioMode = readIoMode(tag.getString("io_mode"));
         this.nestingDepth = tag.getInt("nesting_depth");
         this.plotIndex = tag.contains("plot") ? tag.getInt("plot") : -1;

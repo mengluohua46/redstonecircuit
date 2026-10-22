@@ -116,9 +116,9 @@ class NestedStructureWiringTest {
                 "StructurePreviewGeometry.java");
 
         String cells = bodyOf(geometry, "private static List<Cell> cells(Level level, StructurePreview preview, "
-                + "@Nullable BlockPos liveAt, int depth)");
+                + "@Nullable BlockPos liveAt,");
         int product = cells.indexOf("state.getBlock() == RCRegistry.STRUCTURE.get()");
-        int recurse = cells.indexOf("cells(level, inner, null, depth + 1)");
+        int recurse = cells.indexOf("cells(level, inner, null, null, depth + 1, detail)");
         int standIn = cells.indexOf("cells.add(new Cell(NESTED_STAND_IN, x, y, z));");
         assertTrue(product > 0 && recurse > product && standIn > recurse,
                 "a cell that holds a product block is the one case that is treated differently: the structure inside "
@@ -131,7 +131,7 @@ class NestedStructureWiringTest {
                         + "structure inside a structure, so a nested one is drawn from its own blueprint");
 
         String inside = bodyOf(geometry, "private static void drawInsideCube(");
-        assertTrue(inside.contains("drawInsideCube(pose, buffers, cell.inside(), cell.nested(), dispatcher, null"),
+        assertTrue(inside.contains("drawInsideCube(pose, buffers, cell.inside(), cell.nested(), detail, dispatcher, null"),
                 "the drawing recurses through the same transform, which is what makes a nested structure fill its own "
                         + "cell instead of the whole block");
         assertTrue(bodyOf(geometry, "static void draw(PoseStack pose").contains("drawInsideCube(pose, buffers, cells"),

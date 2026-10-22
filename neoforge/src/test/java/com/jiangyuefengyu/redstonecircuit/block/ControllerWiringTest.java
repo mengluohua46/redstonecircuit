@@ -105,10 +105,12 @@ class ControllerWiringTest {
                         && network.contains(".playToServer(DeviceEditPayload.TYPE, DeviceEditPayload.STREAM_CODEC,"
                         + " DeviceEditPayload::handle);"),
                 "one view pair for every device, registered like every other message");
-        assertTrue(network.contains("private static final String VERSION = \"12\";"),
+        assertTrue(network.contains("private static final String VERSION = \"15\";"),
                 "and the version says the wire changed shape: the device screen, the selection's \"still a host\" "
-                        + "flag, the structure and local block a picked block inside a machine is named by, and a "
-                        + "varint reading, because a clock's countdown did not fit in a byte");
+                        + "flag, the structure and local block a picked block inside a machine is named by, a "
+                        + "varint reading, because a clock's countdown did not fit in a byte, the blueprint "
+                        + "selection a client announces before uploading one, and one panel entry replaced by "
+                        + "index (REPLACE_MANUAL), because a rename changes the entry's identity");
         assertTrue(network.contains("DeviceKind.byOrdinal(kind) == null")
                         && network.contains("> DeviceKind.MAX_SETTING")
                         && network.contains("> DeviceKind.MAX_READING"),

@@ -24,25 +24,33 @@ import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.RotationRodItem;
 import com.jiangyuefengyu.redstonecircuit.item.StructureBlockItem;
 import com.jiangyuefengyu.redstonecircuit.item.SuperconductingRedstoneItem;
+import com.jiangyuefengyu.redstonecircuit.recipe.GoggleFittingRecipe;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
+import com.mojang.serialization.Codec;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.tags.TagKey;
+import net.minecraft.util.Unit;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.Equipable;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.SimpleCraftingRecipeSerializer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -442,9 +450,59 @@ public final class RCRegistry {
         return defense;
     }
 
-    /** The item id of the goggles, for the renderer's "am I wearing them" check. */
+    /**
+     * 红石眼镜 fitted into somebody else's helmet: a unit marker, because the <b>item stays whoever's it was</b> - the
+     * ability is ours, the helmet is not, and a copy of it is what the player gets back.
+     *
+     * <p>Synced, because the tooltip and the ability are both read on the client.
+     */
+    public static final DataComponentType<Unit> GOGGLES = Registry.register(
+            BuiltInRegistries.DATA_COMPONENT_TYPE, RedstoneCircuit.id("goggles"),
+            DataComponentType.<Unit>builder()
+                    .persistent(Codec.unit(Unit.INSTANCE))
+                    .networkSynchronized(StreamCodec.unit(Unit.INSTANCE))
+                    .build());
+
+    /**
+     * Headwear the fitting recipe accepts <b>besides</b> anything {@link Equipable} that names the helmet slot: the
+     * escape hatch, for a mod that wears something on the head without saying so through the game's own interface.
+     * The one entry shipped is Create's engineer's goggles - they are an {@code Equipable}, so the general rule
+     * already takes them; naming them is the promise that they keep working if that ever changes.
+     */
+    public static final TagKey<net.minecraft.world.item.Item> GOGGLE_FIT_TARGETS =
+            TagKey.create(Registries.ITEM, RedstoneCircuit.id("goggle_fit_targets"));
+
+    /** 红石眼镜 fitting: one bare helmet plus one pair of goggles in, the same helmet back with the goggles inside. */
+    public static final SimpleCraftingRecipeSerializer<GoggleFittingRecipe> GOGGLE_FITTING_SERIALIZER =
+            Registry.register(BuiltInRegistries.RECIPE_SERIALIZER,
+                    RedstoneCircuit.id("goggle_fitting"),
+                    new SimpleCraftingRecipeSerializer<>(GoggleFittingRecipe::new));
+
+    /**
+     * Whether this stack <b>is</b> the redstone goggles - the item, or a helmet they were fitted into. The one place
+     * the question is answered: the renderer, the Jade overlay and every bare-hand rule read it, so a merged helmet
+     * takes hold everywhere at once instead of in the places somebody remembered.
+     */
     public static boolean isGoggles(ItemStack stack) {
-        return !stack.isEmpty() && stack.is(REDSTONE_GOGGLES);
+        return !stack.isEmpty() && (stack.is(REDSTONE_GOGGLES) || stack.has(GOGGLES));
+    }
+
+    /**
+     * Whether {@code stack} is headwear the goggles may be fitted into: anything the game itself puts in the helmet
+     * slot, or anything listed in {@link #GOGGLE_FIT_TARGETS}. A stack that already has them, or the goggles themselves,
+     * is not a target - which is what makes a second fitting have no recipe at all.
+     *
+     * <p>{@link Equipable} and not {@link ArmorItem}: since 1.21 a wearable is whatever says which slot it goes in, and
+     * wearing something on the head is not the same as being armour. Create's engineer's goggles are exactly that case
+     * - a plain {@code Item implements Equipable} - and so is anything else a mod builds the same way.
+     */
+    public static boolean isBareHelmet(ItemStack stack) {
+        if (stack.isEmpty() || isGoggles(stack)) {
+            return false;
+        }
+        return stack.is(GOGGLE_FIT_TARGETS)
+                || stack.getItem() instanceof Equipable wearable
+                        && wearable.getEquipmentSlot() == EquipmentSlot.HEAD;
     }
 
     /**

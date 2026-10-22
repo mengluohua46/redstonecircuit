@@ -327,7 +327,8 @@ public final class StructureEditPathGameTest {
             helper.fail("the test could not write its structure to this save: " + failed);
         }
         controller.setPending(com.jiangyuefengyu.redstonecircuit.structure.StructureProductData
-                .of(captured.captured().payload(), RCConfig.structurePreviewBytes()));
+                .of(captured.captured().payload(), RCConfig.structurePreviewBytes(),
+                        RCConfig.structurePreviewCells()));
 
         // The screen's release half: mode, then the target box, then the two operations.
         helper.assertTrue(send(level, pos, RCNetwork.StructureEditPayload.flag(pos,

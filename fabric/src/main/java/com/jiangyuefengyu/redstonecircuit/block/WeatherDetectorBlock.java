@@ -1,7 +1,9 @@
 package com.jiangyuefengyu.redstonecircuit.block;
 
+import java.util.List;
 import java.util.Locale;
 
+import com.jiangyuefengyu.redstonecircuit.RcTooltips;
 import com.mojang.serialization.MapCodec;
 
 import net.minecraft.core.BlockPos;
@@ -12,6 +14,9 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -191,5 +196,13 @@ public class WeatherDetectorBlock extends Block {
             return Mode.THUNDER;
         }
         return raining ? Mode.RAIN : Mode.CLEAR;
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltip,
+                                TooltipFlag flag) {
+        super.appendHoverText(stack, context, tooltip, flag);
+        RcTooltips.append(tooltip, flag, "block.redstonecircuit.weather_detector.tip",
+                RcTooltips.detail("block.redstonecircuit.weather_detector.tip.detail"));
     }
 }

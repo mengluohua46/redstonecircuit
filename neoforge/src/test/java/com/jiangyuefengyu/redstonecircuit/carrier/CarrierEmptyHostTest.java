@@ -179,7 +179,7 @@ class CarrierEmptyHostTest {
         BlockPos local = pos(6, 0, 6);
         carryAndEmpty(local, ComponentType.RETAINING_REPEATER);
 
-        CarriedTool.Action turned = CarriedTool.turn(index, CARRIER, local, Direction.NORTH);
+        CarriedTool.Action turned = CarriedTool.turn(index, CARRIER, local);
         assertInstanceOf(CarriedTool.Action.NoComponent.class, turned, turned.describe());
         assertNull(index.at(CARRIER, local).slot(), "and nothing was written");
     }

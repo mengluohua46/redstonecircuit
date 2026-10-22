@@ -241,15 +241,15 @@ public final class InnerRedstoneInteraction {
     }
 
     /**
-     * 方向转向杆 - the rotation rod: point the component at the face that was clicked.
-     *
-     * <p>One click, one turn, and the turn itself is decided in {@code logic.RotationRod}: input side on
-     * the clicked face, then output side on it, then back again. A block holding nothing is not our
-     * click at all, so a door or a chest still works with the rod in hand.
+     * 方向转向杆 - the rotation rod: one click steps the component one place around the fixed cycle in
+     * {@code logic.RotationRod} (clockwise through the four horizontal sides, then up and down). The clicked
+     * face is not consulted: the same click always means the same step, so the rod can be used without
+     * aiming at a particular side. A block holding nothing is not our click, so a door or a chest still
+     * works with the rod in hand.
      *
      * @return whether the click was ours to consume
      */
-    private boolean useRotationRod(ServerLevel level, ServerPlayer player, BlockPos pos, Direction face) {
+    private boolean useRotationRod(ServerLevel level, ServerPlayer player, BlockPos pos) {
         Slot slot = WrenchLinks.slotAt(level, pos);
         if (slot == null) {
             return false;
@@ -260,20 +260,20 @@ public final class InnerRedstoneInteraction {
             return true;
         }
 
-        RotationRod.Result result = RotationRod.turn(level, pos, face);
-        message(player, describeTurn(result, face));
-        debug("rotation rod at {} face {} -> {}", pos.toShortString(), face, result);
+        RotationRod.Result result = RotationRod.turn(level, pos);
+        // The step was written into the slot the store hands out, so re-reading it answers where the rod points now.
+        Slot turned = WrenchLinks.slotAt(level, pos);
+        Direction now = turned == null ? null : turned.facing;
+        message(player, describeTurn(result, now));
+        debug("rotation rod at {} -> {} ({})", pos.toShortString(), result, now);
         return true;
     }
 
-    private static Component describeTurn(RotationRod.Result result, Direction face) {
-        Component side = Component.literal(face.getName());
+    private static Component describeTurn(RotationRod.Result result, Direction facing) {
         return switch (result) {
-            case TURNED_TO_INPUT -> Component.translatable(
-                    "message.redstonecircuit.rotation_rod.to_input", side)
-                    .withStyle(ChatFormatting.YELLOW);
-            case TURNED_TO_OUTPUT -> Component.translatable(
-                    "message.redstonecircuit.rotation_rod.to_output", side)
+            case TURNED -> Component.translatable(
+                    "message.redstonecircuit.rotation_rod.to_input",
+                    Component.literal(facing == null ? "?" : facing.getName()))
                     .withStyle(ChatFormatting.YELLOW);
             case NO_DIRECTION -> Component.translatable(
                     "message.redstonecircuit.rotation_rod.no_direction").withStyle(ChatFormatting.RED);
@@ -448,7 +448,7 @@ public final class InnerRedstoneInteraction {
 
         // The rotation rod does too: one click, one turn.
         if (rod) {
-            return useRotationRod(serverLevel, player, pos, face)
+            return useRotationRod(serverLevel, player, pos)
                     ? InteractionResult.SUCCESS : InteractionResult.PASS;
         }
 

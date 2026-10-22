@@ -1,8 +1,15 @@
 package com.jiangyuefengyu.redstonecircuit.block;
 
+import java.util.List;
+
+import com.jiangyuefengyu.redstonecircuit.RcTooltips;
 import com.mojang.serialization.MapCodec;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.RepeaterBlock;
@@ -92,6 +99,26 @@ public class VariableRepeaterBlock extends RepeaterBlock {
         super.neighborChanged(state, level, pos, block, fromPos, isMoving);
         if (preservesStrength && state.getValue(POWERED) && fromPos.equals(pos.relative(state.getValue(FACING)))) {
             updateNeighborsInFront(level, pos, state);
+        }
+    }
+
+    /**
+     * The tooltip of whichever of the three repeaters this instance is - the two flags in the constructor are exactly
+     * what tells them apart, so the shape is asked here rather than passed in a second time.
+     */
+    @Override
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltip,
+                                TooltipFlag flag) {
+        super.appendHoverText(stack, context, tooltip, flag);
+        if (delayMultiplier == 1) {
+            RcTooltips.append(tooltip, flag, "block.redstonecircuit.retaining_repeater.tip",
+                    RcTooltips.detail("block.redstonecircuit.retaining_repeater.tip.detail"));
+        } else if (preservesStrength) {
+            RcTooltips.append(tooltip, flag, "block.redstonecircuit.double_retaining_repeater.tip",
+                    RcTooltips.detail("block.redstonecircuit.double_retaining_repeater.tip.detail"));
+        } else {
+            RcTooltips.append(tooltip, flag, "block.redstonecircuit.double_repeater.tip",
+                    RcTooltips.detail("block.redstonecircuit.double_repeater.tip.detail"));
         }
     }
 }

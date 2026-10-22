@@ -101,12 +101,12 @@ final class SableComponentAdoption {
         }
         int adopted = 0;
         for (BlockPos local : candidates) {
-            // WHERE THE COMPONENT CAME FROM: the world position the structure's own pose names for this coordinate
-            // right now. There is no "position it was moved from" to recover for a component already inside the
-            // structure's own storage, and inventing one - the plot coordinate, say - would put the release fallback
-            // two million blocks from anywhere a player can go. The rule and its three edge cases are written out at
+            // WHERE THE COMPONENT CAME FROM: the block the structure is drawn in for this coordinate right now.
+            // There is no "position it was moved from" to recover for a component already inside the structure's
+            // own storage, and inventing one - the plot coordinate, say - would put the release fallback two
+            // million blocks from anywhere a player can go. The rule and its three edge cases are written out at
             // `WorldComponentAdoption#originFor` and `CarrierStore#adoptWorldComponent`.
-            BlockPos origin = WorldComponentAdoption.originFor(local, space::worldFor);
+            BlockPos origin = WorldComponentAdoption.originFor(space.pose(), local);
             if (origin == null) {
                 // No readable pose, or one that does not answer with finite numbers: this code cannot say
                 // where the block is, so it does not record a position for it. Nothing is adopted on a

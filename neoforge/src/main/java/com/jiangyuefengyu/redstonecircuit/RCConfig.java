@@ -411,6 +411,81 @@ public final class RCConfig {
                     "The preview is what a client draws on the placed block; keep it well below the game's 1 MiB payload cap.")
             .defineInRange("structurePreviewBytes", 65536, 1024, 524288);
 
+    /**
+     * The second ceiling the preview is cut to: how many <b>cells</b> it may have.
+     *
+     * <p>The byte budget bounds what crosses the network, which is paid once; this bounds what a client has to
+     * draw, which is paid every frame. A 48³ structure fits the byte budget at full detail and is 110,592 cells
+     * to draw, so it is the cell count that decides how coarse a large structure's miniature is - at the default
+     * 4,096 it is drawn at scale 3, a twenty-seventh of the cells. The two are applied together and the coarser
+     * of them wins (see {@code StructurePreview#of}).
+     */
+    public static final ModConfigSpec.IntValue STRUCTURE_PREVIEW_CELLS = BUILDER
+            .comment("How many cells the downsampled preview may have, as a volume - not how many are filled.",
+                    "Together with structurePreviewBytes this decides the preview's scale; the coarser of the two wins.",
+                    "A 48³ structure at 4096 cells is drawn at scale 3 (16³ cells).")
+            .defineInRange("structurePreviewCells", 4096, 1024, 110592);
+
+    /**
+     * Whether a preview's miniature is emitted once into uploaded vertex data and redrawn, instead of rebuilt cell by
+     * cell at every draw.
+     *
+     * <p>On by default because the emission is the whole cost: a 1,405-cell miniature is about 0.5 ms of block model
+     * geometry per draw, and the same picture is drawn for the block in the world, for the stack in the hand and for
+     * the slot that stack sits in. Emitted once, a draw is one upload per render type, which is what vanilla pays for
+     * a chunk.
+     *
+     * <p>Off, the miniature is drawn one cell at a time exactly as it was before. The switch exists because this path
+     * uploads vertex data of its own, and a driver that mishandles that takes the game down: a player who sees it
+     * happen gets their picture back by turning this off on the next launch, which is worth more than any
+     * explanation.
+     */
+    public static final ModConfigSpec.BooleanValue STRUCTURE_PREVIEW_CACHED = BUILDER
+            .comment("Emit a structure preview's geometry once and redraw it, instead of rebuilding the miniature every frame.",
+                    "On by default: this is what makes a placed structure cost a fraction of what it did.",
+                    "Turn it off if a preview crashes or draws wrongly - the game then draws one cell at a time again.")
+            .define("structurePreviewCached", true);
+
+    /**
+     * Whether cells that nothing can see are dropped from a preview.
+     *
+     * <p>On by default: a cell whose six neighbours all render as a full cube shows nothing but its own faces, and a
+     * 48³ structure is 110,592 of them. Off, every cell is drawn - the bisect switch for a miniature that looks like
+     * it is missing blocks.
+     */
+    public static final ModConfigSpec.BooleanValue STRUCTURE_PREVIEW_CULL = BUILDER
+            .comment("Drop the cells of a structure preview that are completely buried inside it.",
+                    "On by default. Turn it off to draw every cell, which tells a culling problem from a sampling one.")
+            .define("structurePreviewCull", true);
+
+    /**
+     * Whether a cell's faces that the picture behind it hides are left out of the emission.
+     *
+     * <p>The second half of the culling, and the bigger one: a one-cell-thick wall drops four of every cell's six
+     * faces, and the bytes a miniature uploads are what a draw actually costs (a measured 3 MB per draw of a 32³
+     * structure, about 0.7 ms). On by default. Off, every cell of the picture is emitted whole - the bisect switch for
+     * a miniature that looks like it is missing faces.
+     */
+    public static final ModConfigSpec.BooleanValue STRUCTURE_PREVIEW_FACES = BUILDER
+            .comment("Leave out the faces of a structure preview that the cell behind them hides.",
+                    "On by default: a wall spends two faces out of six on the picture instead of six.",
+                    "Turn it off to draw every face, which tells a face-culling problem from a sampling one.")
+            .define("structurePreviewFaces", true);
+
+    /**
+     * Whether a structure drawn as an icon is drawn at half the resolution.
+     *
+     * <p>A stack in the hand, in a slot, and the model hand a screen draws all show the same picture at a few dozen
+     * pixels, and each of them paid for the full one: a measured 3 MB of vertices and about 0.7 ms per draw, three
+     * times a frame in the worst case. Half the resolution is a quarter of the cells at the same silhouette. On by
+     * default. Off, every place draws the full picture - the bisect switch for an icon that looks wrong.
+     */
+    public static final ModConfigSpec.BooleanValue STRUCTURE_PREVIEW_ICON_DETAIL = BUILDER
+            .comment("Draw a structure at half resolution wherever it is drawn as an icon (hand, slot, ground).",
+                    "On by default: an icon is a few dozen pixels, and the full picture costs what a placed block costs.",
+                    "Turn it off to draw the full picture everywhere.")
+            .define("structurePreviewIconDetail", true);
+
     public static final ModConfigSpec.BooleanValue STRUCTURE_CAPTURE_CONTEXT_SHELL = BUILDER
             .comment("Snapshot the one block of world around a selection when capturing it.",
                     "On by default: the shell travels into the plot but is never written into the payload or released.")
@@ -454,6 +529,12 @@ public final class RCConfig {
             .comment("Keep the pocket dimension's time and weather equal to the overworld's.",
                     "On by default: a weather detector or a daylight-dependent block reads what it read where it stood.")
             .define("structurePocketSyncEnvironment", true);
+
+    public static final ModConfigSpec.BooleanValue STRUCTURE_POCKET_SOUNDS = BUILDER
+            .comment("Play the sounds a captured structure makes where the structure stands.",
+                    "On by default: the blocks inside a structure run in the hidden pocket dimension, where no player",
+                    "ever is, so a note block or a lever in there was silent.")
+            .define("structurePocketSounds", true);
 
     public static final ModConfigSpec.BooleanValue STRUCTURE_ALLOW_COPY = BUILDER
             .comment("Allow the copying tier at all. It copies container contents along with the blocks, so a chest of items is duplicated too.",
@@ -952,6 +1033,11 @@ public final class RCConfig {
         return boolOr(STRUCTURE_POCKET_SYNC_ENVIRONMENT, true);
     }
 
+    /** Whether a sound made inside a captured structure is heard where that structure stands. */
+    public static boolean structurePocketSounds() {
+        return boolOr(STRUCTURE_POCKET_SOUNDS, true);
+    }
+
     /**
      * The size limits a payload is checked against, in the loader-free form the payload layer can use.
      *
@@ -974,6 +1060,36 @@ public final class RCConfig {
     /** How large the downsampled preview that travels with a structure may be. See the option's comment. */
     public static int structurePreviewBytes() {
         return intOr(STRUCTURE_PREVIEW_BYTES, 65536);
+    }
+
+    /** How many cells the downsampled preview may have. See the option's comment. */
+    public static int structurePreviewCells() {
+        return intOr(STRUCTURE_PREVIEW_CELLS, 4096);
+    }
+
+    /**
+     * Whether a preview is emitted once and redrawn from the uploaded copy. See {@link #STRUCTURE_PREVIEW_CACHED}.
+     *
+     * <p>Read at the top of every draw, so the switch is also the way out of a build that crashes: a picture that is
+     * already uploaded is dropped the first frame this answers false.
+     */
+    public static boolean structurePreviewCached() {
+        return boolOr(STRUCTURE_PREVIEW_CACHED, true);
+    }
+
+    /** Whether buried cells are dropped from a preview. See {@link #STRUCTURE_PREVIEW_CULL}. */
+    public static boolean structurePreviewCull() {
+        return boolOr(STRUCTURE_PREVIEW_CULL, true);
+    }
+
+    /** Whether the faces a preview hides are left out of it. See {@link #STRUCTURE_PREVIEW_FACES}. */
+    public static boolean structurePreviewFaces() {
+        return boolOr(STRUCTURE_PREVIEW_FACES, true);
+    }
+
+    /** Whether an icon is drawn at half resolution. See {@link #STRUCTURE_PREVIEW_ICON_DETAIL}. */
+    public static boolean structurePreviewIconDetail() {
+        return boolOr(STRUCTURE_PREVIEW_ICON_DETAIL, true);
     }
 
     /** How far from a structure a player may press its manual keys. */

@@ -17,13 +17,16 @@ import com.jiangyuefengyu.redstonecircuit.structure.StructureActions;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureRelease;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Vec3i;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
@@ -86,6 +89,14 @@ public final class StructurePreviews {
      * is removed, and {@link #snapshot} prunes anything whose controller has stopped previewing.
      */
     private static final Map<ResourceKey<Level>, Set<BlockPos>> ACTIVE = new ConcurrentHashMap<>();
+
+    /**
+     * Dimensions holding a change that has not been sent yet.
+     *
+     * <p>Not part of {@link #ACTIVE}: the positions are the state, this is only "somebody has to be told about
+     * this dimension at the end of the tick". See {@link #publish} for why a change is not sent where it happens.
+     */
+    private static final Set<ResourceKey<Level>> DIRTY = ConcurrentHashMap.newKeySet();
 
     /**
      * One operation on a controller - the whole of §5.6's state machine, in one place.
@@ -176,16 +187,24 @@ public final class StructurePreviews {
                         : occupied + " block(s) in the target are overwritten");
     }
 
-    /** A controller has something to show: remember the position and tell the dimension. */
+    /**
+     * A controller has something to show: remember the position, and mark the dimension for the end of the tick.
+     *
+     * <p>Nothing is sent from here. This is reached from the block entity's own loading path
+     * ({@code RedstoneStructureBlockEntity#setLevel}), which runs inside chunk loading, and a broadcast reads the
+     * world back - so sending it from here is the server thread reading the chunk it is still building. The wait
+     * for that read is the deadlock described on {@link #snapshot}. {@link #flush} sends it at the end of the
+     * tick instead, where every chunk involved has settled.
+     */
     public static void publish(@Nullable Level level, BlockPos pos) {
         if (!(level instanceof ServerLevel server)) {
             return;
         }
         ACTIVE.computeIfAbsent(server.dimension(), key -> ConcurrentHashMap.newKeySet()).add(pos);
-        broadcast(server);
+        DIRTY.add(server.dimension());
     }
 
-    /** A controller has nothing to show any more: forget it and tell the dimension. */
+    /** A controller has nothing to show any more: forget it, and mark the dimension as {@link #publish} does. */
     public static void withdraw(@Nullable Level level, BlockPos pos) {
         if (!(level instanceof ServerLevel server)) {
             return;
@@ -194,15 +213,36 @@ public final class StructurePreviews {
         if (positions == null || !positions.remove(pos)) {
             return;
         }
-        broadcast(server);
+        DIRTY.add(server.dimension());
+    }
+
+    /**
+     * Sends the borders of one dimension if a controller changed since the last end of tick.
+     *
+     * <p>The deferred half of {@link #publish}: this and {@link #sendSnapshotTo} are the only roads from a change
+     * to a packet, and this one runs from the loader's end-of-level-tick callback, never from a block entity.
+     */
+    public static void flush(ServerLevel level) {
+        // Cleared before the send, so a change made while the snapshot is being built marks the dimension again
+        // instead of being swallowed by this tick.
+        if (!DIRTY.remove(level.dimension())) {
+            return;
+        }
+        broadcast(level);
     }
 
     /**
      * Every border a player in this dimension should see, read back out of the loaded controllers.
      *
-     * <p>Reading them back is what makes a stale entry impossible, and the {@code isLoaded} test first is what
-     * makes it cheap: a position whose chunk is not loaded is skipped <b>without</b> asking the level for it -
-     * {@code getBlockEntity} would load the chunk, and a snapshot must never generate terrain.
+     * <p>Reading them back is what makes a stale entry impossible; reading them back out of a chunk that is
+     * already resident is what keeps it harmless. {@code Level#getBlockEntity} is not usable here: it goes
+     * through {@code Level#getChunk}, which asks for the chunk with requireChunk = true, and on the server
+     * thread a chunk that is not ready yet is waited for in {@code BlockableEventLoop#managedBlock} - a park on
+     * the only thread that could have finished building that chunk, so the server never ticks again. That is the
+     * deadlock that stalled a world at the loading screen: a controller that was still previewing published
+     * from inside its own chunk's promotion, and the read of that chunk parked the server. {@code Level#isLoaded}
+     * is no guard either - it answers from the ticket table, so it is true for a chunk that has a ticket and
+     * cannot be read yet. {@code ChunkSource#getChunkNow} is the read that cannot park: a resident chunk, or null.
      */
     public static List<Entry> snapshot(ServerLevel level) {
         Set<BlockPos> positions = ACTIVE.get(level.dimension());
@@ -211,12 +251,13 @@ public final class StructurePreviews {
         }
         List<Entry> entries = new ArrayList<>(positions.size());
         for (BlockPos pos : positions) {
-            if (!level.isLoaded(pos)) {
+            LevelChunk chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+            if (chunk == null) {
                 // Not an error and not a removal: §5.6 keeps the preview across a chunk unload, and the border
                 // is back the moment the chunk is.
                 continue;
             }
-            if (!(level.getBlockEntity(pos) instanceof RedstoneStructureBlockEntity controller)
+            if (!(chunk.getBlockEntity(pos) instanceof RedstoneStructureBlockEntity controller)
                     || !controller.isPreviewing()) {
                 continue;
             }
@@ -232,8 +273,34 @@ public final class StructurePreviews {
         boolean release = controller.mode() == RedstoneStructureBlockEntity.Mode.RELEASE;
         // Counted here rather than remembered: what is in the way is a fact about the world, and a remembered
         // count would be wrong the moment a player placed a block inside the target.
-        int overwrite = release ? StructureRelease.occupied(level, region.min(), region.size()) : 0;
+        int overwrite = release ? residentOccupied(level, region.min(), region.size()) : 0;
         return new Entry(pos, release, region, controller.isPreviewArmed(), overwrite);
+    }
+
+    /**
+     * Counts what a release would overwrite, reading only chunks that are already resident.
+     *
+     * <p>{@link StructureRelease#occupied} is the exact count and stays the one the confirmation sentence and the
+     * conflict guard use. It cannot be used from a snapshot: it reads {@code Level#getBlockState}, which is the
+     * same blocking chunk request as {@code Level#getBlockEntity} (see {@link #snapshot}). A block in a chunk that
+     * is not resident is therefore not counted, so this under-reports rather than hangs - and only for a target
+     * that reaches outside what is loaded, which a player who can see the border does not have. The number that
+     * decides anything, whether a release may overwrite unconfirmed, is still {@code StructureRelease.start}'s.
+     */
+    private static int residentOccupied(ServerLevel level, BlockPos origin, Vec3i size) {
+        int occupied = 0;
+        for (int y = 0; y < size.getY(); y++) {
+            for (int z = 0; z < size.getZ(); z++) {
+                for (int x = 0; x < size.getX(); x++) {
+                    BlockPos at = origin.offset(x, y, z);
+                    LevelChunk chunk = level.getChunkSource().getChunkNow(at.getX() >> 4, at.getZ() >> 4);
+                    if (chunk != null && !chunk.getBlockState(at).isAir()) {
+                        occupied++;
+                    }
+                }
+            }
+        }
+        return occupied;
     }
 
     /** Tells everyone in a dimension what the borders are. */
@@ -272,9 +339,21 @@ public final class StructurePreviews {
         }
     }
 
+    /**
+     * Where a deferred change becomes a packet: the end of one level's tick, the same moment
+     * {@code StructureReleaseTickHandler} uses. See {@link #publish} for why it is not sent where it happens.
+     */
+    @SubscribeEvent
+    public static void onLevelTick(LevelTickEvent.Post event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            flush(level);
+        }
+    }
+
     /** For the tests: forget every border, as a server restart does. */
     public static void forgetAll() {
         ACTIVE.clear();
+        DIRTY.clear();
     }
 
     /** How many positions a dimension is remembering - for the diagnostics and the tests. */

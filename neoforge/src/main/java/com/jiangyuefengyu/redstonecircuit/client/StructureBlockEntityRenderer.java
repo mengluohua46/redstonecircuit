@@ -43,13 +43,15 @@ public final class StructureBlockEntityRenderer implements BlockEntityRenderer<S
             this.dispatcher.renderSingleBlock(product.getBlockState(), pose, buffers, packedLight, packedOverlay);
             return;
         }
-        List<StructurePreviewGeometry.Cell> cells = StructurePreviewGeometry.cells(level, preview, product.getBlockPos());
+        List<StructurePreviewGeometry.Cell> cells = StructurePreviewGeometry.cells(level, preview,
+                product.getBlockPos(), product.size());
         if (cells.isEmpty()) {
             this.dispatcher.renderSingleBlock(product.getBlockState(), pose, buffers, packedLight, packedOverlay);
             return;
         }
         StructurePreviewGeometry.draw(pose, buffers, cells, preview, this.dispatcher,
-                StructureLiveViews.movesAt(product.getBlockPos()), level.getGameTime(), partialTick);
+                StructureLiveViews.movesAt(product.getBlockPos()), level.getGameTime(), partialTick, product.size(),
+                product.getBlockPos(), "placed", StructurePreviewGeometry.Detail.FULL);
         StructureRenderLog.drew(preview, cells.size(), "inside the placed block");
     }
 }

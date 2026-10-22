@@ -94,25 +94,13 @@ public final class CarriedTool {
 
         // ---------------------------------------------------------------- rod --
 
-        /** The component's input side now faces the clicked face. */
-        record TurnedToInput(CarrierId carrier, BlockPos localPos, Direction localFace)
+        /** The component stepped one place around the cycle; {@code localFacing} is where it points now. */
+        record Turned(CarrierId carrier, BlockPos localPos, Direction localFacing)
                 implements Action {
 
             @Override
             public String describe() {
-                return "rod local=" + localPos.toShortString() + " -> input side "
-                        + localFace.getName();
-            }
-        }
-
-        /** The component's output side now faces the clicked face. */
-        record TurnedToOutput(CarrierId carrier, BlockPos localPos, Direction localFace)
-                implements Action {
-
-            @Override
-            public String describe() {
-                return "rod local=" + localPos.toShortString() + " -> output side "
-                        + localFace.getName();
+                return "rod local=" + localPos.toShortString() + " -> " + localFacing.getName();
             }
         }
 
@@ -496,17 +484,14 @@ public final class CarriedTool {
     // ------------------------------------------------------------------- rod --
 
     /**
-     * Turns the component in a carried host towards the clicked face, <b>given in the structure's own frame</b>.
+     * Steps the component in a carried host one place around the cycle the world's rod walks: north, east, south,
+     * west, then up, then down, then north again.
      *
-     * <p>The rule for the two states is the whole of it: click the face the component should read from and that face
-     * becomes the input side; click the same face again and it becomes the output side. The world's own rod cannot be
-     * reused, because it is written against a level and the arithmetic here is one line.
-     *
-     * <p>The <b>caller</b> is responsible for the world-to-local conversion of the clicked face; this method never
-     * sees a world direction, which is what keeps it free of a pose and therefore unit-testable.
+     * <p>The clicked face is not consulted - the step is read off {@link RotationRod#nextFacing}, so a machine's
+     * component and the same component on the ground cannot drift apart. Nothing here needs a pose, which is what
+     * keeps it unit-testable, and the caller no longer has a face to convert.
      */
-    public static Action turn(CarriedHostIndex index, CarrierId carrier, BlockPos localPos,
-                              @Nullable Direction localFace) {
+    public static Action turn(CarriedHostIndex index, CarrierId carrier, BlockPos localPos) {
         CarriedHost host = hostAt(index, carrier, localPos);
         if (host == null || host.slot() == null) {
             return new Action.NoComponent(carrier, localPos, "rod");
@@ -515,14 +500,9 @@ public final class CarriedTool {
         if (!RotationRod.hasDirection(slot.type)) {
             return new Action.NoDirection(carrier, localPos);
         }
-        if (localFace == null) {
-            return new Action.NoDirection(carrier, localPos);
-        }
-        boolean toInput = slot.facing != localFace;
-        slot.facing = toInput ? localFace : localFace.getOpposite();
+        slot.facing = RotationRod.nextFacing(slot.facing);
         index.updateSlot(carrier, localPos, slot);
-        return toInput ? new Action.TurnedToInput(carrier, localPos, localFace)
-                : new Action.TurnedToOutput(carrier, localPos, localFace);
+        return new Action.Turned(carrier, localPos, slot.facing);
     }
 
     /**

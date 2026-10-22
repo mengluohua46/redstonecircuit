@@ -24,6 +24,7 @@ import net.minecraft.world.level.Level;
 
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
+import org.joml.Vector3dc;
 
 /**
  * The projection table: where every host a moving structure is carrying currently stands in the world.
@@ -165,9 +166,88 @@ public final class CarrierProjection {
      * "where is this host" cannot drift apart.
      */
     public static BlockPos project(CarrierPose pose, BlockPos localPos) {
+        return project(pose.blockCentre(
+                new Vector3d(localPos.getX(), localPos.getY(), localPos.getZ()), new Vector3d()));
+    }
+
+    /**
+     * The block a world point stands in - <b>the one place a structure coordinate becomes a world block</b>.
+     *
+     * <p>Built from the block's <em>centre</em> and floored, which is the answer to "which block covers this
+     * point" for every reader: the renderer, the world-side signal query, the pass that wakes the world at a
+     * drawn position, and the origin a carrier record carries. Every caller that needs "where is this host
+     * drawn" has to come through here instead of rounding a corner, because the two agree only while the
+     * structure is unturned: a rotation carries the half block between a corner and a centre onto all three
+     * axes, and the rounded corner is then one block away on some of them.
+     */
+    public static BlockPos project(Vector3dc point) {
+        return BlockPos.containing(new WorldPoint(new Vector3d(point)));
+    }
+
+    /**
+     * {@link #project(CarrierPose, BlockPos)} for the callers that write a coordinate down or wake a block
+     * with it: {@code null} when there is no pose, or when it answers with numbers that are not finite, so
+     * "I cannot say where this is" never becomes a plausible-looking block. A degenerate pose - a scale of
+     * zero, a NaN quaternion - would otherwise floor to {@code (0,0,0)} and name a real position.
+     */
+    @Nullable
+    public static BlockPos drawnBlockOf(@Nullable CarrierPose pose, @Nullable BlockPos localPos) {
+        if (pose == null || localPos == null) {
+            return null;
+        }
         Vector3d centre = pose.blockCentre(
                 new Vector3d(localPos.getX(), localPos.getY(), localPos.getZ()), new Vector3d());
-        return BlockPos.containing(new WorldPoint(centre));
+        return centre.isFinite() ? project(centre) : null;
+    }
+
+    /**
+     * The local coordinate of the block {@code worldPos} names, for {@code pose} - the inverse of
+     * {@link #project(CarrierPose, BlockPos)}, and <b>the one place a world block becomes a structure
+     * coordinate</b>.
+     *
+     * <p><b>Proved, not rounded.</b> A pose transforms block <em>corners</em>, so inverting a world block lands
+     * inside the candidate's interior - and once the structure is turned, "the interior" is not a fixed set of
+     * coordinates any more, so no single rounding rule is right for every angle. A rounded answer names the
+     * neighbouring coordinate on the axes a rotation carried the half block onto, which files a component into
+     * the cell beside the one the player acted on: it is interacted with there, it supplies signal there, and
+     * only one block ever shows it, because there was only ever one record. So the answer is the candidate the
+     * projection <em>proves</em> - at most four integer coordinates can contain a point, the eight tried below
+     * are those four and their neighbours, and the one that projects back onto {@code worldPos} wins.
+     *
+     * <p>Anything else answers {@code null}: a degenerate pose (a scale of zero, one being written while it is
+     * read), or a position no coordinate of this structure really names. "I cannot say where this is" must
+     * never become a coordinate that gets written down or acted on.
+     */
+    @Nullable
+    public static BlockPos localBlockOf(@Nullable CarrierPose pose, @Nullable BlockPos worldPos) {
+        if (pose == null || worldPos == null) {
+            return null;
+        }
+        Vector3d centre = pose.transformPositionInverse(
+                new Vector3d(worldPos.getX() + CarrierPose.BLOCK_CENTRE,
+                        worldPos.getY() + CarrierPose.BLOCK_CENTRE,
+                        worldPos.getZ() + CarrierPose.BLOCK_CENTRE),
+                new Vector3d());
+        if (!centre.isFinite()) {
+            return null;
+        }
+        // The candidates are the two cells the point can fall in, on each axis independently - the half-open
+        // interval [x, x+1) and the one below it - which is the same half-block ambiguity between a block's
+        // corner and its centre that project() has in the other direction.
+        int baseX = (int) Math.floor(centre.x);
+        int baseY = (int) Math.floor(centre.y);
+        int baseZ = (int) Math.floor(centre.z);
+        for (int dx = 0; dx >= -1; dx--) {
+            for (int dy = 0; dy >= -1; dy--) {
+                for (int dz = 0; dz >= -1; dz--) {
+                    BlockPos candidate = new BlockPos(baseX + dx, baseY + dy, baseZ + dz);
+                    if (worldPos.equals(project(pose, candidate))) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /** A plain 3D point, seen as the {@link Position} {@link BlockPos#containing} takes. */

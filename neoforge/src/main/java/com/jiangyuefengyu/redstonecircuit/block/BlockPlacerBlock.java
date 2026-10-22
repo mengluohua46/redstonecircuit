@@ -3,6 +3,7 @@ package com.jiangyuefengyu.redstonecircuit.block;
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.carrier.ProductFrame;
 import com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat;
+import com.jiangyuefengyu.redstonecircuit.compat.physics.PlacerAssemblyGate;
 import com.jiangyuefengyu.redstonecircuit.logic.PlacerRule;
 
 import com.mojang.serialization.MapCodec;
@@ -238,6 +239,14 @@ public class BlockPlacerBlock extends BaseEntityBlock {
         ProductFrame frame = ProductFrame.carriedAt(level, pos);
 
         if (frame.carried()) {
+            if (slot >= 0 && RCConfig.placerCreatesStructures()
+                    && !PlacerAssemblyGate.claim(level.getServer().getTickCount())) {
+                // One structure per server tick, and this machine's turn is a later one. Nothing is placed and
+                // nothing is spent while it waits, and the wait is a rescheduled tick rather than a dropped
+                // activation, so the block still goes down exactly once for the one item the activation spends.
+                level.scheduleTick(pos, level.getBlockState(pos).getBlock(), PLACE_DELAY_TICKS);
+                return;
+            }
             if (placeStandalone(level, frame, out, slot, stack, front)) {
                 placer.setItem(slot, stack);
                 placer.setChanged();

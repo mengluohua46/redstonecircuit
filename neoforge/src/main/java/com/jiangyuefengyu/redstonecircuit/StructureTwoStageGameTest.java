@@ -289,7 +289,8 @@ public final class StructureTwoStageGameTest {
         level.setBlock(releasePos, RCRegistry.REDSTONE_STRUCTURE_BLOCK.get().defaultBlockState(), 3);
         RedstoneStructureBlockEntity controller = controllerAt(helper, releasePos);
         controller.setMode(RedstoneStructureBlockEntity.Mode.RELEASE);
-        controller.setPending(StructureProductData.of(payload, RCConfig.structurePreviewBytes()));
+        controller.setPending(StructureProductData.of(payload, RCConfig.structurePreviewBytes(),
+                RCConfig.structurePreviewCells()));
         StructurePreviews.Result shown = StructurePreviews.press(level, null, releasePos);
         helper.assertTrue(shown.step() == StructurePreviews.Step.SHOWN,
                 "the first operation shows, got " + shown.step() + ": " + shown.message());

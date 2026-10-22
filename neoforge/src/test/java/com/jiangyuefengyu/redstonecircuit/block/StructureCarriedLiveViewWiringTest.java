@@ -52,14 +52,12 @@ class StructureCarriedLiveViewWiringTest {
         assertTrue(push.contains("if (changed > 0) {"),
                 "only a real change inside the plot is a reason to look closely - that is what keeps the burst from "
                         + "re-arming on every tick it causes and sampling for ever");
-        assertTrue(push.contains("this.liveViewBurstUntil = Math.max(this.liveViewBurstUntil, "
-                        + "pocket.getGameTime() + LIVE_VIEW_BURST_TICKS);"),
+        assertTrue(push.contains("this.armLiveViewBurst(pocket.getGameTime());"),
                 "the recording line beside it (\"injection at … changed N cell(s)\") is written in this very "
-                        + "branch, so every such line is also the receipt for a burst armed to "
-                        + "now + LIVE_VIEW_BURST_TICKS");
+                        + "branch, so every such line is also the receipt for a burst armed HERE - through the one "
+                        + "method that cuts the window to what this structure's volume can afford");
         assertTrue(bodyOf(source, "void sendLiveView(ServerLevel server, ServerLevel pocket, BlockPos drawnPos)")
-                        .contains("this.liveViewBurstUntil = Math.max(this.liveViewBurstUntil, gameTime + "
-                                + "LIVE_VIEW_BURST_TICKS);"),
+                        .contains("this.armLiveViewBurst(gameTime);"),
                 "and a sample that saw a change re-arms it: while something is still changing, keep looking "
                         + "every tick");
 
@@ -79,7 +77,7 @@ class StructureCarriedLiveViewWiringTest {
         assertTrue(body.contains("!resending && gameTime >= this.liveViewBurstUntil"),
                 "the burst is what opens the gate");
         int burstGate = body.indexOf("gameTime >= this.liveViewBurstUntil");
-        int intervalGate = body.indexOf("Math.floorMod(gameTime, LIVE_VIEW_INTERVAL)");
+        int intervalGate = body.indexOf("Math.floorMod(gameTime, interval)");
         assertTrue(burstGate > 0 && intervalGate > burstGate,
                 "and it is asked BEFORE the interval, so an open window never reaches the ten-tick test: with the "
                         + "tests the other way round a carried structure would be sampled once in ten while its "

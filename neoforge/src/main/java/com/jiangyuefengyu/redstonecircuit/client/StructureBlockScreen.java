@@ -11,6 +11,7 @@ import com.jiangyuefengyu.redstonecircuit.block.RedstoneStructureBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.network.RCNetwork;
 import com.jiangyuefengyu.redstonecircuit.network.StructurePreviews;
 import com.jiangyuefengyu.redstonecircuit.structure.ActivationTable;
+import com.jiangyuefengyu.redstonecircuit.structure.PanelGrid;
 import com.jiangyuefengyu.redstonecircuit.structure.PreviewRegion;
 import com.jiangyuefengyu.redstonecircuit.structure.RegionEditor;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
@@ -19,6 +20,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -102,6 +104,12 @@ public final class StructureBlockScreen extends Screen {
     /** The mode this page's widgets were built for, so {@link #tick} knows when to rebuild. */
     private boolean builtRelease;
 
+    /** How many rows the page on screen had when it was built - see {@link #tick}. */
+    private int builtRows;
+
+    /** The fingerprint of those rows, recorded with {@link #builtRows} - see {@link #tick}. */
+    private long builtSignature;
+
     /** Whether the player edited the region's own fields on this screen - see {@link #sendWhatChanged}. */
     private boolean editedRegion;
 
@@ -155,15 +163,26 @@ public final class StructureBlockScreen extends Screen {
     private EditBox sizeY;
     private EditBox sizeZ;
 
-    private EditBox keyBox;
+    /** The one name box the key panel has: a button's name <b>is</b> what identifies it, so there is nothing else. */
+    private EditBox buttonName;
     private EditBox cellX;
     private EditBox cellY;
     private EditBox cellZ;
     private EditBox strengthBox;
-    private EditBox labelBox;
 
-    private final List<Button> pressButtons = new ArrayList<>();
     private final List<Button> removeButtons = new ArrayList<>();
+
+    /**
+     * Which page of the 6×6 key grid is showing, and which entry the row below it is editing.
+     *
+     * <p>The selection is an index into the panel - the same number a press travels as - and -1 means "nothing
+     * selected": the boxes then describe an entry that does not exist yet, and the button under the grid adds it.
+     */
+    private int panelPage;
+    private int selected = -1;
+
+    /** The button that drops the selected entry. Live only while something is selected. */
+    private Button removeButton;
 
     public StructureBlockScreen(BlockPos controller, String structuresPath, String exportPath) {
         super(Component.translatable("redstonecircuit.structure.screen.title", nameOf(controller)));
@@ -191,7 +210,6 @@ public final class StructureBlockScreen extends Screen {
     protected void init() {
         this.left = (this.width - WIDTH) / 2;
         this.top = (this.height - HEIGHT) / 2;
-        this.pressButtons.clear();
         this.removeButtons.clear();
         // The remembered page is put back only on the first build: showPage sets the page and then rebuildWidgets runs
         // init, so restoring it every time would undo the page the player just asked for.
@@ -298,6 +316,10 @@ public final class StructureBlockScreen extends Screen {
                 .bounds(this.left + lx("region.close.button"), this.top + ly("region.close.button"),
                         lw("region.close.button"), lh("region.close.button")).build());
         this.endPreviewButton.visible = border() != null;
+        // What this page was built from, so a tick can tell whether the block has changed it since (see #tick). Recorded
+        // here and nowhere else: every rebuild runs init, so these two are exactly "the data this page is showing".
+        this.builtRows = pageRows();
+        this.builtSignature = pageSignature();
     }
 
     /**
@@ -318,9 +340,8 @@ public final class StructureBlockScreen extends Screen {
         set(this.sizeX, fields.sizeX());
         set(this.sizeY, fields.sizeY());
         set(this.sizeZ, fields.sizeZ());
-        set(this.keyBox, fields.key());
+        set(this.buttonName, fields.key());
         set(this.strengthBox, fields.strength());
-        set(this.labelBox, fields.label());
     }
 
     private static void set(@Nullable EditBox box, @Nullable String value) {
@@ -345,12 +366,11 @@ public final class StructureBlockScreen extends Screen {
                 keep(live(this.sizeX), previous == null ? null : previous.sizeX()),
                 keep(live(this.sizeY), previous == null ? null : previous.sizeY()),
                 keep(live(this.sizeZ), previous == null ? null : previous.sizeZ()),
-                keep(live(this.keyBox), previous == null ? null : previous.key()),
+                keep(live(this.buttonName), previous == null ? null : previous.key()),
                 keep(live(this.cellX), previous == null ? null : previous.cellX()),
                 keep(live(this.cellY), previous == null ? null : previous.cellY()),
                 keep(live(this.cellZ), previous == null ? null : previous.cellZ()),
                 keep(live(this.strengthBox), previous == null ? null : previous.strength()),
-                keep(live(this.labelBox), previous == null ? null : previous.label()),
                 this.relative, this.face.ordinal(), this.page, this.scroll);
     }
 
@@ -368,6 +388,10 @@ public final class StructureBlockScreen extends Screen {
         rememberBoxes();
         this.page = page;
         this.scroll = 0;
+        // The selection belongs to the grid it was made on: leaving the page is not a way to keep editing an entry
+        // that is no longer on screen.
+        this.selected = -1;
+        this.panelPage = 0;
         this.rebuildWidgets();
     }
 
@@ -514,53 +538,69 @@ public final class StructureBlockScreen extends Screen {
         // Nothing to press: the two paths and the command that writes/reads them.
     }
 
+    /**
+     * <b>The key panel</b>: a 6×6 grid of named buttons, one per entry, and the row that edits whichever of them is
+     * selected.
+     *
+     * <p>The panel is drawn as the grid it <em>is</em> rather than as a list of rows, because a structure's keys are a
+     * row of buttons on the placed block: what the player arranges here is what they will be pressing later. A page
+     * holds {@link PanelGrid#PER_PAGE} buttons, and a panel with four entries draws four of them - never a page of
+     * empty rows standing in for the ones it does not have.
+     */
     private void buildPanelPage() {
         if (locked(PAGE_PANEL)) {
             // Locked: no widgets at all, and the page says why. See {@link #locked}.
             return;
         }
-        addRenderableWidget(Button.builder(Component.literal("<"), button -> scrollBy(-ROWS))
+        addRenderableWidget(Button.builder(Component.literal("<"), button -> turnPanel(-1))
                 .bounds(this.left + lx("panel.scroll.back"), this.top + ly("panel.scroll.back"),
                         lw("panel.scroll.back"), lh("panel.scroll.back")).build());
-        addRenderableWidget(Button.builder(Component.literal(">"), button -> scrollBy(ROWS))
+        addRenderableWidget(Button.builder(Component.literal(">"), button -> turnPanel(1))
                 .bounds(this.left + lx("panel.scroll.forward"), this.top + ly("panel.scroll.forward"),
                         lw("panel.scroll.forward"), lh("panel.scroll.forward")).build());
 
-        for (int row = 0; row < ROWS; row++) {
-            int y = this.top + ly("panel.rows") + row * lh("panel.rows");
-            int index = row;
-            // The screen edits the <b>controller</b> - the block that captures and releases. The button that fires an
-            // entry belongs to a placed product block, which is where the key press happens too.
-            Button press = addRenderableWidget(Button.builder(text("panel.press"),
-                            button -> pressEntry(this.scroll + index))
-                    .bounds(this.left + lx("panel.press.button"), y, lw("panel.press.button"),
-                            lh("panel.press.button")).build());
-            this.pressButtons.add(press);
-            this.removeButtons.add(addRenderableWidget(Button.builder(Component.literal("x"),
-                            button -> send(RCNetwork.StructureEditPayload.entry(this.controller,
-                                    RCNetwork.StructureEditPayload.Verb.REMOVE_MANUAL, this.scroll + index)))
-                    .bounds(this.left + lx("panel.remove.button"), y, lw("panel.remove.button"),
-                            lh("panel.remove.button")).build()));
+        // Only the entries this page holds get a button: an empty panel is an empty grid, and a lattice of greyed
+        // cells would be thirty-six buttons saying nothing.
+        List<ActivationTable.ManualEntry> manual = panelEntries();
+        int page = page();
+        int first = PanelGrid.firstIndex(page);
+        int count = PanelGrid.count(manual.size(), page);
+        int cellWidth = lw("panel.grid") - StructureLayout.GRID_GAP_X;
+        int cellHeight = lh("panel.grid") - StructureLayout.GRID_GAP_Y;
+        for (int cell = 0; cell < count; cell++) {
+            int index = first + cell;
+            ActivationTable.ManualEntry entry = manual.get(index);
+            Button button = Button.builder(Component.literal(fit(markSelection(index) + displayName(entry),
+                            cellWidth - 6)), pressed -> select(index))
+                    .bounds(this.left + lx("panel.grid") + (cell % PanelGrid.COLUMNS) * lw("panel.grid"),
+                            this.top + ly("panel.grid") + (cell / PanelGrid.COLUMNS) * lh("panel.grid"),
+                            cellWidth, cellHeight).build();
+            // A button is only a name, so what the old row printed - the cell and the strength - rides on the tooltip:
+            // hiding it behind a click would make the grid less informative than the list it replaced.
+            button.setTooltip(Tooltip.create(Component.literal(rowText(index, entry))));
+            addRenderableWidget(button);
         }
 
-        // The panel's row names a <b>named button</b>, not a key binding: what the player types here is the name they
-        // will see on the trigger, so there is no key box and nothing to bind.
-        this.keyBox = box(this.left + lx("panel.key.field"), this.top + ly("panel.key.field"),
+        // One name box: a button's name is what the structure shows and what a file names it by, so the panel stores
+        // the name itself rather than a key mapping the player would have to think up.
+        this.buttonName = rowBox(this.left + lx("panel.key.field"), this.top + ly("panel.key.field"),
                 lw("panel.key.field"), "", ActivationTable.MAX_KEY_LENGTH);
         this.cellX = cellBox(this.left + lx("panel.cellX.field"), this.top + ly("panel.cellX.field"),
-                lw("panel.cellX.field"));;
+                lw("panel.cellX.field"));
         this.cellY = cellBox(this.left + lx("panel.cellY.field"), this.top + ly("panel.cellY.field"),
-                lw("panel.cellY.field"));;
+                lw("panel.cellY.field"));
         this.cellZ = cellBox(this.left + lx("panel.cellZ.field"), this.top + ly("panel.cellZ.field"),
-                lw("panel.cellZ.field"));;
-        this.strengthBox = box(this.left + lx("panel.strength.field"), this.top + ly("panel.strength.field"),
+                lw("panel.cellZ.field"));
+        this.strengthBox = rowBox(this.left + lx("panel.strength.field"), this.top + ly("panel.strength.field"),
                 lw("panel.strength.field"), "15", 2);
-        this.labelBox = box(this.left + lx("panel.label.field"), this.top + ly("panel.label.field"),
-                lw("panel.label.field"), "", ActivationTable.MAX_LABEL_LENGTH);
-        fillCellFields();
-        this.addButton = addRenderableWidget(Button.builder(text("panel.add"), button -> addEntry())
+        fillFromSelection();
+        this.addButton = addRenderableWidget(Button.builder(commitLabel(), button -> commitEntry())
                 .bounds(this.left + lx("panel.add.button"), this.top + ly("panel.add.button"),
                         lw("panel.add.button"), lh("panel.add.button")).build());
+        this.removeButton = addRenderableWidget(Button.builder(text("panel.remove"), button -> removeSelected())
+                .bounds(this.left + lx("panel.remove.button"), this.top + ly("panel.remove.button"),
+                        lw("panel.remove.button"), lh("panel.remove.button")).build());
+        this.removeButton.active = selectedEntry() != null;
     }
 
     /**
@@ -573,7 +613,28 @@ public final class StructureBlockScreen extends Screen {
         return edit;
     }
 
-    /** Whether the player typed in this page's cell row since it was last filled - see {@link #fillCellFields}. */
+    /**
+     * A box that is part of the row being edited rather than of the page: the name and the strength.
+     *
+     * <p>The three cell boxes are marked by {@link #cellBox}; these two are the other half of the same row, and a page
+     * that refreshes itself has to leave them alone for the same reason - {@link #fillFromSelection} refills a selected
+     * row's name, cell and strength together.
+     */
+    private EditBox rowBox(int x, int y, int width, String value, int maxLength) {
+        EditBox edit = box(x, y, width, value, maxLength);
+        edit.setResponder(text -> this.cellEdited = true);
+        return edit;
+    }
+
+    /**
+     * Whether the player typed in this page's row since the boxes were last filled from the region or the selection -
+     * see {@link #fillCellFields} and {@link #fillFromSelection}.
+     *
+     * <p>It covers every box of the row, not only the cell: a rebuild refills the name, the cell and the strength from
+     * the row that is selected, so a refresh driven by the block's own data (see {@link #tick}) would otherwise eat half
+     * of what the player is typing. The flag is cleared when the boxes are refilled and when the player picks another
+     * row - the text belonged to the row it was typed for.
+     */
     private boolean cellEdited;
 
     private EditBox box(int x, int y, int width, String value, int maxLength) {
@@ -626,7 +687,7 @@ public final class StructureBlockScreen extends Screen {
                 lw("faces.cellY.field"));;
         this.cellZ = cellBox(this.left + lx("faces.cellZ.field"), this.top + ly("faces.cellZ.field"),
                 lw("faces.cellZ.field"));;
-        this.strengthBox = box(this.left + lx("faces.strength.field"), this.top + ly("faces.strength.field"),
+        this.strengthBox = rowBox(this.left + lx("faces.strength.field"), this.top + ly("faces.strength.field"),
                 lw("faces.strength.field"), "15", 2);
         fillCellFields();
 
@@ -652,19 +713,23 @@ public final class StructureBlockScreen extends Screen {
     /**
      * The cell the input row names, as the world position the server checks it against.
      *
-     * <p>The boxes name a cell relative to the <b>controller</b> - like the region page's offset and like the entries
-     * the list shows - while every edit is checked against the region in <b>world</b> coordinates. So the translation
-     * belongs here, and the defaults come from the region itself: a typed cell is clamped to the region and the
-     * substitution is reported in the action bar.
+     * <p>The boxes name a cell the way a table stores one - an offset from the <b>selection's first cell</b> (see
+     * {@link RegionEditor#cellIn}) - while every edit is checked against the region in <b>world</b> coordinates. So the
+     * translation belongs here, and the defaults come from the region itself: a typed cell is clamped to the region
+     * and the substitution is reported in the action bar.
      */
     private BlockPos typedCell() {
         int cellX = parse(this.cellX, 0);
         int cellY = parse(this.cellY, 0);
         int cellZ = parse(this.cellZ, 0);
         // Read in whichever of the two readings the region page offers, and the one the player has just been looking at.
-        BlockPos typed = this.relative ? RegionEditor.cell(this.controller, new Vec3i(cellX, cellY, cellZ))
-                : new BlockPos(cellX, cellY, cellZ);
         PreviewRegion shown = shownRegion();
+        // With no border up there is no selection to count from: the one-cell stand-in makes the controller the origin,
+        // and the server's own refusal in the action bar is what explains it, as on the page that offers no region.
+        BlockPos typed = this.relative
+                ? RegionEditor.cellIn(shown == null ? PreviewRegion.one(this.controller) : shown,
+                        new Vec3i(cellX, cellY, cellZ))
+                : new BlockPos(cellX, cellY, cellZ);
         if (shown == null || shown.box().contains(typed)) {
             return typed;
         }
@@ -701,9 +766,12 @@ public final class StructureBlockScreen extends Screen {
             return;
         }
         BlockPos first = region.min();
-        set(this.cellX, Integer.toString(this.relative ? first.getX() - this.controller.getX() : first.getX()));
-        set(this.cellY, Integer.toString(this.relative ? first.getY() - this.controller.getY() : first.getY()));
-        set(this.cellZ, Integer.toString(this.relative ? first.getZ() - this.controller.getZ() : first.getZ()));
+        // The row starts on the selection's first cell, which in the relative reading <em>is</em> 0,0,0 - the origin a
+        // table stores against (see {@link RegionEditor#cellIn}) - so the default is one cell whether a border is up
+        // or not. The absolute reading shows that same cell where it stands in the world.
+        set(this.cellX, Integer.toString(this.relative ? 0 : first.getX()));
+        set(this.cellY, Integer.toString(this.relative ? 0 : first.getY()));
+        set(this.cellZ, Integer.toString(this.relative ? 0 : first.getZ()));
         this.cellEdited = false;
     }
 
@@ -781,9 +849,121 @@ public final class StructureBlockScreen extends Screen {
         this.editedRegion = false;
     }
 
-    private void addEntry() {
-        send(RCNetwork.StructureEditPayload.manual(this.controller, this.keyBox.getValue(), typedCell(),
-                parse(this.strengthBox, 15), this.labelBox.getValue()));
+    /** One entry as a line of text: which one, its name, the cell the boxes mean by it, and its strength. */
+    private String rowText(int index, ActivationTable.ManualEntry entry) {
+        return (index + 1) + ". " + displayName(entry) + " -> " + cellAsTyped(entry.localPos()) + "@"
+                + entry.strength();
+    }
+
+    /** Which page of the key grid is showing, clamped to the pages the panel actually has. */
+    private int page() {
+        return Math.min(this.panelPage, PanelGrid.pages(panelEntries().size()) - 1);
+    }
+
+    /** The entry the row below the grid is editing, or null when nothing is selected. */
+    @Nullable
+    private ActivationTable.ManualEntry selectedEntry() {
+        List<ActivationTable.ManualEntry> manual = panelEntries();
+        return this.selected >= 0 && this.selected < manual.size() ? manual.get(this.selected) : null;
+    }
+
+    /** What goes before a grid button's name while it is the entry being edited. */
+    private String markSelection(int index) {
+        return index == this.selected ? "\u00BB " : "";
+    }
+
+    /**
+     * The grid's arrows: they turn the page, and the selection goes with the page it was on - a selection the player
+     * can no longer see is a selection the boxes below are silently editing.
+     */
+    private void turnPanel(int delta) {
+        this.panelPage = Math.max(0, Math.min(page() + delta, PanelGrid.pages(panelEntries().size()) - 1));
+        this.selected = -1;
+        this.rebuildWidgets();
+    }
+
+    /** A grid button: the entry it names becomes the one the row below edits. */
+    private void select(int index) {
+        this.selected = index;
+        // What was typed belonged to the row the boxes were filled from, and this is another one: the row below is
+        // filled from the new selection, so that is what "not edited yet" means again.
+        this.cellEdited = false;
+        this.rebuildWidgets();
+    }
+
+    /** The one button under the grid says which of its two verbs it would do - see {@link #commitEntry}. */
+    private Component commitLabel() {
+        return text(selectedEntry() == null ? "panel.add" : "panel.update");
+    }
+
+    /**
+     * The one button under the grid: it <b>adds</b> the row to the panel, or <b>writes it back</b> over the selected
+     * entry.
+     *
+     * <p>Two verbs on one button because they are one act - "make the panel hold this" - and the label is also the only
+     * place the selection shows: a grid of buttons of equal weight would otherwise leave the row below pointing at
+     * nothing the player can see.
+     */
+    private void commitEntry() {
+        String name = this.buttonName.getValue().trim();
+        if (selectedEntry() == null) {
+            send(RCNetwork.StructureEditPayload.manual(this.controller, name, typedCell(),
+                    parse(this.strengthBox, 15), name));
+            // An addition is appended, so the page to look at is the one this panel is about to need.
+            this.panelPage = PanelGrid.pageOf(panelEntries().size());
+            this.rebuildWidgets();
+            return;
+        }
+        send(RCNetwork.StructureEditPayload.manualReplace(this.controller, this.selected, name, typedCell(),
+                parse(this.strengthBox, 15)));
+    }
+
+    /** Drops the selected entry - by index, which is the identity a press travels as. */
+    private void removeSelected() {
+        if (selectedEntry() == null) {
+            return;
+        }
+        send(RCNetwork.StructureEditPayload.entry(this.controller,
+                RCNetwork.StructureEditPayload.Verb.REMOVE_MANUAL, this.selected));
+        this.selected = -1;
+        this.rebuildWidgets();
+    }
+
+    /**
+     * Fills the row from the selected entry - or, with nothing selected, from the region, the way the two table pages
+     * do: a cell is stored inside the selection, so with no region up there is nothing a new entry could name.
+     */
+    private void fillFromSelection() {
+        ActivationTable.ManualEntry editing = selectedEntry();
+        if (editing == null) {
+            fillCellFields();
+            return;
+        }
+        if (this.cellEdited) {
+            // The player is typing this row - which a page rebuilt by the block's own data may now happen under (see
+            // #tick). Their row stays theirs: the grid above it is redrawn, the boxes below are not.
+            return;
+        }
+        set(this.buttonName, displayName(editing));
+        PreviewRegion shown = shownRegion();
+        // A stored cell is already what the boxes mean in the relative reading (see {@link RegionEditor#cellIn}), and
+        // with no border up there is no world position to place it at: both cases are the stored cell itself, so a row
+        // reads the same numbers before and after a capture takes the border away. Only the absolute reading has to be
+        // placed back into the world, through the region the row was drawn from.
+        if (shown == null || this.relative) {
+            set(this.cellX, Integer.toString(editing.localPos().getX()));
+            set(this.cellY, Integer.toString(editing.localPos().getY()));
+            set(this.cellZ, Integer.toString(editing.localPos().getZ()));
+        } else {
+            BlockPos world = shown.min().offset(editing.localPos());
+            set(this.cellX, Integer.toString(world.getX()));
+            set(this.cellY, Integer.toString(world.getY()));
+            set(this.cellZ, Integer.toString(world.getZ()));
+        }
+        set(this.strengthBox, Integer.toString(editing.strength()));
+        // Filling the boxes is not the player typing in them (the responders cannot tell the two apart), so the flag is
+        // cleared here, after the fill - the same order {@link #fillCellFields} and {@link #fillRegionFields} use.
+        this.cellEdited = false;
     }
 
     /** One cell of the face the button is showing - see {@link #typedCell} for the reading and why it is relative. */
@@ -855,7 +1035,7 @@ public final class StructureBlockScreen extends Screen {
                 lw("output.cellY.field"));
         this.cellZ = cellBox(this.left + lx("output.cellZ.field"), this.top + ly("output.cellZ.field"),
                 lw("output.cellZ.field"));
-        this.strengthBox = box(this.left + lx("output.strength.field"), this.top + ly("output.strength.field"),
+        this.strengthBox = rowBox(this.left + lx("output.strength.field"), this.top + ly("output.strength.field"),
                 lw("output.strength.field"), "15", 2);
         fillCellFields();
 
@@ -921,32 +1101,16 @@ public final class StructureBlockScreen extends Screen {
                 region.min().offset(row.localPos())));
     }
 
-    /**
-     * The row's own button: the same press the key binding sends, on the same function, so the distance rule and the
-     * cooldown are the ones a player meets - a screen cannot press from across the world either.
-     *
-     * <p>The press is answered <b>on this client</b>, with the sentence that explains it: the panel is edited here and
-     * lives on the placed structure, where the key is pressed.
-     */
-    private void pressEntry(int index) {
-        if (this.minecraft == null || this.minecraft.player == null) {
-            return;
-        }
-        this.minecraft.player.displayClientMessage(
-                Component.translatable("redstonecircuit.structure.screen.panel.press.where"), true);
-        RCConfig.LOGGER.info("[redstonecircuit] a panel press from the editor screen: the panel is edited here and "
-                + "pressed at the placed structure (entry {})", index);
-    }
-
     private void scrollBy(int rows) {
-        int entries = Math.max(this.panelEntries(), Math.max(this.faceEntries(), this.outputEntries()));
+        int entries = Math.max(panelEntries().size(), Math.max(this.faceEntries(), this.outputEntries()));
         this.scroll = Math.max(0, Math.min(Math.max(0, entries - ROWS), this.scroll + rows));
         this.rebuildWidgets();
     }
 
-    private int panelEntries() {
+    /** The controller's key panel, in the order its grid shows it. */
+    private List<ActivationTable.ManualEntry> panelEntries() {
         RedstoneStructureBlockEntity found = controller(this.controller);
-        return found == null ? 0 : found.manual().size();
+        return found == null ? List.of() : found.manual();
     }
 
     /** How many rows the flattened face list has: every cell of every face. */
@@ -966,6 +1130,90 @@ public final class StructureBlockScreen extends Screen {
     private int outputEntries() {
         RedstoneStructureBlockEntity found = controller(this.controller);
         return found == null ? 0 : found.output().size();
+    }
+
+    /**
+     * How many rows the page on screen has, read from the block <b>now</b> - the first half of what {@link #tick}
+     * compares.
+     *
+     * <p>A page whose data is not a list of rows - the region, the files - answers zero, and so does a controller that
+     * has gone: there is nothing on those pages that the server can change under the screen.
+     */
+    private int pageRows() {
+        return switch (this.page) {
+            case PAGE_PANEL -> panelEntries().size();
+            case PAGE_FACES -> faceEntries();
+            case PAGE_OUTPUT -> outputEntries();
+            default -> 0;
+        };
+    }
+
+    /**
+     * The fingerprint of the rows the page on screen has, read from the block <b>now</b> - the second half of what
+     * {@link #tick} compares.
+     *
+     * <p>Each row contributes its name, its cell and its strength, in the order the page draws them (see
+     * {@link StructurePageSignature}), so the answer changes when a row is added, renamed, moved, re-powered or
+     * reordered, and stays the same - the point of the whole thing - while the block says nothing new.
+     */
+    private long pageSignature() {
+        RedstoneStructureBlockEntity found = controller(this.controller);
+        long folded = StructurePageSignature.START;
+        int rows = 0;
+        if (found == null) {
+            return StructurePageSignature.of(0, folded);
+        }
+        switch (this.page) {
+            case PAGE_PANEL -> {
+                for (ActivationTable.ManualEntry entry : found.manual()) {
+                    BlockPos cell = entry.localPos();
+                    folded = StructurePageSignature.fold(folded, displayName(entry), cell.getX(), cell.getY(),
+                            cell.getZ(), entry.strength());
+                    rows++;
+                }
+            }
+            // The two table pages are one table read from its two ends, and each row of them is a face and a cell.
+            case PAGE_FACES -> {
+                for (Direction direction : Direction.values()) {
+                    for (ActivationTable.FaceEntry entry : ActivationTable.entries(found.faces(), direction)) {
+                        BlockPos cell = entry.localPos();
+                        folded = StructurePageSignature.fold(folded, direction.getName(), cell.getX(), cell.getY(),
+                                cell.getZ(), entry.strength());
+                        rows++;
+                    }
+                }
+            }
+            case PAGE_OUTPUT -> {
+                for (ActivationTable.OutputEntry entry : found.output()) {
+                    BlockPos cell = entry.localPos();
+                    folded = StructurePageSignature.fold(folded, entry.face().getName(), cell.getX(), cell.getY(),
+                            cell.getZ(), entry.strength());
+                    rows++;
+                }
+            }
+            default -> {
+                // A page with no list of its own: nothing to fold, and nothing that can change under it.
+            }
+        }
+        return StructurePageSignature.of(rows, folded);
+    }
+
+    /**
+     * Fits the selection, the grid page and the scroll to the list the block has <b>now</b>.
+     *
+     * <p>A list can get shorter while the screen is open: the player removed a row, the server refused one, or another
+     * player did. An index that pointed into it is then out of range - a selection past the end leaves the row below
+     * editing nothing while its button still offers 更新, and a scroll past the end draws an empty table with a list
+     * above it. Clamped here, at the one moment the screen knows the list moved, rather than on every read.
+     */
+    private void clampToData() {
+        int entries = panelEntries().size();
+        if (this.selected >= entries) {
+            this.selected = -1;
+        }
+        this.panelPage = Math.max(0, Math.min(this.panelPage, PanelGrid.pages(entries) - 1));
+        int longest = Math.max(entries, Math.max(this.faceEntries(), this.outputEntries()));
+        this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, longest - ROWS)));
     }
 
     private void send(RCNetwork.StructureEditPayload payload) {
@@ -996,10 +1244,27 @@ public final class StructureBlockScreen extends Screen {
     }
 
     /**
-     * Rebuilds the page when the mode it was built for is no longer the mode the block is in.
+     * Rebuilds the page when what it was built from is no longer what the block has: the mode it was built for, or the
+     * list the page shows.
      *
      * <p>In {@code tick} rather than in {@code render}: rebuilding widgets while the screen is drawing is a mutation
      * during iteration, and a tick is exactly the quiet moment for it.
+     *
+     * <p><b>The list is asked about every tick, because it is the block's data and not the screen's.</b> A key panel is
+     * edited by a packet and answered by the server a tick or more later, so the page built when the button was pressed
+     * is built from the <em>old</em> panel: without this, adding or renaming a row changes nothing until the player
+     * presses the page tab again - the tab is what rebuilt it, not the answer. All three live pages are covered, not
+     * only the keys: the two tables are read from the same entity and go stale the same way.
+     *
+     * <p><b>Its cost, and the bound on it, are one and the same:</b> the row count first, then - only when the count still
+     * matches - one {@link StructurePageSignature} fingerprint of the rows. Two integer comparisons and one fold over a
+     * handful of rows is what an idle tick pays, and a page is rebuilt only when one of them differs, so a page whose
+     * data has not moved cannot be rebuilt however long it is left open.
+     *
+     * <p><b>What a rebuild must not do is eat what the player is typing.</b> {@code init} refills the row's boxes from
+     * the region and from the selected entry, so the ones the player has typed in are left alone: that is the
+     * {@link #cellEdited} flag, which this screen already used for a page rebuilt by a switch or a mode change, extended
+     * to the name and the strength boxes because a refresh now happens without the player asking for it.
      */
     @Override
     public void tick() {
@@ -1007,10 +1272,21 @@ public final class StructureBlockScreen extends Screen {
         if (this.pendingRelease != null && this.pendingRelease == blockIsRelease()) {
             this.pendingRelease = null;
         }
-        if (this.builtRelease != isRelease()) {
-            this.builtRelease = isRelease();
-            this.rebuildWidgets();
+        boolean stale = this.builtRelease != isRelease();
+        if (!stale && this.builtRows != pageRows()) {
+            // A list that changed length is a different list: folding its rows to prove it would be work for nothing.
+            stale = true;
         }
+        if (!stale && this.builtSignature != pageSignature()) {
+            stale = true;
+        }
+        if (!stale) {
+            return;
+        }
+        this.builtRelease = isRelease();
+        // The list may have got shorter under the indices the page is holding - see #clampToData.
+        clampToData();
+        this.rebuildWidgets();
     }
 
     private boolean isCopy() {
@@ -1080,27 +1356,25 @@ public final class StructureBlockScreen extends Screen {
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    /** The name the player gave a panel button, with the raw field as the fallback for older entries. */
+    /** A panel button's name: what the player typed, with the stored key as the fallback for older entries. */
     private static String displayName(ActivationTable.ManualEntry entry) {
-        return entry.key().isEmpty() ? entry.label() : entry.key();
+        return entry.label().isEmpty() ? entry.key() : entry.label();
     }
 
     /**
-     * A stored cell as the boxes would name it: the tables store a cell relative to the selection's first corner, while
-     * the boxes ask for an offset from <em>this block</em>. The row is converted through the region the border is
-     * drawing, and falls back to the stored value when no border is up.
+     * A stored cell as the boxes would name it.
+     *
+     * <p>The tables store a cell as an offset from the selection's first cell, and so does the relative reading of the
+     * boxes (see {@link RegionEditor#cellIn}) - so that reading is the stored value itself and needs no border, which
+     * is why a capture, the one action that takes the border away, cannot make a row change what it says. The absolute
+     * reading places the cell in the world through the border, and falls back to the stored value when none is up.
      */
     private String cellAsTyped(Vec3i local) {
-        PreviewRegion shown = shownRegion();
-        if (shown == null) {
+        if (this.relative) {
             return local.toShortString();
         }
-        BlockPos world = shown.min().offset(local);
-        if (!this.relative) {
-            return world.toShortString();
-        }
-        return (world.getX() - this.controller.getX()) + "," + (world.getY() - this.controller.getY()) + ","
-                + (world.getZ() - this.controller.getZ());
+        PreviewRegion shown = shownRegion();
+        return shown == null ? local.toShortString() : shown.min().offset(local).toShortString();
     }
 
     private static Component tab(String key) {
@@ -1285,6 +1559,12 @@ public final class StructureBlockScreen extends Screen {
         graphics.drawString(this.font, translated, this.left + lx(id), this.top + ly(id), 0xA0A0A0);
     }
 
+    /**
+     * The key panel's own lines: the count, the captions above the fields, and the one sentence under the buttons - what
+     * the cell boxes mean, or why the button refuses, or which entry is being edited.
+     *
+     * <p>The grid is buttons, so it draws itself: an empty panel draws nothing here, which is what an empty panel is.
+     */
     private void renderPanelPage(GuiGraphics graphics, RedstoneStructureBlockEntity found) {
         if (locked(PAGE_PANEL)) {
             graphics.drawString(this.font, fit(text("locked.panel").getString(), WIDTH - 16), this.left + 8,
@@ -1293,37 +1573,33 @@ public final class StructureBlockScreen extends Screen {
         }
         List<ActivationTable.ManualEntry> manual = found.manual();
         graphics.drawString(this.font, Component.translatable("redstonecircuit.structure.screen.panel.header",
-                manual.size(), RCConfig.structureManualEntryLimit()), this.left + lx("panel.header.line"),
-                this.top + ly("panel.header.line"), 0xA0A0A0);
-        for (int row = 0; row < ROWS; row++) {
-            int index = this.scroll + row;
-            int y = this.top + ly("panel.rows") + row * lh("panel.rows");
-            if (index >= manual.size()) {
-                break;
-            }
-            ActivationTable.ManualEntry entry = manual.get(index);
-            // The row shows the cell the way the boxes mean it, converted through the region the border is drawing; with
-            // no border up it falls back to the stored local value, the only thing anyone can say about a cell with no
-            // selection.
-            String label = (index + 1) + ". " + displayName(entry) + " -> " + cellAsTyped(entry.localPos()) + "@"
-                    + entry.strength();
-            graphics.drawString(this.font, fit(label, lx("panel.press.button") - 12), this.left + 8, y + 5, 0xE0E0E0);
-        }
+                        manual.size(), RCConfig.structureManualEntryLimit(), page() + 1, PanelGrid.pages(manual.size())),
+                this.left + lx("panel.header.line"), this.top + ly("panel.header.line"), 0xA0A0A0);
         caption(graphics, "panel.key.caption", text("panel.key"));
         caption(graphics, "panel.cellX.caption", text("axis.x"));
         caption(graphics, "panel.cellY.caption", text("axis.y"));
         caption(graphics, "panel.cellZ.caption", text("axis.z"));
         caption(graphics, "panel.strength.caption", text("panel.strength"));
-        caption(graphics, "panel.label.caption", text("panel.label"));
-        // The hint goes to the RIGHT of the add button, not under it: the panel's own rows are drawn at x=8. With no
-        // region up it says what is missing in place of how the boxes are read, the way the two table pages do: a
-        // cell is named inside the region, so there is nothing this page's add button could add to.
+        // One sentence, in the only room left under the buttons. Which sentence it is says what the row is: a cell is
+        // named inside the region, so with none up that comes first - the same refusal the two table pages make, in
+        // the same red - then the selected entry, and otherwise how to read the boxes.
         boolean region = border() != null;
-        graphics.drawString(this.font, fit(text(region
-                        ? (this.relative ? "panel.hint.rel" : "panel.hint.abs") : "panel.noregion").getString(),
-                        WIDTH - lx("panel.hint.line") - 8),
-                this.left + lx("panel.hint.line"), this.top + ly("panel.hint.line"),
-                region ? 0x808080 : 0xFF5555);
+        ActivationTable.ManualEntry editing = selectedEntry();
+        String hint;
+        int colour;
+        if (!region) {
+            hint = text("panel.noregion").getString();
+            colour = 0xFF5555;
+        } else if (editing != null) {
+            hint = Component.translatable("redstonecircuit.structure.screen.panel.selected.hint", this.selected + 1)
+                    .getString();
+            colour = 0x60D0FF;
+        } else {
+            hint = text(this.relative ? "panel.hint.rel" : "panel.hint.abs").getString();
+            colour = 0x808080;
+        }
+        graphics.drawString(this.font, fit(hint, WIDTH - lx("panel.hint.line") - 8),
+                this.left + lx("panel.hint.line"), this.top + ly("panel.hint.line"), colour);
     }
 
     /** Mode A's tables: one row per cell, showing which face drives it and how hard. */

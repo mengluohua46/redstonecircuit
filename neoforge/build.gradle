@@ -64,10 +64,10 @@ repositories {
 // Aeronautics ships as a nested-jar "bundled" archive), so pinning this mod's build to whatever
 // those hashed names happen to be is a worse trade than a path that is obviously local. These jars
 // are used for compilation only and are never looked for at runtime; a missing path is skipped with
-// a log line, so a fresh clone still builds.
+// a log line, so a fresh clone still builds. Sable is the one exception: its file name carries Sable's
+// own version, which moves independently of this mod's, so that jar is found by prefix below instead
+// of being pinned to a name somebody has to keep in step.
 def physicsCompatJars = [
-        // Sable - the sub-level library. Public API package: dev.ryanhcode.sable.api.
-        'D:/MC mod/红石电路/模组/sable-neoforge-1.21.1-2.0.5.jar',
         // Create 6.0.10 - contraption / mounted-storage hooks live under com.simibubi.create.
         'D:/MC mod/红石电路/模组/[机械动力] create-1.21.1-6.0.10.jar',
         // Create Aeronautics 1.3.2 - a "bundled" jar; its real code is nested in
@@ -85,9 +85,9 @@ physicsCompatJars.each { path ->
     }
 }
 
-// Sable's public API is split across two jars: `dev.ryanhcode.sable.api.*` lives in the mod jar
-// above, while the position-to-sub-level lookup the whole design hinges on lives in
-// `dev.ryanhcode.sable.companion.*`, which Sable ships as a nested jar
+// Sable's public API is split across two jars: `dev.ryanhcode.sable.api.*` lives in Sable's own mod
+// jar (found by prefix above), while the position-to-sub-level lookup the whole design hinges on lives
+// in `dev.ryanhcode.sable.companion.*`, which Sable ships as a nested jar
 // (META-INF/jarjar/sable-companion-common-<version>.jar). Gradle's compileOnly on the mod jar does
 // not see nested jars, and there is no Maven coordinate for this one.
 //
@@ -131,6 +131,19 @@ def latestPhysicsCandidate = { String prefix, String suffix ->
     matches == null || matches.length == 0 ? null : matches.sort { it.name }.last()
 }
 
+// Sable - the sub-level library (public API package: dev.ryanhcode.sable.api), found by prefix for the
+// reason above: `sable-neoforge-<minecraft>-<sable version>.jar` carries two versions that both move, and
+// pinning either is a build that breaks on the next update. Newest by name wins, like the nested jars.
+def sableModJar = latestPhysicsCandidate('sable-neoforge-', '.jar')
+if (sableModJar != null) {
+    dependencies.add('compileOnly', files(sableModJar))
+    logger.lifecycle("[redstonecircuit] physics compat compileOnly: ${sableModJar}  " +
+            "(source: physicsModsDir)")
+} else {
+    logger.lifecycle("[redstonecircuit] optional compat jar not found, skipping (compileOnly): " +
+            "sable-neoforge-*.jar in ${physicsModsDirFile}")
+}
+
 // Which of the two nested jars are already lying loose in physicsModsDir, and which still have to be
 // dug out of a mod jar.
 def physicsLooseSources = [:]
@@ -168,7 +181,9 @@ if (!physicsExtractPrefixes.isEmpty() && physicsModsDirFile.isDirectory()) {
 }
 
 def physicsRequiredLibNames = (physicsLooseSources.keySet() + physicsNestedNames).unique().sort()
-def physicsRequiredLibsMissing = physicsRequiredLibNames.isEmpty()
+// Sable's mod jar is part of the same requirement, not a convenience: its API package is what the compat
+// source set compiles against, so a machine without it leaves the source set out instead of failing.
+def physicsRequiredLibsMissing = physicsRequiredLibNames.isEmpty() || sableModJar == null
 def physicsModsDirExists = physicsModsDirFile.isDirectory()
 
 tasks.register('extractNestedPhysicsLibs') {
@@ -268,9 +283,16 @@ if (physicsRequiredLibsMissing) {
     tasks.named('compileCompatJava', JavaCompile) {
         enabled = false
     }
-    logger.lifecycle("[redstonecircuit] neither a loose sable-companion-common-*.jar / ponder-*.jar " +
-            "nor a nested one inside a mod jar was found in ${physicsModsDirFile}; the optional " +
-            "physics-compat source set is excluded from this build (see neoforge/libs/README.md).")
+    def missing = []
+    if (sableModJar == null) {
+        missing << 'sable-neoforge-*.jar'
+    }
+    if (physicsRequiredLibNames.isEmpty()) {
+        missing << 'sable-companion-common-*.jar / ponder-*.jar'
+    }
+    logger.lifecycle("[redstonecircuit] nothing found for ${missing.join(' and ')} in " +
+            "${physicsModsDirFile}; the optional physics-compat source set is excluded from this build " +
+            "(see neoforge/libs/README.md).")
 }
 
 // Both source sets end up in the mod jar: the compat classes are inert unless Sable/Create are

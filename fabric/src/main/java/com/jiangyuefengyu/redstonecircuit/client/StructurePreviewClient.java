@@ -84,15 +84,17 @@ public final class StructurePreviewClient {
     }
 
     /**
-     * A client that has left the server is showing no borders.
+     * A client that has left the server is showing no borders, and is holding no vertex data for one either.
      *
      * <p>The next server sends its own list, so this is not strictly needed - but a stale border drawn on the
      * title screen, for a world that is not loaded, is exactly the kind of "is this a bug?" a player would be
-     * right to report.
+     * right to report. The miniature's kept geometry goes with it for the same reason: it was emitted for blocks of
+     * the world that has just ended, and it is native memory besides (see StructurePreviewMesh).
      */
     public static void onLoggingOut() {
         BORDERS.clear();
         LAST_LOGGED.clear();
+        StructurePreviewMesh.clear();
     }
 
     /**

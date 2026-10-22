@@ -14,12 +14,14 @@ import net.minecraft.world.level.block.state.BlockState;
 /**
  * 方向转向杆 - what the rotation rod does to the component inside a block.
  *
- * <p>The gesture: pick a block with redstone in it and click one of its faces. The first click makes that face the
- * component's input side, the second makes it the output side, the third goes back to the input side - two states, then
- * it repeats. Both are needed because a repeater cannot be pointed at a face without also deciding which way round it
- * sits: "read from here" and "drive here" are the two orientations a clicked face can mean, and they are each other's
- * opposite. The state is derived from where the component already points rather than remembered per player, so a click
- * always means the same thing no matter who makes it or when, and nothing has to be saved.
+ * <p>The gesture: one click, one step around a fixed six-step cycle - north, east, south, west (clockwise seen from
+ * above), then up, then down, then north again. The cycle is fixed rather than relative to the clicked face, so the
+ * same number of clicks always lands on the same orientation and the player can aim without watching the component.
+ * Two of the steps are vertical, which is something a placed vanilla repeater cannot be made to do.
+ *
+ * <p>The stepped field is {@code facing}, the component's input side; the output side is its opposite, so both turn
+ * together. Nothing is remembered per player: the cycle is read off the component's own facing, so a click means the
+ * same thing whoever makes it and whenever.
  *
  * <p>Wire has no orientation at all - dust reads and emits on every side - so the rod refuses it rather than pretending.
  * That is also why {@link #hasDirection} is on {@link ComponentType}: it is the one question the rod asks about a type.
@@ -28,10 +30,8 @@ public final class RotationRod {
 
     /** What one click did, for the message the player gets. */
     public enum Result {
-        /** The component now reads from the clicked face. */
-        TURNED_TO_INPUT,
-        /** The component now drives the clicked face. */
-        TURNED_TO_OUTPUT,
+        /** The component stepped one place around the cycle. */
+        TURNED,
         /** The component has no orientation to turn. */
         NO_DIRECTION,
         /** There is no component here to turn. */
@@ -46,8 +46,24 @@ public final class RotationRod {
         return !type.isWire();
     }
 
-    /** Turns the component in the block at {@code pos} towards the clicked {@code face}, and tells the world. */
-    public static Result turn(ServerLevel level, BlockPos pos, Direction face) {
+    /**
+     * The orientation one click moves to: clockwise around the vertical axis for the four horizontal sides, then the
+     * two vertical ones, then back to the start. Written out rather than derived from {@link Direction#getClockWise()}
+     * because that one only walks the horizontal ring and would have nowhere to put up and down.
+     */
+    public static Direction nextFacing(Direction facing) {
+        return switch (facing) {
+            case NORTH -> Direction.EAST;
+            case EAST -> Direction.SOUTH;
+            case SOUTH -> Direction.WEST;
+            case WEST -> Direction.UP;
+            case UP -> Direction.DOWN;
+            case DOWN -> Direction.NORTH;
+        };
+    }
+
+    /** Steps the component in the block at {@code pos} one place around the cycle, and tells the world. */
+    public static Result turn(ServerLevel level, BlockPos pos) {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
         Slot slot = store.slotAt(pos);
         if (slot == null) {
@@ -58,8 +74,7 @@ public final class RotationRod {
         }
 
         Direction before = slot.facing;
-        boolean toInput = before != face;
-        slot.facing = toInput ? face : face.getOpposite();
+        slot.facing = nextFacing(before);
 
         // The old front is a conductor and has to be woken up, or it keeps reporting a charge it no longer receives:
         // the pair of notifications vanilla's DiodeBlock.updateNeighborsInFront makes, for the old side.
@@ -71,7 +86,7 @@ public final class RotationRod {
         InnerRedstoneNetwork.notifyOutputChanged(level, pos);
         HostSync.broadcast(level, pos, slot);
 
-        return toInput ? Result.TURNED_TO_INPUT : Result.TURNED_TO_OUTPUT;
+        return Result.TURNED;
     }
 
     /** Stops the block the diode was driving from keeping the strong power it no longer receives. */

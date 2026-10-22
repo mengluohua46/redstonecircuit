@@ -161,12 +161,18 @@ public record StructureProductData(UUID id, String name, Vec3i size, IoMode ioMo
         this(id, name, size, ioMode, nestingDepth, faces, manual, List.of(), preview);
     }
 
-    /** The same description read off a captured payload: activation tables, manual panel and preview. */
-    public static StructureProductData of(StructurePayload payload, int previewBytes) {
+    /**
+     * The same description read off a captured payload: activation tables, manual panel and preview.
+     *
+     * <p>Both of the preview's budgets are asked for by the caller ({@code structurePreviewBytes} and
+     * {@code structurePreviewCells}), so the coarsening a structure gets is the deployment's decision and not a
+     * constant buried here - see {@link StructurePreview#of}.
+     */
+    public static StructureProductData of(StructurePayload payload, int previewBytes, int previewCells) {
         return new StructureProductData(payload.header().uuid(), payload.header().name(),
                 payload.header().size(), payload.header().ioMode(), payload.header().nestingDepth(),
                 payload.faces(), payload.manual(), payload.output(),
-                StructurePreview.ofPayload(payload, previewBytes));
+                StructurePreview.ofPayload(payload, previewBytes, previewCells));
     }
 
     /** The same description read off a payload header alone, for a caller that has nothing else. */

@@ -12,8 +12,8 @@ import net.neoforged.api.distmarker.OnlyIn;
 /**
  * What the player typed into the screen, remembered per controller.
  *
- * <p>The boxes are the player's, as in vanilla's structure block: an uncommitted row (a bound key, a typed cell, its
- * strength and label) stays as typed until the player reads the block's values back (读回当前区域 / 当前) or commits it,
+ * <p>The boxes are the player's, as in vanilla's structure block: an uncommitted row (a button name, a typed cell,
+ * its strength) stays as typed until the player reads the block's values back (读回当前区域 / 当前) or commits it,
  * so this memory is never refreshed from the server. Most recent {@link #LIMIT} controllers, cleared on leaving the
  * world - client-side memory must not grow with the world.
  */
@@ -32,7 +32,7 @@ final class StructureScreenMemory {
 
     /** Everything the screen can be holding that the block does not already know. */
     record Fields(String name, String offsetX, String offsetY, String offsetZ, String sizeX, String sizeY,
-                  String sizeZ, String key, String cellX, String cellY, String cellZ, String strength, String label,
+                  String sizeZ, String key, String cellX, String cellY, String cellZ, String strength,
                   boolean relative, int faceOrdinal, int page, int scroll) {
     }
 

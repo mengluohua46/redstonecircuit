@@ -19,6 +19,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 
 import org.jetbrains.annotations.Nullable;
+import org.joml.Quaterniond;
 import org.joml.Vector3d;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -145,6 +146,10 @@ class WorldComponentAdoptionTest {
         WorldComponentAdoption.Plan plan = WorldComponentAdoption.plan(index, carrier, local, origin,
                 slots.get(local));
         if (!plan.adopts()) {
+            // The third thing the production method does: a live record keeps its snapshot, and the world
+            // entry that would be a second answer for the same block is removed. Without this the two truths
+            // survive every later scan, because each one answers `already-carried` again.
+            WorldComponentAdoption.clearShadowedWorldEntry(plan, slots);
             return plan;
         }
         // `fill`, not `claim` - the same call `CarrierStore#adoptWorldComponent` makes: the contents are
@@ -262,9 +267,36 @@ class WorldComponentAdoptionTest {
         }
 
         @Test
-        @DisplayName("the plan is a pure function: asking twice changes nothing")
-        void thePlanIsPure() {
+        @DisplayName("a world entry shadowing a live record is removed, and the record keeps its snapshot")
+        void aShadowedWorldEntryIsRemoved() {
+            // The state a save can be left in: the record exists AND the world store still holds the block,
+            // which is two answers for one coordinate. Keeping the snapshot and keeping the world entry are
+            // different decisions - the snapshot wins, the entry goes - and without the removal the pair
+            // survives every later scan, because each one answers `already-carried` again.
             worldHolds(PLOT, ComponentType.RETAINING_REPEATER);
+            adopt(AUTHOR, PLOT, VISIBLE);
+
+            Slot shadow = new Slot(ComponentType.DUST);
+            shadow.power = 7;
+            world.put(PLOT.asLong(), shadow);
+            Slot snapshotBefore = index.at(AUTHOR, PLOT).slot().copy();
+
+            WorldComponentAdoption.Plan second = adopt(AUTHOR, PLOT, VISIBLE);
+
+            assertFalse(second.adopts(), "the live record is not overwritten by the world's later copy");
+            assertNull(world.get(PLOT.asLong()),
+                    "and the world entry is gone: one block answers once, which is the whole reason "
+                            + "adoption exists");
+            Slot after = index.at(AUTHOR, PLOT).slot();
+            assertEquals(snapshotBefore.type, after.type);
+            assertEquals(snapshotBefore.facing, after.facing);
+            assertEquals(snapshotBefore.power, after.power);
+            assertEquals(1, index.hostCount(AUTHOR), "still exactly one host");
+        }
+
+        @Test
+        @DisplayName("the plan is a pure function: asking twice changes nothing")
+        void thePlanIsPure() {            worldHolds(PLOT, ComponentType.RETAINING_REPEATER);
 
             WorldComponentAdoption.Plan first = WorldComponentAdoption.plan(index, AUTHOR, PLOT, VISIBLE,
                     new MapWorld(world).get(PLOT));
@@ -332,23 +364,31 @@ class WorldComponentAdoptionTest {
     @DisplayName("the `origin` rule, including its three edges")
     class TheOriginRule {
 
+        /**
+         * A pose that puts the centre of {@code local} at {@code centre}: unturned, so the block centre of a
+         * local coordinate is the structure's position plus that coordinate.
+         */
+        private static CarrierPose centreAt(BlockPos local, Vector3d centre) {
+            return CarrierPose.of(new Vector3d(centre.x - local.getX(), centre.y - local.getY(),
+                    centre.z - local.getZ()), new Quaterniond());
+        }
+
         @Test
         @DisplayName("a readable pose names the block the structure's own transform puts there")
         void aReadablePoseNamesTheBlock() {
-            BlockPos origin = WorldComponentAdoption.originFor(PLOT,
-                    local -> new Vector3d(-12.4, -60.5, -11.6));
+            BlockPos origin = WorldComponentAdoption.originFor(
+                    centreAt(PLOT, new Vector3d(-11.5, -59.5, -11.5)), PLOT);
 
             assertNotNull(origin);
             assertEquals(new BlockPos(-12, -60, -12), origin,
-                    "rounded to the nearest block, the same conversion the claim path uses "
-                            + "(SubLevelSpace#nearestWorldBlock), so the two frames name one block and not "
-                            + "two");
+                    "the block whose cell contains the pose's own answer, which is the same block the "
+                            + "projection names, so the two frames name one block and not two");
         }
 
         @Test
         @DisplayName("no pose at all is a refusal, never a guess - and never the plot coordinate")
         void noPoseIsARefusal() {
-            assertNull(WorldComponentAdoption.originFor(PLOT, local -> null),
+            assertNull(WorldComponentAdoption.originFor(null, PLOT),
                     "a position that cannot be computed must not be invented: recording the plot "
                             + "coordinate here would put the release fallback two million blocks from "
                             + "anywhere a player can go, which is strictly worse than adopting later");
@@ -357,26 +397,33 @@ class WorldComponentAdoptionTest {
         @Test
         @DisplayName("a pose that answers with non-finite numbers is refused too")
         void aNonFinitePoseIsRefused() {
-            assertNull(WorldComponentAdoption.originFor(PLOT,
-                            local -> new Vector3d(Double.NaN, Double.NaN, Double.NaN)),
-                    "a scale of zero or a NaN quaternion answers (NaN, NaN, NaN); rounding that would "
-                            + "produce a coordinate that looks like a number");
-            assertNull(WorldComponentAdoption.originFor(PLOT,
-                            local -> new Vector3d(Double.POSITIVE_INFINITY, 0.0, 0.0)),
+            assertNull(WorldComponentAdoption.originFor(new CarrierPose(
+                            new Vector3d(Double.NaN, Double.NaN, Double.NaN), new Quaterniond(),
+                            new Vector3d(CarrierPose.BLOCK_CENTRE, CarrierPose.BLOCK_CENTRE,
+                                    CarrierPose.BLOCK_CENTRE), 1.0), PLOT),
+                    "a NaN quaternion answers (NaN, NaN, NaN); flooring that would produce a block that "
+                            + "looks like a real position");
+            assertNull(WorldComponentAdoption.originFor(new CarrierPose(
+                            new Vector3d(Double.POSITIVE_INFINITY, 0.0, 0.0), new Quaterniond(),
+                            new Vector3d(CarrierPose.BLOCK_CENTRE, CarrierPose.BLOCK_CENTRE,
+                                    CarrierPose.BLOCK_CENTRE), 1.0), PLOT),
                     "and an infinite answer is the same class of not-an-answer");
         }
 
         @Test
-        @DisplayName("a block boundary goes to the higher block, and the two conversions agree")
+        @DisplayName("a block boundary goes the same way in both frames, because it is one answer")
         void aBoundaryGoesTheSameWayBothFramesDo() {
-            BlockPos origin = WorldComponentAdoption.originFor(PLOT, local -> new Vector3d(-319.5, 5.5, 0.5));
+            // A centre exactly on a boundary, which is the case a rounding difference is invisible in.
+            CarrierPose pose = centreAt(PLOT, new Vector3d(-319.5, 5.5, 0.5));
+            BlockPos origin = WorldComponentAdoption.originFor(pose, PLOT);
 
             assertNotNull(origin);
-            assertEquals(new BlockPos(-319, 6, 1), origin,
-                    "the same rounding SubLevelSpace#nearestWorldBlock makes for a world point, so a "
-                            + "claimed coordinate and an adopted one land in the same block");
-            assertEquals(SubLevelSpace.nearestWorldBlock(new Vector3d(-319.5, 5.5, 0.5)), origin,
-                    "stated as the pair, so the two cannot drift apart");
+            assertEquals(new BlockPos(-320, 5, 0), origin,
+                    "a centre on a boundary belongs to the cell that contains it, which is the block "
+                            + "flooring that centre names - not the nearer integer");
+            assertEquals(CarrierProjection.project(pose, PLOT), origin,
+                    "stated as the pair, so the two cannot drift apart: the record's origin and the block "
+                            + "the renderer draws are one answer, not two roundings that happen to agree");
         }
 
         @Test
@@ -388,6 +435,52 @@ class WorldComponentAdoptionTest {
             assertEquals(VISIBLE, plan.origin(),
                     "the decision does not re-derive the origin: one place computes it, and the value the "
                             + "record is built from is the value on the line");
+        }
+    }
+
+    // ------------------------------------- one answer for "where is this host drawn" --
+
+    /**
+     * A structure's own coordinate has exactly <b>one</b> world block, and which one it is must not depend on
+     * which code path asks. The origin a record carries and the projection the renderer, the signal query and
+     * the notification pass use were two separate pieces of arithmetic; they agree only while the structure is
+     * unturned, because a rotation carries the half block between a block's corner and its centre onto all
+     * three axes. A machine that has flown therefore has its components one block over, and every reader that
+     * consults the origin agrees with itself and with nothing else.
+     */
+    @Nested
+    @DisplayName("a turned structure's origin is the block the projection names")
+    class TheOriginIsTheProjection {
+
+        /** A structure that has flown: a fractional world position, which no parked fixture ever has. */
+        private static CarrierPose flown(Quaterniond turn) {
+            return CarrierPose.of(new Vector3d(100.4, 64.0, 200.6), turn);
+        }
+
+        private static void assertAllThreeAxes(Quaterniond turn) {
+            CarrierPose pose = flown(turn);
+            BlockPos projected = CarrierProjection.project(pose, PLOT);
+            BlockPos origin = WorldComponentAdoption.originFor(pose, PLOT);
+
+            assertNotNull(origin);
+            assertEquals(projected.getX(), origin.getX(), "x: projected="
+                    + projected.toShortString() + " origin=" + origin.toShortString());
+            assertEquals(projected.getY(), origin.getY(), "y: projected="
+                    + projected.toShortString() + " origin=" + origin.toShortString());
+            assertEquals(projected.getZ(), origin.getZ(), "z: projected="
+                    + projected.toShortString() + " origin=" + origin.toShortString());
+        }
+
+        @Test
+        @DisplayName("half a turn")
+        void halfTurn() {
+            assertAllThreeAxes(new Quaterniond().rotationY(Math.PI));
+        }
+
+        @Test
+        @DisplayName("a quarter turn")
+        void quarterTurn() {
+            assertAllThreeAxes(new Quaterniond().rotationY(Math.PI / 2));
         }
     }
 

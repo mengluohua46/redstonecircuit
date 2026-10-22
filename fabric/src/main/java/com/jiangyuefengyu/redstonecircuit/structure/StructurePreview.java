@@ -3,6 +3,7 @@ package com.jiangyuefengyu.redstonecircuit.structure;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.IntPredicate;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -19,9 +20,10 @@ import net.minecraft.network.codec.StreamCodec;
 /**
  * A small voxel model of a structure, small enough to travel: the complete structure goes to this save's
  * files and never over the network, so a client draws this downsampled preview instead, coarsened until its
- * encoding fits {@code structurePreviewBytes}. A preview cell stands for a {@code scale}³ block and holds the
- * most common non-air block there, so a wire or a torch in an otherwise empty region still shows up - the
- * point is to recognise the machine.
+ * encoding fits {@code structurePreviewBytes} and it fits {@code structurePreviewCells} cells - the first
+ * budget is paid once per packet, the second every frame. A preview cell stands for a {@code scale}³ block and
+ * holds the most common non-air block there, so a wire or a torch in an otherwise empty region still shows up -
+ * the point is to recognise the machine.
  *
  * <p>{@code hash} is the render cache key, derived in the constructor so the same picture always gets the
  * same number; the preview carries its own palette of block state tags (the registry-free form the payload
@@ -140,17 +142,47 @@ public record StructurePreview(Vec3i size, int scale, List<CompoundTag> palette,
     /**
      * Builds the preview of a structure: the same cells at first, then coarser until it fits {@code maxBytes}.
      *
-     * <p>{@code maxBytes} is the budget ({@code structurePreviewBytes}); {@code palette} is the payload's
-     * palette, entry for entry, and {@code source} its per-cell palette indices.
+     * <p>{@code maxBytes} is the byte budget alone - what a caller that keeps a picture inside another one asks
+     * for (see {@link NestedPreviews}); a preview a client has to draw every frame is also cut to a cell count,
+     * {@link #of(Vec3i, List, IndexArray, int, int)}.
      */
     public static StructurePreview of(Vec3i size, List<CompoundTag> palette, IndexArray source, int maxBytes) {
+        return of(size, palette, source, maxBytes, Integer.MAX_VALUE);
+    }
+
+    /**
+     * The same, cut to <b>two</b> budgets: the bytes a preview may take on the wire, and the cells it may have.
+     *
+     * <p>The byte budget is paid once, when the preview is sent; the cell count is what a client pays every
+     * frame it draws the miniature, which is why the second ceiling exists - a 48³ structure fits the 64 KiB
+     * budget at scale one and is 110,592 cells to draw. At the default 4,096 cells it is drawn at scale 3
+     * (16³ = 4,096 cells), a twenty-seventh of the cells it started with.
+     *
+     * <p>Both have to hold for a candidate to be returned, so the coarser of the two decides; a structure that
+     * still does not fit at {@link #MAX_SCALE} keeps the coarsest preview rather than growing without end.
+     *
+     * <p>{@code palette} is the payload's palette, entry for entry, and {@code source} its per-cell palette
+     * indices.
+     */
+    public static StructurePreview of(Vec3i size, List<CompoundTag> palette, IndexArray source, int maxBytes,
+                                      int maxCells) {
         for (int scale = 1; scale < MAX_SCALE; scale++) {
+            // Asked before the build, because a build reads the whole structure whatever the scale is: a
+            // candidate that is already too big by cell count is not worth its volume in reads.
+            if (cellCountAt(size, scale) > maxCells) {
+                continue;
+            }
             StructurePreview candidate = build(size, palette, source, scale);
             if (candidate.wireBytes() <= maxBytes) {
                 return candidate;
             }
         }
         return build(size, palette, source, MAX_SCALE);
+    }
+
+    /** How many cells a preview of {@code size} has at {@code scale} - the number the cell budget is about. */
+    public static int cellCountAt(Vec3i size, int scale) {
+        return ceilDiv(size.getX(), scale) * ceilDiv(size.getY(), scale) * ceilDiv(size.getZ(), scale);
     }
 
     /**
@@ -169,14 +201,29 @@ public record StructurePreview(Vec3i size, int scale, List<CompoundTag> palette,
         int sideY = ceilDiv(size.getY(), scale);
         int sideZ = ceilDiv(size.getZ(), scale);
 
-        int[] counts = new int[palette.size()];
-        int[] touched = new int[palette.size()];
+        // What one preview cell stands for is the whole of the coarsening, and it is decided in one place so that a
+        // capture and a live view of the same structure answer the same question the same way
+        // (see StructurePreviewCells#representative): a group prefers the cells of it that are exposed to air, because a
+        // miniature is a picture of a structure's surface - the solid layer behind a one-cell-thick decorated wall has
+        // more cells in the group and would otherwise win every group, drawing the wall's hidden back as its face.
+        StructurePreviewCells.RawCells raw =
+                (x, y, z) -> source.get(x + size.getX() * (z + size.getZ() * y));
+        // An index the palette does not have is treated as air rather than followed: a payload is checked against its
+        // palette when it is loaded, but this is also reachable from a file somebody edited by hand.
+        int air = airIndex;
+        IntPredicate empty = index -> index < 0 || index >= palette.size() || index == air;
+        // A tie in that vote must not be decided by the number, because a palette index is the order this structure's
+        // blocks happened to arrive in and neither the live view nor an icon can reproduce that order: both of them
+        // work from block state ids, which put the same two blocks the other way round (see StructurePreviewCells.Rank).
+        // What an entry names is the one key all three can produce.
+        StructurePreviewCells.Rank byName = (left, right) -> palette.get(left).getString("Name")
+                .compareTo(palette.get(right).getString("Name"));
         int[] chosen = new int[sideX * sideY * sideZ];
         for (int y = 0; y < sideY; y++) {
             for (int z = 0; z < sideZ; z++) {
                 for (int x = 0; x < sideX; x++) {
-                    chosen[x + sideX * (z + sideZ * y)] =
-                            dominant(size, source, airIndex, x, y, z, scale, counts, touched);
+                    chosen[x + sideX * (z + sideZ * y)] = StructurePreviewCells.representative(size, raw, empty,
+                            airIndex, x, y, z, scale, byName);
                 }
             }
         }
@@ -200,43 +247,6 @@ public record StructurePreview(Vec3i size, int scale, List<CompoundTag> palette,
         }
         return new StructurePreview(new Vec3i(sideX, sideY, sideZ), scale, previewPalette,
                 IndexArray.of(cells, previewPalette.size()), 0);
-    }
-
-    /**
-     * The block one preview cell stands for: the most common non-air one in its block of space, or air when
-     * there is none. Ties go to the lower palette index, so the answer never depends on iteration order.
-     *
-     * <p>An index the palette does not have is treated as air rather than followed. A payload is checked
-     * against its palette when it is loaded, but this is also reachable from a file somebody edited by hand,
-     * and "this structure cannot be drawn" beats an exception thrown while a player places a block.
-     */
-    private static int dominant(Vec3i size, IndexArray source, int airIndex, int px, int py, int pz, int scale,
-                                int[] counts, int[] touched) {
-        int touchedCount = 0;
-        int best = -1;
-        int bestCount = 0;
-        for (int y = py * scale; y < Math.min((py + 1) * scale, size.getY()); y++) {
-            for (int z = pz * scale; z < Math.min((pz + 1) * scale, size.getZ()); z++) {
-                for (int x = px * scale; x < Math.min((px + 1) * scale, size.getX()); x++) {
-                    int index = source.get(x + size.getX() * (z + size.getZ() * y));
-                    if (index < 0 || index >= counts.length || index == airIndex) {
-                        continue;
-                    }
-                    if (counts[index] == 0) {
-                        touched[touchedCount++] = index;
-                    }
-                    counts[index]++;
-                    if (counts[index] > bestCount || (counts[index] == bestCount && index < best)) {
-                        best = index;
-                        bestCount = counts[index];
-                    }
-                }
-            }
-        }
-        for (int i = 0; i < touchedCount; i++) {
-            counts[touched[i]] = 0;
-        }
-        return best < 0 ? airIndex : best;
     }
 
     private static CompoundTag airTag() {
@@ -272,13 +282,16 @@ public record StructurePreview(Vec3i size, int scale, List<CompoundTag> palette,
      * <p>The palette is asked whether the payload holds any <b>nested</b> structure - a product block standing
      * inside this one - and if it does, that structure's own preview travels inside the entry for its cell
      * (see {@link NestedPreviews}); the cell would otherwise be drawn as an invisible block.
+     *
+     * <p>{@code maxCells} is the outer picture's own ceiling; the nested ones are kept inside the byte budget
+     * ({@link NestedPreviews#expand}), because a cell of the outer picture is drawn as one cell of the inner.
      */
     @Nullable
-    public static StructurePreview ofPayload(@Nullable StructurePayload payload, int maxBytes) {
+    public static StructurePreview ofPayload(@Nullable StructurePayload payload, int maxBytes, int maxCells) {
         if (payload == null) {
             return null;
         }
         NestedPreviews.Expanded expanded = NestedPreviews.expand(payload, maxBytes);
-        return of(payload.header().size(), expanded.palette(), expanded.cells(), maxBytes);
+        return of(payload.header().size(), expanded.palette(), expanded.cells(), maxBytes, maxCells);
     }
 }

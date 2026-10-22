@@ -85,18 +85,22 @@ class StructurePreviewTest {
     }
 
     @Test
-    @DisplayName("the most common block wins when a cell holds more than one kind, and a tie goes by order")
+    @DisplayName("the most common block wins when a cell holds more than one kind, and a tie goes by name")
     void theMajorityBlockWins() {
         StructurePreview mixed = StructurePreview.build(new Vec3i(3, 1, 1), List.of(STONE, DIRT, AIR),
                 cells(0, 1, 1), 3);
         assertEquals("minecraft:dirt", mixed.palette().get(mixed.cells().get(0)).getString("Name"),
                 "two dirt against one stone is not a tie");
 
-        // One of each is a tie, and a tie must still be the same answer every time: the palette's own order.
+        // One of each is a tie, and a tie must still be the same answer every time - but "the palette's own order" is
+        // not that answer: a live view and an icon never see this structure's palette, they work from block state ids,
+        // and the two orders put the same two blocks the other way round. The name is the one key all three callers can
+        // produce, so the tie goes to the block named first (see StructurePreviewCells.Rank).
         StructurePreview tied = StructurePreview.build(new Vec3i(2, 1, 1), List.of(STONE, DIRT, AIR),
                 cells(0, 1), 2);
         assertEquals(1, tied.filledCells());
-        assertEquals("minecraft:stone", tied.palette().get(tied.cells().get(0)).getString("Name"));
+        assertEquals("minecraft:dirt", tied.palette().get(tied.cells().get(0)).getString("Name"),
+                "one stone and one dirt: dirt is named first, so dirt is what the cell stands for");
     }
 
     @Test

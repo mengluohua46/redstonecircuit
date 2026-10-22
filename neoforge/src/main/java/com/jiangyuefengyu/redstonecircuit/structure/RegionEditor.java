@@ -87,9 +87,32 @@ public record RegionEditor(boolean relative, Vec3i offset, Vec3i size) {
      * two together, and that has to be a function with a test rather than an expression inside a button handler: a row
      * sent as {@code 0, 0, 0} <em>world</em> coordinates answers every add with "0, 0, 0 is outside the selection",
      * which reads exactly like a button that does nothing.
+     *
+     * <p><b>Not the frame the cell row uses.</b> A table stores a cell against the selection's first cell, so the row
+     * goes through {@link #cellIn}: reading a row from the controller instead shifted every stored cell by
+     * {@code controller - region.min()}, which is the cell that appeared to move by itself once a capture took the
+     * border away. Nothing in the mod calls this any more.
      */
     public static BlockPos cell(BlockPos controller, Vec3i local) {
         return controller.offset(local);
+    }
+
+    /**
+     * <b>One cell, read the way the screen's tables read it: as an offset from the selection's first cell.</b>
+     *
+     * <p>Why the selection's first cell, and not the controller: the tables <em>store</em> a cell that way - the server
+     * reads a world position back into a row as {@code cell.subtract(region.min())} - and a selection is allowed to
+     * sit anywhere, controller or not. Adding the controller back instead (the reading this replaced) shifts every
+     * cell by {@code controller - region.min()}: a row that said {@code 2,1,1} was stored as {@code 1,1,1} and, with
+     * the border gone, read back as {@code 1,1,1}. The two frames agree only while the controller happens to be the
+     * region's first cell, which is the one case that never fails by hand.
+     *
+     * <p>The first cell is also the only frame the rest of the mod agrees on: a copy's panel is read from its plot
+     * origin, an injection is placed at {@code plot.origin() + local}, and a selection need not contain its
+     * controller at all - so one origin means the same thing for a selection, a copy and a table row.
+     */
+    public static BlockPos cellIn(PreviewRegion region, Vec3i local) {
+        return region.min().offset(local);
     }
 
     public RegionEditor withOffset(Vec3i newOffset) {

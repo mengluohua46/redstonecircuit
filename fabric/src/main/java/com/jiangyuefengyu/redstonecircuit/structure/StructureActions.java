@@ -102,7 +102,7 @@ public final class StructureActions {
         }
 
         StructureProductData product = StructureProductData.of(captured.payload(),
-                RCConfig.structurePreviewBytes());
+                RCConfig.structurePreviewBytes(), RCConfig.structurePreviewCells());
         controller.setPending(product);
         // The take is over: the region has left the world (a cut) or been duplicated (a copy), and a successful
         // operation is one of the ways a preview ends.

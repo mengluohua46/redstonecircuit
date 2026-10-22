@@ -7,15 +7,23 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.RCRegistry;
+import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RedStoneWireBlock;
 import net.minecraft.world.level.block.state.BlockState;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 超导红石粉 placed in the world: a redstone wire whose hops cost nothing.
@@ -31,6 +39,13 @@ import net.minecraft.world.level.block.state.BlockState;
  * physical meaning of a superconductor and a unique answer. The block reports nothing while any wire is calculating (see
  * the suppression counter), because a wire's {@code getDirectSignal} charges the solid block it lies on, and a lossless
  * run would otherwise find its own strength coming out of the ground and never go dark.
+ *
+ * <p><b>A run is not a network of its own where it meets a host block.</b> Whatever is inside that block is wired to it -
+ * a piece of 超导红石粉 buried in the block is the same material - and the two are solved as one by
+ * {@code InnerRedstoneNetwork}, from zero, with only real sources as seeds. Solving them one at a time is what used to
+ * latch such a pair at fifteen: each side read the other's <em>stored</em> strength, and with no hop charged between two
+ * lossless wires every pair of values was a fixed point. {@link #updateComponent} therefore hands the run over to that
+ * solve whenever it is laid against a host block, and only computes it here when it is alone in the world.
  *
  * <p>The one answer about the wire's <em>shape</em> that a subclass cannot reach is whether ordinary dust may connect to
  * it at all: vanilla's {@code shouldConnectTo} is static, and it answers yes for its own dust and, for everything else,
@@ -103,6 +118,12 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
      *
      * <p>Called from {@code RedStoneWireBlockMixin} wherever vanilla would recompute one wire, so it runs
      * however the change was triggered.
+     *
+     * <p>Two shapes here. A run <b>alone in the world</b> is solved on the spot: its own strength is the best
+     * supply anywhere in it, which is the whole of its physics. A run laid against a <b>host block</b> is not:
+     * the component inside that block is wired to it, so the two are solved together by
+     * {@code InnerRedstoneNetwork} - see {@link #updateComponent}'s body, and {@code SuperconductingWireBlock}'s
+     * class note for why solving them apart could never come back down.
      */
     public static void updateComponent(Level level, BlockPos origin) {
         // Silent for the duration, for both reasons on the suppression counter: the run must not read its
@@ -115,31 +136,79 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
                 return;
             }
 
-            int strength = 0;
-            for (BlockPos pos : run) {
-                strength = Math.max(strength, supplyAt(level, pos));
+            InnerRedstoneStore components = level instanceof ServerLevel server
+                    ? InnerRedstoneStore.get(server)
+                    : null;
+            List<BlockPos> hosting = components == null || components.isEmpty()
+                    ? List.of()
+                    : hostsBeside(components, run);
+            if (!hosting.isEmpty()) {
+                // A run laid against a host block is not a network of its own: whatever is inside that block is
+                // wired to it, and the two have to be solved together or each reads the other's stored value
+                // and neither can ever come down. The settle pass owns that solve, so all this does is make
+                // sure it happens - and it leaves the state alone, because writing here would be writing half
+                // of an answer the other half has not reached yet.
+                for (BlockPos host : hosting) {
+                    InnerRedstoneNetwork.markDirty((ServerLevel) level, host);
+                }
+                return;
             }
 
+            int strength = 0;
             for (BlockPos pos : run) {
-                BlockState state = level.getBlockState(pos);
-                if (!isSuperconductor(state) || state.getValue(POWER) == strength) {
-                    continue;
-                }
-                // Flag 2, as vanilla uses: this change is sent to clients, and the neighbours are told
-                // explicitly just below rather than by the block update itself.
-                level.setBlock(pos, state.setValue(POWER, strength), 2);
-                for (Direction direction : Direction.values()) {
-                    level.updateNeighborsAt(pos.relative(direction), state.getBlock());
-                }
-                level.updateNeighborsAt(pos, state.getBlock());
+                strength = Math.max(strength, supplyAt(level, pos, components));
             }
+            writeRun(level, run, PowerSolver.clamp(strength));
         } finally {
             endSuppression();
         }
     }
 
+    /**
+     * Gives every cell of one run the same strength, and tells the neighbours of the cells it changed.
+     *
+     * <p>Flag 2, as vanilla uses: this change is sent to clients, and the neighbours are told explicitly
+     * below rather than by the block update itself. A cell already holding the strength is left alone, so a
+     * solve that changed nothing writes nothing.
+     */
+    public static void writeRun(Level level, List<BlockPos> run, int strength) {
+        for (BlockPos pos : run) {
+            BlockState state = level.getBlockState(pos);
+            if (!isSuperconductor(state) || state.getValue(POWER) == strength) {
+                continue;
+            }
+            level.setBlock(pos, state.setValue(POWER, strength), 2);
+            for (Direction direction : Direction.values()) {
+                level.updateNeighborsAt(pos.relative(direction), state.getBlock());
+            }
+            level.updateNeighborsAt(pos, state.getBlock());
+        }
+    }
+
+    /**
+     * The host blocks this run is laid against that hold a component of ours.
+     *
+     * <p>Their presence is what makes the run part of a larger network: a component inside a host block is
+     * read by the run and reads the run back, so the two cannot be solved one at a time.
+     */
+    public static List<BlockPos> hostsBeside(@Nullable InnerRedstoneStore components, List<BlockPos> run) {
+        List<BlockPos> hosts = new ArrayList<>();
+        if (components == null) {
+            return hosts;
+        }
+        for (BlockPos cell : run) {
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbour = cell.relative(direction);
+                if (components.slotAt(neighbour) != null && !hosts.contains(neighbour)) {
+                    hosts.add(neighbour.immutable());
+                }
+            }
+        }
+        return hosts;
+    }
+
     /** Every superconducting wire joined to {@code origin}, by the rule that decides the wire's shape. */
-    private static List<BlockPos> collectRun(Level level, BlockPos origin) {
+    public static List<BlockPos> collectRun(Level level, BlockPos origin) {
         List<BlockPos> run = new ArrayList<>();
         if (!isSuperconductor(level.getBlockState(origin))) {
             return run;
@@ -198,8 +267,18 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
      * <p>Sources - levers, torches, diodes, charged blocks - are read the way vanilla reads them, from
      * any of the six sides. Ordinary dust is read where a wire could connect at all, at its full
      * strength, which is the lossless half of the mixing rule.
+     *
+     * <p>A host block is <b>a component and not a block of stone</b>, so it is read from its record rather
+     * than through the world query: the query is silent while our own solve runs, and the two must not
+     * answer differently depending on whether a solve happens to be in progress. What that component is
+     * decides whether it is a supply at all - a lever, a torch or a repeater inside the block feeds this wire,
+     * while a <b>wire</b> inside it does not: two wires on either side of one block boundary are one network,
+     * and taking the stored value of one as the other's supply is what used to hold such a pair at fifteen
+     * for ever. That value is a node of the merged solve ({@code InnerRedstoneNetwork}), never a seed.
+     *
+     * @param components the level's inner components, or {@code null} when there are none to consult
      */
-    private static int supplyAt(Level level, BlockPos pos) {
+    public static int supplyAt(Level level, BlockPos pos, @Nullable InnerRedstoneStore components) {
         int best = 0;
         for (Direction direction : Direction.values()) {
             BlockPos neighbour = pos.relative(direction);
@@ -208,9 +287,15 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
                 // Its own kind is the run itself; ordinary dust is the wire scan's business below.
                 continue;
             }
-            best = Math.max(best, level.getSignal(neighbour, direction));
-            if (best >= 15) {
-                return 15;
+            Slot held = components == null ? null : components.slotAt(neighbour);
+            if (held == null) {
+                best = Math.max(best, level.getSignal(neighbour, direction));
+            } else if (!held.type.isWire()) {
+                best = Math.max(best, PowerSolver.signalAnswer(held, direction.getOpposite(), false,
+                        true, RCConfig.hostConductsStrongPower()));
+            }
+            if (best >= PowerSolver.MAX_POWER) {
+                return PowerSolver.MAX_POWER;
             }
         }
 

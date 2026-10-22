@@ -671,8 +671,7 @@ public final class CarrierInteraction {
         CarrierPose pose = poseOf(level, hit);
         CarriedTool.Action action = wrench
                 ? wrenchAction(level, player, shift, pose, index, hit)
-                : CarriedTool.turn(index, hit.carrier(), hit.localPos(),
-                        CarrierDirections.localDirection(pose, face));
+                : CarriedTool.turn(index, hit.carrier(), hit.localPos());
         // THE REPORTING IS ITS OWN GUARDED STEP. The action itself is a pure function over the index and cannot
         // fail on a record's contents; what follows it - the carrier broadcast, the single-host broadcast, the
         // world notification - is the half that touches a live record, and that is the half that can fail (a
@@ -2606,13 +2605,10 @@ public final class CarrierInteraction {
                     : CarrierMessages.refused(Component.translatable(
                             "message.redstonecircuit.wrench.no_component"));
         }
-        if (action instanceof CarriedTool.Action.TurnedToInput turned) {
+        if (action instanceof CarriedTool.Action.Turned turned) {
+            // The component is reported in the structure's own frame, which is where the next click will read it.
             return Component.translatable("message.redstonecircuit.rotation_rod.to_input",
-                    Component.literal(turned.localFace().getName())).withStyle(ChatFormatting.YELLOW);
-        }
-        if (action instanceof CarriedTool.Action.TurnedToOutput turned) {
-            return Component.translatable("message.redstonecircuit.rotation_rod.to_output",
-                    Component.literal(turned.localFace().getName())).withStyle(ChatFormatting.YELLOW);
+                    Component.literal(turned.localFacing().getName())).withStyle(ChatFormatting.YELLOW);
         }
         // THE LAST PLACE AN ACTION COULD REACH THE ACTION BAR AS ITS OWN LOG TEXT. Every branch above names
         // what happened in words a player reads; falling back to the action's own description text would put the

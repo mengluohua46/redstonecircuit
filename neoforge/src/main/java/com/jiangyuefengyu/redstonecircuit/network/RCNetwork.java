@@ -10,6 +10,8 @@ import org.jetbrains.annotations.Nullable;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.RedstoneCircuit;
+import com.jiangyuefengyu.redstonecircuit.blueprint.BlueprintExport;
+import com.jiangyuefengyu.redstonecircuit.blueprint.BlueprintUploadRequests;
 import com.jiangyuefengyu.redstonecircuit.block.ClockBlock;
 import com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock;
 import com.jiangyuefengyu.redstonecircuit.block.ControllerBlock;
@@ -44,6 +46,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
@@ -68,7 +71,7 @@ public final class RCNetwork {
      * Payload version; bump it whenever a codec below changes shape. Both sides have to be the same build: a shape
      * change is invisible on the wire to an older client, which would keep drawing what it was last told.
      */
-    private static final String VERSION = "12";
+    private static final String VERSION = "15";
 
     private RCNetwork() {
     }
@@ -98,6 +101,8 @@ public final class RCNetwork {
                 .playToClient(LogicViewPayload.TYPE, LogicViewPayload.STREAM_CODEC, LogicViewPayload::handle)
                 .playToServer(LogicEditPayload.TYPE, LogicEditPayload.STREAM_CODEC, LogicEditPayload::handle)
                 .playToClient(DeviceViewPayload.TYPE, DeviceViewPayload.STREAM_CODEC, DeviceViewPayload::handle)
+                .playToServer(SchematicSelectionPayload.TYPE, SchematicSelectionPayload.STREAM_CODEC,
+                        SchematicSelectionPayload::handle)
                 .playToServer(DeviceEditPayload.TYPE, DeviceEditPayload.STREAM_CODEC, DeviceEditPayload::handle);
     }
 
@@ -556,7 +561,13 @@ public final class RCNetwork {
             /** One row of the output table: a cell, the face it drives, and the strength. */
             SET_OUTPUT, REMOVE_OUTPUT,
             /** Hands the block the structure is holding to the player and empties the slot. */
-            TAKE_OUT
+            TAKE_OUT,
+            /**
+             * One panel entry replaced whole, by the index a client presses. Appended rather than slotted in beside the
+             * other manual verbs because a verb is an ordinal on the wire: a rename changes the entry's identity, so a
+             * remove plus an add would lose it between the two steps.
+             */
+            REPLACE_MANUAL
         }
 
         /** The longest string any verb carries: a name, a key or a label, all of them 64. */
@@ -626,6 +637,13 @@ public final class RCNetwork {
                                                   String label) {
             return new StructureEditPayload(pos, Verb.SET_MANUAL, cell.getX(), cell.getY(), cell.getZ(),
                     strength, 0, 0, key, label);
+        }
+
+        /** The panel's "update" button: entry {@code index} becomes {@code name} on {@code cell}, at a strength. */
+        public static StructureEditPayload manualReplace(BlockPos pos, int index, String name, BlockPos cell,
+                                                         int strength) {
+            return new StructureEditPayload(pos, Verb.REPLACE_MANUAL, index, cell.getX(), cell.getY(), cell.getZ(),
+                    strength, 0, name, "");
         }
 
         public static StructureEditPayload entry(BlockPos pos, Verb verb, int index) {
@@ -718,6 +736,8 @@ public final class RCNetwork {
                 case CLEAR_MANUAL -> StructureEdits.clearManual(level, pos);
                 case PRESS_MANUAL -> StructureEdits.pressManual(level, player, pos, edit.a());
                 case TAKE_OUT -> StructureEdits.takeOut(level, player, pos);
+                case REPLACE_MANUAL -> StructureEdits.replaceManualEntry(level, pos, edit.a(), edit.first(),
+                        new BlockPos(edit.b(), edit.c(), edit.d()), edit.e());
             };
         }
 
@@ -732,8 +752,15 @@ public final class RCNetwork {
      * "These cells of this structure look different now": the diff behind the live miniature; the server samples the
      * structure on a timer and sends only the cells whose block id differs from the last sample.
      * <p>A block id rather than state NBT, because {@code Block.getId}/{@code Block.stateById} are the game's compact,
-     * bounded encoding, and two integers per changed cell is the smallest honest packet. The cell order is
-     * {@link com.jiangyuefengyu.redstonecircuit.structure.StructureLiveView#index}.
+     * bounded encoding, and two integers per changed cell is the smallest honest packet.
+     *
+     * <p><b>The index is a cell of the preview</b>, in {@link com.jiangyuefengyu.redstonecircuit.structure.StructureLiveView#index}'s
+     * order over the <em>preview's</em> size - not a cell of the structure. A preview coarsened to scale {@code s}
+     * stands for {@code s}³ of the structure's cells, and which one of them the picture shows is a decision only the
+     * server can make: it has the payload, the scale and the real blocks in the pocket, and the answer is the surface
+     * of the group rather than the last cell of it that happened to change
+     * ({@link com.jiangyuefengyu.redstonecircuit.structure.StructurePreviewCells#representative}). At one cell per
+     * block the two numberings are the same, so nothing about a full-detail structure changed.
      */
     public record StructureLivePayload(BlockPos pos, int[] indices, int[] blockIds, boolean restart)
             implements CustomPacketPayload {
@@ -1272,6 +1299,75 @@ public final class RCNetwork {
                         }
                     }
                 }
+            });
+        }
+    }
+
+    /**
+     * The region a client exported a blueprint from, so the server can put that region's inner redstone into the file
+     * the upload produces.
+     *
+     * <p>The client cannot write it itself - a client holds no redstone store - and Create's upload carries only a file
+     * name and its bytes, so the region has to be said separately. It is said before the upload starts, which is why
+     * the server can treat a missing announcement as "no components" instead of waiting for one.
+     *
+     * <p>The <b>dimension</b> travels with it rather than being taken from the receiver, because the box is only a set
+     * of coordinates until it is placed in a level, and the one the sender exported from is the only one it means.
+     * Everything else about acceptability is decided on the server: the bounds in the decoder are the ones that make a
+     * selection a selection at all, and the size, distance and permission rules are the handler's.
+     */
+    public record SchematicSelectionPayload(String schematic, ResourceKey<Level> dimension, BlockPos first,
+                                            BlockPos second) implements CustomPacketPayload {
+
+        public static final CustomPacketPayload.Type<SchematicSelectionPayload> TYPE =
+                new CustomPacketPayload.Type<>(RedstoneCircuit.id("schematic_selection"));
+
+        public static final StreamCodec<RegistryFriendlyByteBuf, SchematicSelectionPayload> STREAM_CODEC =
+                StreamCodec.of(SchematicSelectionPayload::encode, SchematicSelectionPayload::decode);
+
+        @Override
+        public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+
+        private static void encode(RegistryFriendlyByteBuf buffer, SchematicSelectionPayload payload) {
+            buffer.writeUtf(payload.schematic(), BlueprintExport.MAX_NAME_LENGTH);
+            // The key, not the level: a receiver resolves it against its own server, which is the only place the
+            // region can be read from anyway.
+            buffer.writeResourceLocation(payload.dimension().location());
+            buffer.writeBlockPos(payload.first());
+            buffer.writeBlockPos(payload.second());
+        }
+
+        private static SchematicSelectionPayload decode(RegistryFriendlyByteBuf buffer) {
+            String schematic = buffer.readUtf(BlueprintExport.MAX_NAME_LENGTH);
+            ResourceLocation dimension = buffer.readResourceLocation();
+            BlockPos first = buffer.readBlockPos();
+            BlockPos second = buffer.readBlockPos();
+            // The name is refused here rather than on the server: it is what a file path is built from, and nothing
+            // about "which region" is worth carrying when the file it describes is not a file.
+            if (!BlueprintExport.isPlainNbtName(schematic)) {
+                throw new DecoderException("a blueprint selection cannot name " + schematic);
+            }
+            return new SchematicSelectionPayload(schematic,
+                    ResourceKey.create(Registries.DIMENSION, dimension), first, second);
+        }
+
+        // Runs on the server, which is the only side holding the store: the announcement is checked against the
+        // player's own level and position here, and a refusal is silence - there is nothing the client would do about
+        // it, and the upload itself is Create's.
+        private static void handle(SchematicSelectionPayload payload, IPayloadContext context) {
+            context.enqueueWork(() -> {
+                if (!(context.player() instanceof ServerPlayer player)
+                        || !(player.level() instanceof ServerLevel level)) {
+                    return;
+                }
+                if (!level.dimension().equals(payload.dimension())
+                        || BlueprintExport.limits(player, payload.first(), payload.second()).isPresent()) {
+                    return;
+                }
+                BlueprintUploadRequests.remember(player.getUUID(), payload.schematic(), level.dimension(),
+                        payload.first(), payload.second());
             });
         }
     }

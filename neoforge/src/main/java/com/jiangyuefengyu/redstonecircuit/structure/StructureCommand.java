@@ -41,7 +41,8 @@ import net.minecraft.world.item.ItemStack;
  * ({@code mode}, {@code tier}, {@code face}, {@code manual}, {@code info}), and every edit returns the preview to
  * the unconfirmed state, so the confirmed state is never reached from a rectangle nobody has looked at since it
  * changed. It works through the controller's own block entity, because the region is that entity's state in the
- * real flow; the file verbs ({@code list}, {@code give}, {@code export}, {@code import}) sit outside that flow.
+ * real flow; the file verbs ({@code list}, {@code dump}, {@code give}, {@code export}, {@code import}) sit
+ * outside that flow.
  */
 public final class StructureCommand {
 
@@ -155,6 +156,10 @@ public final class StructureCommand {
                                 .executes(StructureCommand::materialize)))
                 .then(Commands.literal("jobs").executes(StructureCommand::jobs))
                 .then(Commands.literal("list").executes(StructureCommand::list))
+                .then(Commands.literal("dump")
+                        .then(Commands.argument("structure", StringArgumentType.greedyString())
+                                .suggests(StructureCommand::suggestStructures)
+                                .executes(StructureCommand::dump)))
                 .then(Commands.literal("give")
                         .then(Commands.argument("id", StringArgumentType.string())
                                 .executes(StructureCommand::give)))
@@ -610,6 +615,73 @@ public final class StructureCommand {
         return headers.size();
     }
 
+    /**
+     * Reads one structure's file back and writes its six outermost layers to the log - the raw plane first,
+     * then the plane the preview budgets left standing.
+     *
+     * <p>Read-only on purpose, and it needs nothing in the world: a surface that is missing from a placed
+     * structure is a question about a file, and asking it should not depend on the block still being there.
+     * The two sections answer two different questions - whether the capture lost the outer layer, and whether
+     * the coarsening did.
+     */
+    private static int dump(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        StructureWorldStore store = store(source);
+        String argument = StringArgumentType.getString(context, "structure").trim();
+        UUID id = null;
+        try {
+            UUID parsed = UUID.fromString(argument);
+            if (store.contains(parsed)) {
+                id = parsed;
+            } else {
+                say(source, "no structure " + argument + " in this save - that is the missing-placeholder "
+                        + "case, not an empty structure", ChatFormatting.RED);
+                return 0;
+            }
+        } catch (IllegalArgumentException notAnId) {
+            List<PayloadHeader> named = new ArrayList<>();
+            for (PayloadHeader header : store.headers()) {
+                if (header.name().equalsIgnoreCase(argument)) {
+                    named.add(header);
+                }
+            }
+            if (named.size() != 1) {
+                say(source, named.isEmpty()
+                        ? "no structure in this save is called '" + argument + "' (/rc structure list shows them)"
+                        : named.size() + " structures are called '" + argument
+                                + "': give the id one of them has",
+                        ChatFormatting.RED);
+                return 0;
+            }
+            id = named.get(0).uuid();
+        }
+        StructurePayload payload;
+        try {
+            payload = store.load(id);
+        } catch (IOException unreadable) {
+            say(source, "could not read " + id + ": " + unreadable, ChatFormatting.RED);
+            return 0;
+        }
+        List<String> lines = StructureDump.lines(payload, RCConfig.structurePreviewBytes(),
+                RCConfig.structurePreviewCells());
+        for (String line : lines) {
+            RCConfig.LOGGER.info("{}", line);
+        }
+        say(source, "dumped " + lines.size() + " line(s) of \"" + payload.header().name()
+                + "\" to the log: raw outermost layers first, then the preview's", ChatFormatting.GREEN);
+        return 1;
+    }
+
+    /** The names this save holds, for {@code dump} - a name is what a player has, an id is what a file has. */
+    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+            suggestStructures(CommandContext<CommandSourceStack> context,
+                              com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        for (PayloadHeader header : store(context.getSource()).headers()) {
+            builder.suggest(header.name());
+        }
+        return builder.buildFuture();
+    }
+
     private static UUID id(CommandSourceStack source, String argument) {
         try {
             return UUID.fromString(argument);
@@ -636,7 +708,8 @@ public final class StructureCommand {
             return 0;
         }
         ItemStack stack = RCRegistry.structureStack(
-                StructureProductData.of(payload, RCConfig.structurePreviewBytes()));
+                StructureProductData.of(payload, RCConfig.structurePreviewBytes(),
+                        RCConfig.structurePreviewCells()));
         if (!source.getPlayer().addItem(stack)) {
             source.getPlayer().drop(stack, false);
         }

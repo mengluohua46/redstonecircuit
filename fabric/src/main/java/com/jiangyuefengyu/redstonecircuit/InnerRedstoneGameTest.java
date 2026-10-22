@@ -1317,6 +1317,155 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         helper.succeed();
     }
 
+    // -------------------------- a placed wire and the dust buried beside it --
+
+    /** A lever standing on the floor, switched on or off - the source these four tests switch. */
+    private static BlockState floorLever(boolean powered) {
+        return Blocks.LEVER.defaultBlockState()
+                .setValue(BlockStateProperties.ATTACH_FACE,
+                        net.minecraft.world.level.block.state.properties.AttachFace.FLOOR)
+                .setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.NORTH)
+                .setValue(BlockStateProperties.POWERED, powered);
+    }
+
+    /**
+     * 地面超导红石粉 beside a host block holding <b>superconducting</b> dust: switching the source off has to
+     * darken both sides.
+     *
+     * <p>They used to latch at fifteen for ever. Each side is solved from its own sources and reads the
+     * other's <b>stored</b> value, and neither of the two boundaries charged a hop - a lossless wire on both
+     * sides of one boundary is a loop of gain exactly one, so <em>every</em> pair of values was a fixed point
+     * and fifteen stayed fifteen with the lever off. Neither solver is wrong on its own; the coupling was.
+     * The two sides are one electrical run, so they are solved as one, from zero.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void placedWireAndBuriedWireGoDarkTogether(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        // The host block with superconducting dust inside, the wire lying beside it, and the lever feeding them.
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        placeComponent(helper, at(helper, 1, 1, 1), ComponentType.SUPERCONDUCTOR, 0, Direction.NORTH);
+        setBlock(helper, 2, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, floorLever(true));
+
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 15,
+                    "precondition: the lever lights the placed wire, got " + wirePowerAt(helper, 2, 1, 1));
+            helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 15,
+                    "precondition: and the buried superconductor with it, got "
+                            + powerAt(helper, at(helper, 1, 1, 1)));
+
+            setBlock(helper, 3, 1, 1, floorLever(false));
+
+            afterTicks(helper, 4, () -> helper.succeedWhen(() -> {
+                helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 0,
+                        "with the lever off the placed wire must go dark, got "
+                                + wirePowerAt(helper, 2, 1, 1));
+                helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 0,
+                        "and the buried superconductor must go dark with it, got "
+                                + powerAt(helper, at(helper, 1, 1, 1)));
+            }));
+        });
+    }
+
+    /**
+     * The same with <b>ordinary</b> dust inside the host block: the latch came from the placed side, so the
+     * material buried in the block makes no difference.
+     *
+     * <p>The buried dust settles at fourteen rather than fifteen, and that is the rule rather than a
+     * compromise: a hop is charged to the wire that <em>receives</em> it, the placed run is superconducting
+     * and charges nothing, so the dust pays its own hop on the way in - exactly what dust on the far side of
+     * a superconducting run costs inside one block.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void placedWireAndBuriedOrdinaryDustGoDarkTogether(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        placeDust(helper, at(helper, 1, 1, 1), 0);
+        setBlock(helper, 2, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, floorLever(true));
+
+        afterTicks(helper, 4, () -> {
+            helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 15,
+                    "precondition: the lever lights the placed wire, got " + wirePowerAt(helper, 2, 1, 1));
+            helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 14,
+                    "precondition: and the buried dust takes fourteen - it pays its own hop - got "
+                            + powerAt(helper, at(helper, 1, 1, 1)));
+
+            setBlock(helper, 3, 1, 1, floorLever(false));
+
+            afterTicks(helper, 4, () -> helper.succeedWhen(() -> {
+                helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 0,
+                        "with the lever off the placed wire must go dark, got "
+                                + wirePowerAt(helper, 2, 1, 1));
+                helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 0,
+                        "and the buried dust must go dark with it, got "
+                                + powerAt(helper, at(helper, 1, 1, 1)));
+            }));
+        });
+    }
+
+    /**
+     * The positive half of the same rule: a source on the <b>inner</b> side fills the placed wire to fifteen.
+     *
+     * <p>This is what separates the merged solve from "charge the boundary one hop": a superconductor loses
+     * nothing across the edge of the block either, so the wire gets the full fifteen rather than fourteen.
+     *
+     * <p>Fifteen both before and after the two sides are solved as one: the pair above is fixed by solving them
+     * together, never by charging the boundary a hop, and this is the reading that would catch such a change.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void buriedSuperconductorFillsPlacedWireInFull(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        // lever host -> superconductor host -> the wire on the ground beside it
+        for (int x = 0; x <= 2; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+        }
+        placeComponent(helper, at(helper, 0, 1, 1), ComponentType.LEVER, 15, Direction.NORTH);
+        placeComponent(helper, at(helper, 1, 1, 1), ComponentType.SUPERCONDUCTOR, 0, Direction.NORTH);
+        setBlock(helper, 2, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.defaultBlockState());
+
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 15,
+                    "the lever lights the buried superconductor, got "
+                            + powerAt(helper, at(helper, 1, 1, 1)));
+            helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 15,
+                    "and the wire on the ground beside it takes the full fifteen - a superconductor costs "
+                            + "nothing across the edge of the block either, got "
+                            + wirePowerAt(helper, 2, 1, 1));
+        }));
+    }
+
+    /**
+     * The same in the other direction: a source on the ground fills the buried superconductor to fifteen.
+     *
+     * <p>Fifteen again, whichever side the source is on: what reaches a run across the edge of a host block is
+     * the same number in both directions, and no coupling between the two sides may take a step off it.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void placedWireFillsBuriedSuperconductorInFull(GameTestHelper helper) {
+        for (int x = 0; x <= 3; x++) {
+            setBlock(helper, x, 0, 1, Blocks.STONE.defaultBlockState());
+        }
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        placeComponent(helper, at(helper, 1, 1, 1), ComponentType.SUPERCONDUCTOR, 0, Direction.NORTH);
+        setBlock(helper, 2, 1, 1, RCRegistry.SUPERCONDUCTING_WIRE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.REDSTONE_BLOCK.defaultBlockState());
+
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(wirePowerAt(helper, 2, 1, 1) == 15,
+                    "the redstone block lights the placed wire, got " + wirePowerAt(helper, 2, 1, 1));
+            helper.assertTrue(powerAt(helper, at(helper, 1, 1, 1)) == 15,
+                    "and the buried superconductor takes the full fifteen across the edge of the block, got "
+                            + powerAt(helper, at(helper, 1, 1, 1)));
+        }));
+    }
+
     /** The strength a wire block in the world currently holds. */
     private static int wirePowerAt(GameTestHelper helper, int x, int y, int z) {
         BlockState state = helper.getBlockState(new BlockPos(x, y, z));
@@ -2121,12 +2270,13 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
     }
 
     /**
-     * The rotation rod aims a component at the face that was clicked: input first, then output, cycling.
+     * The rotation rod walks one fixed cycle: north, east, south, west (clockwise from above), then up, then down,
+     * then north again. Six clicks come back to where the component started, whatever face the player clicked.
      *
      * <p>Inner dust is refused - it has no direction to turn - which is also what the tooltip promises.
      */
     @GameTest(template = "redstonecircuit:empty")
-    public void rotationRodTurnsTheInputThenTheOutput(GameTestHelper helper) {
+    public void rotationRodStepsClockwiseThenUpAndDown(GameTestHelper helper) {
         setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
         setBlock(helper, 2, 1, 1, Blocks.STONE.defaultBlockState());
 
@@ -2134,27 +2284,24 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         Slot slot = placeComponent(helper, repeater, ComponentType.REPEATER, 0, Direction.NORTH);
         ServerLevel level = helper.getLevel();
 
-        helper.assertTrue(RotationRod.turn(level, repeater, Direction.EAST) == RotationRod.Result.TURNED_TO_INPUT,
-                "the first click aims the input side at the clicked face");
-        helper.assertTrue(slot.facing == Direction.EAST, "input side is the clicked face, got " + slot.facing);
+        // One step per click, in the order the rod promises. The last one wraps, so the cycle is six long.
+        Direction[] cycle = {Direction.EAST, Direction.SOUTH, Direction.WEST,
+                Direction.UP, Direction.DOWN, Direction.NORTH};
+        for (Direction expected : cycle) {
+            helper.assertTrue(RotationRod.turn(level, repeater) == RotationRod.Result.TURNED,
+                    "every click on a component with a direction must turn it");
+            helper.assertTrue(slot.facing == expected,
+                    "the cycle must reach " + expected + ", got " + slot.facing);
+        }
 
-        helper.assertTrue(RotationRod.turn(level, repeater, Direction.EAST) == RotationRod.Result.TURNED_TO_OUTPUT,
-                "clicking the same face again turns the output side there instead");
-        helper.assertTrue(slot.facing == Direction.WEST, "so the input ends up opposite, got " + slot.facing);
-
-        helper.assertTrue(RotationRod.turn(level, repeater, Direction.EAST) == RotationRod.Result.TURNED_TO_INPUT,
-                "and a third click cycles back to the input side");
-        helper.assertTrue(slot.facing == Direction.EAST, "back where it started, got " + slot.facing);
-
-        // A vertical face works too - something a placed vanilla repeater cannot be made to do.
-        helper.assertTrue(RotationRod.turn(level, repeater, Direction.UP) == RotationRod.Result.TURNED_TO_INPUT,
-                "the rod can aim at the top face as well");
-        helper.assertTrue(slot.facing == Direction.UP, "aimed upwards, got " + slot.facing);
+        // And it really is a cycle: two more clicks land where the first two of the round did.
+        helper.assertTrue(RotationRod.turn(level, repeater) == RotationRod.Result.TURNED, "still turning");
+        helper.assertTrue(slot.facing == Direction.EAST, "a second round starts over, got " + slot.facing);
 
         BlockPos dust = at(helper, 2, 1, 1);
         placeDust(helper, dust, 0);
         Direction dustFacing = slotAt(helper, dust).facing;
-        helper.assertTrue(RotationRod.turn(level, dust, Direction.EAST) == RotationRod.Result.NO_DIRECTION,
+        helper.assertTrue(RotationRod.turn(level, dust) == RotationRod.Result.NO_DIRECTION,
                 "inner dust has no direction, so the rod must decline");
         helper.assertTrue(slotAt(helper, dust).facing == dustFacing, "and leave the dust alone");
 

@@ -15,9 +15,11 @@ import org.jetbrains.annotations.Nullable;
  * component, the overlay reads the carrier index and draws nothing, the world bridge cannot see it, and breaking the
  * block drops it through the world's own break path.
  *
- * <p>This class moves such a component into the carrier index with one call to {@link CarriedHostIndex#claim} - the
- * method every ordinary pick-up goes through - using the plot coordinate as <b>both</b> the local coordinate and the
- * origin, which is what makes it remove the world entry as it files the record.
+ * <p>This class moves such a component into the carrier index with one call to {@link CarriedHostIndex#fill} - the
+ * method an ordinary pick-up goes through - using the plot coordinate as the <b>local coordinate</b> and as the
+ * position the contents are read from, and {@link #originFor} as the world block the record answers at. Those are two
+ * different numbers for a sub-level, whose blocks are the level's blocks at their plot coordinates, and reading the
+ * contents at the origin would find nothing: the world store holds nothing at the block the machine is flying over.
  *
  * <p>Idempotent: {@link #plan} answers {@link Decision#ALREADY_CARRIED} for a coordinate the index already holds a
  * <b>live</b> record at, and {@code claim} itself is idempotent, so a coordinate is adopted at most once however often
@@ -118,22 +120,50 @@ public final class WorldComponentAdoption {
      * is no "position it came from" to recover; what is recorded instead is where the structure's own pose puts that
      * coordinate <b>now</b> (see {@code CarrierStore#adoptWorldComponent}).
      *
-     * <p>The three answers, all of them decisions rather than accidents: a readable pose gives the nearest block to the
-     * pose's own answer, rounded by the same {@link SubLevelSpace#nearestWorldBlock} the claim path uses, so the two
-     * frames name one block rather than two; no pose ({@code worldFor} answered {@code null}) gives {@code null}, which
-     * means "do not adopt yet", because a position that cannot be computed must not be guessed at; and a pose that is
-     * not finite gives {@code null} for the same reason, since a scale of zero or a NaN quaternion answers
-     * {@code (NaN, NaN, NaN)} and rounding that would produce a coordinate that looks like a number.
+     * <p><b>{@link CarrierProjection#drawnBlockOf} is the whole of it.</b> The origin is not a second opinion about
+     * where a component is drawn: it is the same block the renderer draws the host in, the same block the world-side
+     * signal query asks, and the same block the notification pass wakes. Two answers used to exist - a rounded block
+     * corner here, a floored block centre there - and they agree only while the structure is unturned, because a
+     * rotation carries the half block between a corner and a centre onto all three axes. A record filed under the
+     * other answer makes the component belong to a neighbouring cell for every reader of the record: it is
+     * interacted with there, it supplies signal there, and only one block ever shows it, since there was only ever
+     * one record.
+     *
+     * <p>The three answers, all of them decisions rather than accidents: a readable pose gives
+     * {@link CarrierProjection#project(CarrierPose, BlockPos)}; no pose gives {@code null}, which means "do not adopt
+     * yet", because a position that cannot be computed must not be guessed at; and a pose that is not finite gives
+     * {@code null} for the same reason, since a scale of zero or a NaN quaternion answers {@code (NaN, NaN, NaN)} and
+     * flooring that would produce a block that looks real.
      */
     @Nullable
-    public static BlockPos originFor(BlockPos localPos, SubLevelSpace.WorldLookup worldFor) {
-        if (localPos == null || worldFor == null) {
-            return null;
+    public static BlockPos originFor(@Nullable CarrierPose pose, BlockPos localPos) {
+        return localPos == null ? null : CarrierProjection.drawnBlockOf(pose, localPos);
+    }
+
+    /**
+     * Removes the world entry that a plan has just declined to adopt because the index already holds a live record
+     * for that coordinate.
+     *
+     * <p><b>Keeping the snapshot and keeping the world entry are different decisions.</b> The record's contents are
+     * the better copy and must not be overwritten by whatever the world store still says ({@link #plan} answers
+     * {@link Decision#ALREADY_CARRIED} for exactly that reason). But the world entry at that coordinate is a
+     * <em>second answer for one block</em> - the same defect adoption exists to remove: Jade reads the world store
+     * and shows the component, the overlays read the index, the world bridge cannot see the machine, and a break
+     * drops the component through the world's own path. Leaving it there is not a transient state either: every
+     * later scan finds it again and answers {@link Decision#ALREADY_CARRIED} again, so the two truths persist for
+     * as long as the save does.
+     *
+     * @return whether an entry was removed, so the caller can mark its file dirty
+     */
+    public static boolean clearShadowedWorldEntry(@Nullable Plan plan,
+                                                  @Nullable CarriedHostIndex.SlotWorld world) {
+        if (plan == null || world == null || plan.decision() != Decision.ALREADY_CARRIED) {
+            return false;
         }
-        org.joml.Vector3d world = worldFor.worldFor(localPos);
-        if (world == null || !world.isFinite()) {
-            return null;
+        if (world.get(plan.localPos()) == null) {
+            return false;
         }
-        return SubLevelSpace.nearestWorldBlock(world);
+        world.set(plan.localPos(), null);
+        return true;
     }
 }

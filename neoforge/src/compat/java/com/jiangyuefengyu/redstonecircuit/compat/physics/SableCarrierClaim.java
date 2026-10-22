@@ -12,6 +12,7 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarriedHostIndex;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierKind;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierProjection;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore;
 import com.jiangyuefengyu.redstonecircuit.carrier.SubLevelSpace;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
@@ -53,9 +54,6 @@ final class SableCarrierClaim {
     /** The most candidates one sub-level may claim in one pass (a full section of blocks), so no
      * pathological machine can make one tick unbounded; the rest finish over later passes. */
     private static final int MAX_CLAIMS_PER_PASS = 496;
-
-    /** How many blocks a round trip through the pose may be out before the pose is refused. */
-    private static final double ROUND_TRIP_TOLERANCE = 1.0;
 
     /** What has been seen of one sub-level, per level, so a sweep is not a rescan. */
     private static final class Watched {
@@ -227,10 +225,16 @@ final class SableCarrierClaim {
                 // block a player can still see and break.
                 continue;
             }
-            BlockPos local = space.localForVerified(origin, ROUND_TRIP_TOLERANCE);
+            // Gate 2: WHICH local coordinate this world block is. Proved by the projection, not rounded from
+            // the pose: a pose transforms block corners, so a rounded inverse names the neighbouring cell on
+            // the axes a rotation carried the half block onto, and the component is then filed one block away
+            // from the block it was taken out of - interacted with there, supplying signal there, and shown in
+            // only one of the two blocks because there was only ever one record. See
+            // CarrierProjection#localBlockOf; nothing is filed unless it projects back onto `origin`.
+            BlockPos local = CarrierProjection.localBlockOf(space.pose(), origin);
             if (local == null) {
-                // Gate 2: the pose does not put this local coordinate back where the block is, so this
-                // code cannot say where the component would be drawn - reported rather than guessed.
+                // The pose cannot name a coordinate that lands on this block, so this code cannot say where
+                // the component would be drawn - reported rather than guessed.
                 refused++;
                 continue;
             }
@@ -289,10 +293,11 @@ final class SableCarrierClaim {
     }
 
     /** Whether the local coordinate the pose named is a block the structure really stands on: an affine
-     * pose answers for every point in the world, so its own bounds are what make a candidate ours. */
+     * pose answers for every point in the world, so its own bounds are what make a candidate ours. The block
+     * is the one the projection draws, which is the block {@code containsWorld} was built to answer about. */
     private static boolean blockIsInsideTheStructure(SubLevelSpace space, BlockPos local) {
-        Vector3d world = space.worldFor(local);
-        return world != null && space.containsWorld(SubLevelSpace.nearestWorldBlock(world));
+        BlockPos drawn = CarrierProjection.drawnBlockOf(space.pose(), local);
+        return drawn != null && space.containsWorld(drawn);
     }
 
     /** The physical gate: the block at {@code origin} is air, so the structure really took it. "Air",

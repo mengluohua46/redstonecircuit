@@ -74,7 +74,8 @@ public final class StructurePreviewGameTest {
         if (payload == null) {
             return;
         }
-        StructurePreview preview = StructureProductData.of(payload, 65536).preview();
+        StructurePreview preview = StructureProductData.of(payload, 65536,
+                RCConfig.structurePreviewCells()).preview();
         if (preview == null) {
             helper.fail("a captured structure must come with a preview - it is what a client draws");
             return;
@@ -106,7 +107,7 @@ public final class StructurePreviewGameTest {
         if (payload == null) {
             return;
         }
-        StructureProductData data = StructureProductData.of(payload, 65536);
+        StructureProductData data = StructureProductData.of(payload, 65536, RCConfig.structurePreviewCells());
 
         BlockPos productPos = helper.absolutePos(new BlockPos(6, 2, 1));
         level.setBlock(productPos, RCRegistry.STRUCTURE.get().defaultBlockState(), 3);

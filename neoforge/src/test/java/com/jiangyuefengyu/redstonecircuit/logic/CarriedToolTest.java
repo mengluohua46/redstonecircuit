@@ -196,7 +196,7 @@ class CarriedToolTest {
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
                 CarriedTool.clear(empty, MINE, none), "and nothing to clear");
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
-                CarriedTool.turn(empty, MINE, none, Direction.NORTH), "and nothing to turn");
+                CarriedTool.turn(empty, MINE, none), "and nothing to turn");
 
         carry(MINE, pos(1, 0, 0), ComponentType.DUST);
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
@@ -216,7 +216,7 @@ class CarriedToolTest {
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
                 CarriedTool.clear(index, MINE, elsewhere));
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
-                CarriedTool.turn(index, MINE, elsewhere, Direction.NORTH));
+                CarriedTool.turn(index, MINE, elsewhere));
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
                 CarriedTool.select(index, THEIRS, pos(1, 0, 0)),
                 "and another structure's coordinate is not this one's");
@@ -225,43 +225,47 @@ class CarriedToolTest {
     // ------------------------------------------------------------------- rod --
 
     @Test
-    @DisplayName("the rod alternates input and output on the clicked face, in the structure's frame")
-    void theRodTurnsToTheClickedFace() {
+    @DisplayName("the rod steps the same cycle the world's rod walks")
+    void theRodStepsTheSameCycleAsTheWorldRod() {
         BlockPos local = pos(1, 0, 0);
         carry(MINE, local, ComponentType.REPEATER);
         Slot slot = slotOf(MINE, local);
 
-        // The first click makes the face the place the component READS from, unless it already reads
-        // there - then that click turns the output onto it. Stated from the state, so the rule is pinned.
-        Direction initial = slot.facing;
-        boolean firstIsInput = initial != Direction.EAST;
+        // One click, one step: north, east, south, west, up, down, and back to north. The step is read off the
+        // world's own rule, so the two implementations cannot drift apart.
+        Direction[] cycle = {Direction.EAST, Direction.SOUTH, Direction.WEST,
+                Direction.UP, Direction.DOWN, Direction.NORTH};
+        Direction before = slot.facing;
+        for (Direction expected : cycle) {
+            CarriedTool.Action action = CarriedTool.turn(index, MINE, local);
+            assertInstanceOf(CarriedTool.Action.Turned.class, action, action.describe());
+            assertEquals(expected, slotOf(MINE, local).facing, "the cycle must reach " + expected);
+            assertEquals(RotationRod.nextFacing(before), slotOf(MINE, local).facing,
+                    "and it must be the world rod's step, not a second copy of the rule");
+            before = expected;
+        }
 
-        CarriedTool.Action first = CarriedTool.turn(index, MINE, local, Direction.EAST);
-        assertEquals(firstIsInput, first instanceof CarriedTool.Action.TurnedToInput,
-                "the first click on a face is input when the component reads elsewhere, and output when "
-                        + "it already reads there: " + first.describe());
-        assertEquals(firstIsInput ? Direction.EAST : Direction.WEST, slotOf(MINE, local).facing);
-        assertEquals(Direction.EAST, localFaceOf(first),
-                "and the reported face is the structure's own, which is what the caller converted");
-
-        CarriedTool.Action second = CarriedTool.turn(index, MINE, local, Direction.EAST);
-        assertEquals(!firstIsInput, second instanceof CarriedTool.Action.TurnedToInput,
-                "clicking the same face again is the other half of the pair: " + second.describe());
-        assertEquals(Direction.EAST.getOpposite(), slotOf(MINE, local).facing,
-                "so the component is now driven towards that face");
-
-        CarriedTool.Action third = CarriedTool.turn(index, MINE, local, Direction.UP);
-        assertEquals(Direction.UP, slotOf(MINE, local).facing,
-                "and a new face is simply the new direction");
-        assertNotNull(third);
+        // The action names the facing the record now holds, in the structure's own frame - which is what the
+        // caller shows the player and what the next click reads.
+        CarriedTool.Action stepped = CarriedTool.turn(index, MINE, local);
+        assertEquals(slotOf(MINE, local).facing, ((CarriedTool.Action.Turned) stepped).localFacing(),
+                "the action reports the facing the record now holds");
     }
 
-    /** The face an action reports, whichever half of the pair it was. */
-    private static Direction localFaceOf(CarriedTool.Action action) {
-        if (action instanceof CarriedTool.Action.TurnedToInput turned) {
-            return turned.localFace();
-        }
-        return ((CarriedTool.Action.TurnedToOutput) action).localFace();
+    @Test
+    @DisplayName("the vertical half of the cycle turns a component that already points up")
+    void theRodTurnsAComponentThatPointsUp() {
+        BlockPos local = pos(1, 0, 0);
+        carry(MINE, local, ComponentType.REPEATER);
+        Slot slot = slotOf(MINE, local);
+        slot.facing = Direction.UP;
+        index.updateSlot(MINE, local, slot);
+
+        CarriedTool.Action action = CarriedTool.turn(index, MINE, local);
+        assertInstanceOf(CarriedTool.Action.Turned.class, action, action.describe());
+        assertEquals(Direction.DOWN, slotOf(MINE, local).facing, "up steps to down");
+        CarriedTool.turn(index, MINE, local);
+        assertEquals(Direction.NORTH, slotOf(MINE, local).facing, "and down steps back to north");
     }
 
     @Test
@@ -271,18 +275,9 @@ class CarriedToolTest {
         carry(MINE, local, ComponentType.DUST);
         Direction before = slotOf(MINE, local).facing;
 
-        CarriedTool.Action action = CarriedTool.turn(index, MINE, local, Direction.EAST);
+        CarriedTool.Action action = CarriedTool.turn(index, MINE, local);
         assertInstanceOf(CarriedTool.Action.NoDirection.class, action);
         assertEquals(before, slotOf(MINE, local).facing, "and nothing was turned");
-    }
-
-    @Test
-    @DisplayName("the rod refuses a null face rather than guessing one")
-    void theRodRefusesANullFace() {
-        BlockPos local = pos(1, 0, 0);
-        carry(MINE, local, ComponentType.TORCH);
-        assertInstanceOf(CarriedTool.Action.NoDirection.class,
-                CarriedTool.turn(index, MINE, local, null));
     }
 
     // ----------------------------------------------------------- the record --
@@ -295,17 +290,19 @@ class CarriedToolTest {
         carry(MINE, local, ComponentType.COMPARATOR);
         index.updateSlot(MINE, local, new Slot(ComponentType.COMPARATOR));
 
-        CarriedTool.turn(index, MINE, local, Direction.SOUTH);
+        Direction beforeTurn = slotOf(MINE, local).facing;
+        Direction expected = RotationRod.nextFacing(beforeTurn);
+        CarriedTool.turn(index, MINE, local);
         CarriedHost host = index.at(MINE, local);
         assertNotNull(host, "the record is still there");
-        assertEquals(Direction.SOUTH, host.slot().facing, "with the new facing");
+        assertEquals(expected, host.slot().facing, "with the new facing");
         assertEquals(origin, host.origin(), "and the origin it was picked up from, untouched");
         assertEquals(origin, host.at(), "and the position it answers at, untouched");
         assertFalse(host.landed(), "still riding");
 
         // The broadcast entry is the record as it now stands, which is what the overlay draws.
         assertNotNull(CarriedTool.entryOf(index, MINE, local));
-        assertEquals(Direction.SOUTH, CarriedTool.entryOf(index, MINE, local).slot().facing);
+        assertEquals(expected, CarriedTool.entryOf(index, MINE, local).slot().facing);
     }
 
     @Test
@@ -321,7 +318,7 @@ class CarriedToolTest {
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
                 CarriedTool.select(index, MINE, local));
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
-                CarriedTool.turn(index, MINE, local, Direction.EAST));
+                CarriedTool.turn(index, MINE, local));
         assertInstanceOf(CarriedTool.Action.NoComponent.class,
                 CarriedTool.clear(index, MINE, local));
         assertEquals(ConnectionState.AUTO, WrenchLinks.stateOf(slotOf(MINE, local), Direction.SOUTH),
@@ -337,8 +334,8 @@ class CarriedToolTest {
         CarriedTool.link(index, MINE, local, pos(2, 0, 0));
         CarriedTool.select(index, MINE, local);
 
-        CarriedTool.turn(index, THEIRS, local, Direction.UP);
-        assertEquals(Direction.UP, slotOf(THEIRS, local).facing);
+        CarriedTool.turn(index, THEIRS, local);
+        assertEquals(Direction.EAST, slotOf(THEIRS, local).facing, "one step clockwise off north");
         assertEquals(Direction.NORTH, slotOf(MINE, local).facing,
                 "the other machine's component at the same coordinate is a different component");
     }

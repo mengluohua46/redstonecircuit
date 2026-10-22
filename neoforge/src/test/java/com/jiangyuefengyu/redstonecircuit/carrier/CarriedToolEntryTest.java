@@ -180,23 +180,16 @@ class CarriedToolEntryTest {
         world.put(WORLD.asLong(), repeater);
         index.claim(MINE, LOCAL, WORLD, new MapWorld(world));
 
-        // The contraption entry hands over the face in the structure's own frame; the conversion the
-        // entry performs turns it into a world direction and back, and `CarriedTool#turn` then receives
-        // the *local* direction - so the record it writes is the one at LOCAL.
-        CarrierPose pose = pose(90.0);
-        Direction localFace = Direction.EAST;
-        Direction asWorld = CarrierDirections.worldDirection(pose, localFace);
-        Direction backToLocal = CarrierDirections.localDirection(pose, asWorld);
-
+        // The rod takes no face any more: it steps the cycle off the record's own facing, so the coordinate it
+        // writes can only be the structure one.
         com.jiangyuefengyu.redstonecircuit.logic.CarriedTool.Action action =
-                com.jiangyuefengyu.redstonecircuit.logic.CarriedTool.turn(index, MINE, LOCAL, backToLocal);
+                com.jiangyuefengyu.redstonecircuit.logic.CarriedTool.turn(index, MINE, LOCAL);
 
-        assertTrue(action instanceof com.jiangyuefengyu.redstonecircuit.logic.CarriedTool.Action.TurnedToInput
-                        || action instanceof com.jiangyuefengyu.redstonecircuit.logic.CarriedTool.Action.TurnedToOutput,
+        assertTrue(action instanceof com.jiangyuefengyu.redstonecircuit.logic.CarriedTool.Action.Turned,
                 "the component has an orientation, so this must be a turn; was " + action);
         assertEquals(LOCAL, action.localPos(), "the action names the structure's own coordinate");
-        assertEquals(localFace, index.at(MINE, LOCAL).slot().facing,
-                "and the record at that coordinate is the one that changed");
+        assertEquals(Direction.EAST, index.at(MINE, LOCAL).slot().facing,
+                "and the record at that coordinate stepped one place off north");
         assertEquals(WORLD, index.at(MINE, LOCAL).at(),
                 "the host's world position is untouched: a tool action changes routing and facing, and "
                         + "must never move or release anything");
