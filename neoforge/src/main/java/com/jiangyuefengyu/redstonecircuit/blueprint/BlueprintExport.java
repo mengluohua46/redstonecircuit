@@ -223,16 +223,20 @@ public final class BlueprintExport {
         for (long key : store.extenderKeys()) {
             extenderEntry(store, box, origin, key, extenders);
         }
-        if (nodes.isEmpty() && clocks.isEmpty() && extenders.isEmpty()) {
+        List<BlueprintComponents.SyncTorch> syncTorches = new ArrayList<>();
+        for (BlockPos pos : store.syncTorchPositions()) {
+            syncTorchEntry(store, box, origin, pos, syncTorches);
+        }
+        if (nodes.isEmpty() && clocks.isEmpty() && extenders.isEmpty() && syncTorches.isEmpty()) {
             return null;
         }
-        int entries = nodes.size() + clocks.size() + extenders.size();
+        int entries = nodes.size() + clocks.size() + extenders.size() + syncTorches.size();
         if (BlueprintLimits.DEFAULT.refusesEntries(entries)) {
             reportOnce("entries", "a blueprint would carry " + entries + " components, the limit is "
                     + BlueprintLimits.DEFAULT.maxEntries());
             return null;
         }
-        return BlueprintComponents.write(size, nodes, clocks, extenders);
+        return BlueprintComponents.write(size, nodes, clocks, extenders, syncTorches);
     }
 
     private static void clockEntry(InnerRedstoneStore store, BoundingBox box, BlockPos origin, long key,
@@ -244,6 +248,23 @@ public final class BlueprintExport {
         ClockRule.Setting setting = store.clockAt(pos);
         if (setting != null) {
             out.add(new BlueprintComponents.Clock(pos.subtract(origin), setting));
+        }
+    }
+
+    /**
+     * 一支立着的同步火把: 坐标和它所在的频道。
+     *
+     * <p>未绑定的那支 (频道 0) 不进蓝图: 它没有号码可带, 而落回去的那一支在放置时也会以自己的 0 起步 - 带一条"频道 0"
+     * 进去只会让读者以为它属于某个组。
+     */
+    private static void syncTorchEntry(InnerRedstoneStore store, BoundingBox box, BlockPos origin, BlockPos pos,
+                                       List<BlueprintComponents.SyncTorch> out) {
+        if (!box.isInside(pos)) {
+            return;
+        }
+        int channel = store.syncTorchChannelAt(pos);
+        if (channel > 0) {
+            out.add(new BlueprintComponents.SyncTorch(pos.subtract(origin), channel));
         }
     }
 

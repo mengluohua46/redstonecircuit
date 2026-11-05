@@ -71,6 +71,9 @@ public class RedstoneCircuitJadePlugin implements IWailaPlugin {
     private static final String K_CLOCK = "jade.redstonecircuit.inner.clock";
     /** 信号延长器's own line: the strength it is holding, or nothing while no hold is running. */
     private static final String K_EXTENDER = "jade.redstonecircuit.inner.extender";
+    /** 同步火把's own two lines: the strength the lit channel answers with, and "dark" while the channel is dark. */
+    private static final String K_SYNC_TORCH = "jade.redstonecircuit.inner.sync_torch";
+    private static final String K_SYNC_TORCH_OFF = "jade.redstonecircuit.inner.sync_torch.off";
     /** Reused rather than duplicated: the same two words describe a lever, a button and a plate. */
     private static final String K_ON = "message.redstonecircuit.switch.on";
     private static final String K_OFF = "message.redstonecircuit.switch.off";
@@ -291,6 +294,11 @@ public class RedstoneCircuitJadePlugin implements IWailaPlugin {
                 case EXTENDER -> line.hasOutput()
                         ? Component.translatable(K_EXTENDER, line.power())
                         : Component.translatable(K_NO_OUTPUT);
+                // 同步火把 reports the whole channel's answer, not a torch's own input: it is lit exactly while some
+                // member of its group is being driven.
+                case SYNC_TORCH -> line.hasOutput()
+                        ? Component.translatable(K_SYNC_TORCH, line.power())
+                        : Component.translatable(K_SYNC_TORCH_OFF);
             };
         }
 

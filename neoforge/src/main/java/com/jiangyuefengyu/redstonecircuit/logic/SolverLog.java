@@ -60,8 +60,8 @@ public final class SolverLog {
     private static final Map<BlockPos, Integer> tickPerHost = new LinkedHashMap<>();
 
     /**
-     * The convergence figures for the window: settle rounds, solves, and notifications sent, read off
-     * {@link SolverNotifications#lastStats} once per tick and summed.
+     * The convergence figures for the window: settle rounds, solves, notifications sent and cascades run, read
+     * off {@link SolverNotifications#lastStats} once per tick and summed.
      *
      * <p>Rounds per solve is the number that separates "it converged" from "it stopped because the round
      * budget ran out": with the notifications coalesced to the tick boundary a settled circuit reaches its
@@ -70,6 +70,12 @@ public final class SolverLog {
     private static int windowRounds;
     private static int windowSolves;
     private static int windowNotifications;
+
+    /** Cascades the window's solves ran: one cascade is one settle pass plus the flush that followed it. */
+    private static int windowCascades;
+
+    /** Solves in the window whose cascade stopped with work still queued - the budget ended them. */
+    private static int windowCapped;
 
     /** The same, for one tick; answers "at most one round per tick" directly. */
     private static int roundsThisTick;
@@ -181,6 +187,10 @@ public final class SolverLog {
         windowRounds += stats.rounds();
         windowSolves++;
         windowNotifications += stats.flushed();
+        windowCascades += stats.cascades();
+        if (stats.capped()) {
+            windowCapped++;
+        }
     }
 
     /**
@@ -280,9 +290,11 @@ public final class SolverLog {
                     .append(String.format(java.util.Locale.ROOT, "%.2f",
                             (double) windowRounds / windowSolves))
                     .append(" round(s)/solve, ").append(windowNotifications)
-                    .append(" notification(s) sent (coalesced to the tick boundary: "
-                            + "solverCoalesceNotifications=")
-                    .append(RCConfig.solverCoalesceNotifications()).append(')');
+                    .append(" notification(s) sent (solverCoalesceNotifications=")
+                    .append(RCConfig.solverCoalesceNotifications()).append(", ")
+                    .append(windowCascades).append(" cascade(s) - one settle pass plus the flush inside "
+                            + "the tick, budget exhausted in ").append(windowCapped).append(" of ")
+                    .append(windowSolves).append(" solve(s))");
         }
         if (pooledHosts > 0) {
             sb.append(" (").append(pooledHosts).append(" recompute(s) were on hosts beyond the first ")
@@ -371,6 +383,8 @@ public final class SolverLog {
         windowRounds = 0;
         windowSolves = 0;
         windowNotifications = 0;
+        windowCascades = 0;
+        windowCapped = 0;
         changeHosts.clear();
         windowPerHost.clear();
     }
@@ -407,6 +421,8 @@ public final class SolverLog {
         windowRounds = 0;
         windowSolves = 0;
         windowNotifications = 0;
+        windowCascades = 0;
+        windowCapped = 0;
         roundsThisTick = 0;
         solvesThisTick = 0;
         lastFlushedTick = Long.MIN_VALUE;

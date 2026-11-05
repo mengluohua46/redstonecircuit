@@ -48,8 +48,10 @@ class BlueprintComponentsTest {
     void everyComponentFieldSurvivesTheFile() {
         InnerRedstoneNode node = busyNode();
         BlueprintComponents.Node entry = new BlueprintComponents.Node(new BlockPos(1, 2, 2), node);
+        // 脉宽刻意写成非默认的 1 tick：2 与「缺键默认 2」在 save→load 之后不可区分，只有非默认值才真的证明这个新
+        // 字段过了文件（下面那条 pulse 断言就是为此而写）。
         BlueprintComponents.Clock clock = new BlueprintComponents.Clock(new BlockPos(0, 0, 0),
-                new ClockRule.Setting(12, 7, 9));
+                new ClockRule.Setting(12, 7, 9, ClockRule.MIN_PULSE_TICKS));
         BlueprintComponents.Extender extender = new BlueprintComponents.Extender(new BlockPos(4, 3, 2),
                 new ExtenderRule.Setting(30, 4));
 
@@ -65,7 +67,9 @@ class BlueprintComponentsTest {
 
         assertEquals(1, read.clocks().size(), "一只时钟源");
         assertEquals(new BlockPos(0, 0, 0), read.clocks().get(0).pos());
-        assertEquals(clock.setting(), read.clocks().get(0).setting(), "秒/刻/强度三件都要原样回来");
+        assertEquals(clock.setting(), read.clocks().get(0).setting(), "秒/刻/强度/脉宽四件都要原样回来");
+        assertEquals(ClockRule.MIN_PULSE_TICKS, read.clocks().get(0).setting().pulse(),
+                "脉宽必须真的从文件里读回来：读成默认的 2 tick 就说明 save 漏了这个键，而这一份写的是 1");
 
         assertEquals(1, read.extenders().size(), "一个信号延长器");
         assertEquals(new BlockPos(4, 3, 2), read.extenders().get(0).pos());
@@ -133,7 +137,7 @@ class BlueprintComponentsTest {
         bare.remove("component");
         ((ListTag) noComponent.get(BlueprintComponents.NODES)).set(0, bare);
         assertNull(BlueprintComponents.read(noComponent, SIZE),
-                "有位置却没有元件 = 作者想说的不是这一件事，不许猜");
+                "有位置却没有元件 = 这里要说的不是这一件事，不许猜");
 
         assertNull(BlueprintComponents.readFile(new CompoundTag()),
                 "一个连 size 都没有的文件不是蓝图，段也谈不上有");
@@ -172,15 +176,55 @@ class BlueprintComponentsTest {
     @DisplayName("段里只放元件：不重复存方块状态、palette、indices、uuid 这些蓝图已经有的东西")
     void theSectionCarriesNothingTheBlueprintAlreadyCarries() {
         CompoundTag section = sampleSection();
-        assertEquals(5, section.getAllKeys().size(),
-                "段里只有 v / size / nodes / clocks / extenders，实际是 " + section.getAllKeys());
+        assertEquals(6, section.getAllKeys().size(),
+                "段里只有 v / size / nodes / clocks / extenders / syncTorches，实际是 " + section.getAllKeys());
+        assertTrue(section.getAllKeys().contains(BlueprintComponents.SYNC_TORCHES),
+                "同步火把的频道表是第六个键, 它点名的是别处没有的东西");
         for (String forbidden : List.of("blocks", "palette", "palettes", "entities", "DataVersion", "indices",
                 "context_shell", "uuid", "hash", "anchor", "rotation", "mirror")) {
             assertTrue(!section.contains(forbidden), "段里不许出现 " + forbidden + " - 蓝图自己已经有了");
         }
         CompoundTag clockTag = ((ListTag) section.get(BlueprintComponents.CLOCKS)).getCompound(0);
-        assertTrue(clockTag.contains("seconds") && clockTag.contains("ticks") && clockTag.contains("p"),
-                "时钟源的入口就是 p + 它自己的 Setting 形状，实际是 " + clockTag.getAllKeys());
+        assertTrue(clockTag.contains("seconds") && clockTag.contains("ticks") && clockTag.contains("strength")
+                        && clockTag.contains("pulse") && clockTag.contains("p"),
+                "时钟源的入口就是 p + 它自己的 Setting 形状（秒 / tick / 强度 / 脉宽四个键），实际是 "
+                        + clockTag.getAllKeys());
+        assertEquals(5, clockTag.getAllKeys().size(),
+                "脉宽是这个 Setting 的第四个键：p + 四个数，少一个就说明形状漂了，实际是 " + clockTag.getAllKeys());
+    }
+
+    @Test
+    @DisplayName("同步火把的频道进出蓝图：坐标 + 频道号，跟时钟源/延长器同一套写法")
+    void syncTorchChannelsTravelInTheSection() {
+        // SIZE 是 (5, 4, 3)，合法格是 x 0..4 / y 0..3 / z 0..2：z 必须是 2，写到 3 就在盒子外，read() 会整段拒读。
+        BlockPos pos = new BlockPos(2, 1, 2);
+        CompoundTag section = BlueprintComponents.write(SIZE, List.of(), List.of(), List.of(),
+                List.of(new BlueprintComponents.SyncTorch(pos, 44)));
+
+        BlueprintComponents.Section read = BlueprintComponents.read(section, SIZE);
+        assertNotNull(read, "这一份本来读得回来");
+        assertEquals(1, read.syncTorches().size(), "一支同步火把");
+        assertEquals(pos, read.syncTorches().get(0).pos(), "坐标是相对盒子最小角的那个");
+        assertEquals(44, read.syncTorches().get(0).channel(), "频道号要原样回来：它是这一组唯一的身份");
+
+        // 没有频道号的入口是坏数据：读回来的一支火把永远不会亮，所以整段拒读而不是留一条 0。
+        CompoundTag broken = section.copy();
+        ListTag list = (ListTag) broken.get(BlueprintComponents.SYNC_TORCHES);
+        CompoundTag entry = list.getCompound(0).copy();
+        entry.putInt(BlueprintComponents.CHANNEL, 0);
+        list.set(0, entry);
+        assertNull(BlueprintComponents.read(broken, SIZE), "频道 0 的入口就是坏数据");
+    }
+
+    @Test
+    @DisplayName("没有 syncTorches 键的段是旧文件，不是坏文件")
+    void aSectionWithoutSyncTorchesStillReads() {
+        CompoundTag section = sampleSection();
+        section.remove(BlueprintComponents.SYNC_TORCHES);
+
+        BlueprintComponents.Section read = BlueprintComponents.read(section, SIZE);
+        assertNotNull(read, "这个器件出现之前写的段必须照样能用");
+        assertTrue(read.syncTorches().isEmpty(), "没有表就是没有火把");
     }
 
     // ---------------------------------------------------------------- fixtures --
@@ -206,7 +250,8 @@ class BlueprintComponentsTest {
         InnerRedstoneNode node = busyNode();
         return BlueprintComponents.write(SIZE,
                 List.of(new BlueprintComponents.Node(new BlockPos(1, 2, 2), node)),
-                List.of(new BlueprintComponents.Clock(new BlockPos(0, 0, 0), new ClockRule.Setting(12, 7, 9))),
+                List.of(new BlueprintComponents.Clock(new BlockPos(0, 0, 0),
+                        new ClockRule.Setting(12, 7, 9, ClockRule.MIN_PULSE_TICKS))),
                 List.of(new BlueprintComponents.Extender(new BlockPos(4, 3, 2),
                         new ExtenderRule.Setting(30, 4))));
     }
@@ -227,7 +272,7 @@ class BlueprintComponentsTest {
         slot.mode = ComparatorMode.SUBTRACT;
         slot.controller = new ControllerRule.Setting(ControllerRule.Main.LESS, ControllerRule.Sub.NOT_EQUAL, 7, 9);
         slot.transformer = 5;
-        slot.clock = new ClockRule.Setting(12, 7, 9);
+        slot.clock = new ClockRule.Setting(12, 7, 9, ClockRule.MIN_PULSE_TICKS);
         slot.extender = new ExtenderRule.Setting(30, 4);
         slot.setConnection(Direction.UP, ConnectionState.ON);
         slot.setConnection(Direction.DOWN, ConnectionState.OFF);
@@ -244,7 +289,7 @@ class BlueprintComponentsTest {
         assertEquals(expected.mode, actual.mode, "比较器模式");
         assertEquals(expected.controller, actual.controller, "控制器四个设定");
         assertEquals(expected.transformer, actual.transformer, "变压器输出强度");
-        assertEquals(expected.clock, actual.clock, "时钟源三个数");
+        assertEquals(expected.clock, actual.clock, "时钟源四个数");
         assertEquals(expected.extender, actual.extender, "延长器两个数");
         assertEquals(expected.forcedOn, actual.forcedOn, "强制接通的方向");
         assertEquals(expected.forcedOff, actual.forcedOff, "强制切断的方向");

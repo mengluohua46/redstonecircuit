@@ -4,10 +4,14 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "BlockStateSignalMixin",
+    "HoneyPistonMixin",
+    "PistonBaseBlockMixin",
+    "PistonStructureResolverMixin",
     "RedStoneWireBlockMixin"
   ],
   "client": [
-    "BlockRenderDispatcherMixin"
+    "BlockRenderDispatcherMixin",
+    "ModListNameMixin"
   ],
   "server": [],
   "injectors": {

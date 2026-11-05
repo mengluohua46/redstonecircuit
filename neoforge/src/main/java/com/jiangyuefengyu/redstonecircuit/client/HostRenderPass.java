@@ -23,8 +23,9 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose;
 import com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat;
 import com.jiangyuefengyu.redstonecircuit.client.InnerComponentModel.Box;
 import com.jiangyuefengyu.redstonecircuit.client.InnerComponentModel.Neighbours;
-import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.client.InnerComponentVisuals.NeighbourSlots;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerEnvironment.VanillaDiode;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
@@ -48,6 +49,8 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.DiodeBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.resources.ResourceKey;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -370,6 +373,16 @@ public final class HostRenderPass {
             }
             if (gates.drawsContents()) {
                 drawContents(pose, level, visible, uv, counter);
+            }
+            // 同步火把's group belongs to no single host, and the client already holds the whole table the server
+            // synced (维度 → 频道 → 成员). Taking the channels from the hosts drawn this frame would leave a group
+            // of standing torches - which have no host slot anywhere - with no line at all. Only the goggles gate
+            // it, which is the answer the gates were built from.
+            // 两段都画: 立在世界里的成员按世界坐标, 被机器搬着的成员进那台机器的位姿栈。频道的来源仍然是客户端手里
+            // 那一份 (维度 → 频道 → 成员), 而搬运成员的世界位置用的是这一帧的位姿 - 与机器自己画在哪是同一个数。
+            if (gates.goggles()) {
+                SyncGroupLines.Render.draw(pose, level, SyncGroupView.channels(level.dimension()),
+                        (float) partialTick);
             }
             drawShells(last, level, visible, uv, gates, counter, selected);
             // Only the hover frame is a box of its own. The pick is not: it is the colour `drawShells` just
@@ -2582,9 +2595,49 @@ public final class HostRenderPass {
         final float[] uv = new float[2];
     }
 
-    /** Which of the six neighbours of {@code pos} hold a component of their own. */
+    /**
+     * The six neighbours of {@code pos}, with their components: the drawing asks the boolean for its wire model
+     * and the component itself for the lock marker, and handing over one object keeps those two answers the same.
+     */
     private static Neighbours neighboursOf(ClientLevel level, BlockPos pos) {
-        return direction -> ClientHostCache.slotAt(level.dimension(), pos.relative(direction)) != null;
+        return new NeighbourSlots() {
+
+            @Override
+            public Slot slotOn(Direction direction) {
+                return ClientHostCache.slotAt(level.dimension(), pos.relative(direction));
+            }
+
+            @Override
+            public VanillaDiode vanillaDiodeOn(Direction direction) {
+                return vanillaDiodeAt(level, pos.relative(direction), direction);
+            }
+        };
+    }
+
+    /**
+     * The vanilla diode standing at {@code neighbour}, seen from the host one side away.
+     *
+     * <p>Read from the client's own copy of the world, because a repeater set in the ground is not one of
+     * our hosts and is never sent to this client: it is in no index the drawing has, so a lock it applies
+     * was felt inside the block and drawn nowhere.
+     *
+     * <p>Three conditions, and the gate is vanilla's own {@code DiodeBlock#isDiode}: a piece of dust, a
+     * torch and a solid block carrying strong power all push signal and none of them locks anything, so
+     * asking for the block's strong power instead is the one widening this must not do. The signal is then
+     * asked in vanilla's own reversed convention - the side names where the signal comes from - exactly as
+     * {@code InnerRedstoneNetwork} asks it on the server, so the two sides of the fence read one rule.
+     */
+    @Nullable
+    private static VanillaDiode vanillaDiodeAt(ClientLevel level, BlockPos neighbour, Direction side) {
+        if (!level.isLoaded(neighbour)) {
+            return null;
+        }
+        BlockState state = level.getBlockState(neighbour);
+        if (!DiodeBlock.isDiode(state)) {
+            return null;
+        }
+        return new VanillaDiode(state.getValue(DiodeBlock.FACING),
+                state.getSignal(level, neighbour, side));
     }
 
     /**
@@ -2610,10 +2663,76 @@ public final class HostRenderPass {
         BlockPos origin = host.origin();
         CarrierId carrier = host.carrier();
         boolean riding = host.riding();
-        return direction -> carriedNeighbourHolds(
+        Neighbours holds = direction -> carriedNeighbourHolds(
                 riding && local != null ? inStructure.get(local.relative(direction).asLong()) : null,
                 carrier,
                 ClientHostCache.slotAt(level.dimension(), origin.relative(direction)) != null);
+        // The same two frames again, this time carrying the component: a repeater held by a diode beside it draws
+        // vanilla's lock bars, and inside a machine that diode is a carried one, absent from the world index.
+        // The world frame also answers for a vanilla diode standing at the block's origin, for the reason
+        // `neighboursOf(ClientLevel, BlockPos)` does: a host that came out of a machine sits in a world that
+        // still has repeaters of its own beside where it is drawn.
+        NeighbourSlots slots = new NeighbourSlots() {
+
+            @Override
+            public Slot slotOn(Direction direction) {
+                return neighbourSlotOf(level, host, inStructure, direction);
+            }
+
+            @Override
+            public VanillaDiode vanillaDiodeOn(Direction direction) {
+                return vanillaDiodeAt(level, origin.relative(direction), direction);
+            }
+        };
+        return new Neighbourhood(holds, slots);
+    }
+
+    /**
+     * One neighbour of a riding host, in the two frames {@link #neighboursOf} asks in.
+     *
+     * <p>The carrier identity is compared before a carried answer is used, for the reason
+     * {@link #carriedNeighbourHolds} compares it: a Create contraption's coordinates run 0..15 around its anchor,
+     * so a second contraption can hold a host at the same local coordinate, and taking that one's component would
+     * mark a lock that is not there.
+     */
+    @Nullable
+    private static Slot neighbourSlotOf(ClientLevel level, Carried host,
+                                        Map<Long, CarrierId> inStructure, Direction direction) {
+        BlockPos local = host.local();
+        if (host.riding() && local != null) {
+            BlockPos beside = local.relative(direction);
+            CarrierId holder = inStructure.get(beside.asLong());
+            if (holder != null && holder.equals(host.carrier())) {
+                Slot carried = ClientHostCache.carriedSlotAtLocal(level.dimension(), beside);
+                if (carried != null) {
+                    return carried;
+                }
+            }
+        }
+        return ClientHostCache.slotAt(level.dimension(), host.origin().relative(direction));
+    }
+
+    /**
+     * One host's neighbourhood as a single object: the boolean for the wire model and the connection bars, the
+     * component for the lock marker. One object rather than two so the two halves of the drawing cannot be handed
+     * different answers about the same block.
+     */
+    private record Neighbourhood(Neighbours holds, NeighbourSlots slots) implements NeighbourSlots {
+
+        @Override
+        public boolean holdsComponent(Direction direction) {
+            return holds.holdsComponent(direction);
+        }
+
+        @Override
+        public Slot slotOn(Direction direction) {
+            return slots.slotOn(direction);
+        }
+
+        @Override
+        public VanillaDiode vanillaDiodeOn(Direction direction) {
+            return slots.vanillaDiodeOn(direction);
+        }
     }
 
     /**

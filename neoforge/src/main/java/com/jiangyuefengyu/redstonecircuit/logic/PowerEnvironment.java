@@ -36,6 +36,22 @@ public interface PowerEnvironment {
     int externalSignal(Direction direction);
 
     /**
+     * The same side read, with <b>no hop charged</b> to a neighbouring vanilla redstone wire.
+     *
+     * <p>Only a comparator's side input asks this. Vanilla reads a comparator's sides through
+     * {@code RedStoneWireBlock#getSignal} like any other neighbour, and that answers the wire's own strength -
+     * full strength, no decrement. The decrement exists for a wire feeding a wire, and charging it here would
+     * make our subtract one too weak: {@code back - side} would come out one too high, so a feedback loop
+     * that vanilla brings down to zero would stop at one.
+     *
+     * <p>A default, so every environment that cannot distinguish the two reads keeps today's behaviour
+     * instead of failing to compile: the answer then degrades to {@link #externalSignal(Direction)}.
+     */
+    default int externalSignalUncharged(Direction direction) {
+        return externalSignal(direction);
+    }
+
+    /**
      * The comparator output the block on that side offers, 0-15; 0 for every block with none.
      *
      * <p>Vanilla reads a comparator's back input in two halves: the block's own analogue output
@@ -47,6 +63,34 @@ public interface PowerEnvironment {
      */
     default int analogOutput(Direction direction) {
         return 0;
+    }
+
+    /**
+     * The <b>vanilla</b> diode standing on one side, or {@code null} when that block is not one.
+     *
+     * <p>Only a vanilla diode can hold a component of ours: vanilla asks a signal getter for the alternate
+     * signal with {@code sideInputDiodesOnly}, which walks the neighbours and keeps the answer of a block whose
+     * state passes {@code DiodeBlock#isDiode} - so a piece of wire, a torch and a solid block charged to fifteen
+     * are all <b>not</b> lock sources, however much signal they push. An environment that cannot look at vanilla
+     * blocks at all (a test's fake, the frozen carrier space) answers {@code null} and therefore reports no
+     * vanilla lock source, which is the honest degradation rather than a widening of the rule.
+     *
+     * <p>Asked relative to the position last given to {@link #setQueryPosition}, and {@code direction} points
+     * from the component asking towards the neighbour.
+     */
+    @Nullable
+    default VanillaDiode vanillaDiodeOn(Direction direction) {
+        return null;
+    }
+
+    /**
+     * One vanilla diode as an outside caller sees it: the way it faces, and what it pushes towards that caller.
+     *
+     * <p>{@code facing} is vanilla's own {@code FACING}, the side the diode <em>reads</em> from, because that is
+     * what vanilla's {@code shouldPrioritize} compares against; {@code signalToward} is already the answer to
+     * "what reaches me", so a caller never has to redo the direction inversion.
+     */
+    record VanillaDiode(Direction facing, int signalToward) {
     }
 
     /** Whether the block at {@code (x, y, z)} is a redstone conductor (opaque full block). */
@@ -74,6 +118,17 @@ public interface PowerEnvironment {
 
         /** Input side for a driven component; for a torch, the side it is attached to. */
         Direction facing();
+
+        /**
+         * 同步火把: 哪几面此刻有输入, 一位一面; 别的元件没有这个概念, 于是默认 0.
+         *
+         * <p>放在接口上而不是另开一条查询路径, 是因为 {@link PowerSolver#emitsToward(PowerEnvironment.Node, Direction)}
+         * 已经是"这一面输不输出"的唯一答案: 只要它读不到掩码, 内嵌形态就会往有输入的那一面输出, 而世界形态不会 ——
+         * 同一个设计在两处两种行为。
+         */
+        default byte syncInputs() {
+            return 0;
+        }
 
         /** Comparator output mode. */
         ComparatorMode mode();

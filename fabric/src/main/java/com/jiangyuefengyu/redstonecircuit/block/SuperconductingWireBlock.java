@@ -3,8 +3,10 @@ package com.jiangyuefengyu.redstonecircuit.block;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
@@ -62,6 +64,22 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
      * reading the world can ask a neighbouring wire to recalculate.
      */
     private static int suppressions;
+
+    /**
+     * The last tick each run origin was reported at, for the branch lines below.
+     *
+     * <p>Diagnostics only, and bounded: a run that is re-evaluated on every neighbour notification of a busy
+     * circuit would otherwise print once per notification, and the whole point of the line is to be readable.
+     * Entries are dropped wholesale once the map grows past {@link #BRANCH_LOG_CELLS}, because a level that
+     * builds and destroys machines all day would otherwise never release a coordinate.
+     */
+    private static final Map<BlockPos, Long> branchLog = new HashMap<>();
+
+    /** Ticks between two branch lines about the same run origin. */
+    private static final long BRANCH_LOG_INTERVAL = 20L;
+
+    /** Above this many remembered origins the throttle table is dropped rather than grown. */
+    private static final int BRANCH_LOG_CELLS = 512;
 
     public SuperconductingWireBlock(Properties properties) {
         super(properties);
@@ -151,14 +169,32 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
                 for (BlockPos host : hosting) {
                     InnerRedstoneNetwork.markDirty((ServerLevel) level, host);
                 }
+                logBranch(level, run.get(0), "hosting", hosting.size());
                 return;
             }
 
-            int strength = 0;
-            for (BlockPos pos : run) {
-                strength = Math.max(strength, supplyAt(level, pos, components));
+            // A run laid against a <b>machine</b> rather than against a host block of the level: nothing in the
+            // world store stands beside it to mark dirty, so this re-evaluation is the only place that can hand
+            // it over. The machine's network is solved with the run, or the two hold each other up for ever -
+            // and when nothing carried can join, that answers false and the run is the network of its own it
+            // always was (the arithmetic below).
+            if (level instanceof ServerLevel server
+                    && InnerRedstoneNetwork.settleCarriedRun(server, run.get(0))) {
+                logBranch(level, run.get(0), "carried", 0);
+                return;
             }
-            writeRun(level, run, PowerSolver.clamp(strength));
+
+            // The run IS the reader here, and a reader may be a whole network: every cell of it asks the same
+            // neighbours, so the cells are collected once (they already are, above) and every read the pair rule
+            // makes in this loop excludes all of them. One cell was only ever the smallest loop.
+            int strength = InnerRedstoneNetwork.readingFor(Set.copyOf(run), () -> {
+                int best = 0;
+                for (BlockPos pos : run) {
+                    best = Math.max(best, supplyAt(level, pos, components));
+                }
+                return best;
+            });
+            writeRun(level, run, PowerSolver.clamp(strength), "arith");
         } finally {
             endSuppression();
         }
@@ -172,17 +208,78 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
      * solve that changed nothing writes nothing.
      */
     public static void writeRun(Level level, List<BlockPos> run, int strength) {
+        writeRun(level, run, strength, "union");
+    }
+
+    /**
+     * The same write, with the <b>branch that decided it</b> named for the diagnostics line.
+     *
+     * <p>One answer, one line, and only when a cell really changed: the whole reason this exists is the class of
+     * report this file has already cost the most rounds on - "it stays lit and I cannot tell whether the arithmetic
+     * kept it or nothing ever wrote the cell". A run is written by three different callers (the standalone
+     * arithmetic, the merged union solve, and the carrier one), so the value alone does not say which of them is
+     * responsible, while the branch does. Gated on {@code debugLog} and emitted once per call, never per cell.
+     *
+     * @param branch "arith" for the standalone arithmetic, "union" for the merged solve, or any other label a
+     *     caller wants to see in the line
+     */
+    public static void writeRun(Level level, List<BlockPos> run, int strength, String branch) {
+        int changed = 0;
+        BlockPos first = null;
+        int from = 0;
         for (BlockPos pos : run) {
             BlockState state = level.getBlockState(pos);
             if (!isSuperconductor(state) || state.getValue(POWER) == strength) {
                 continue;
             }
+            if (first == null) {
+                first = pos.immutable();
+                from = state.getValue(POWER);
+            }
+            changed++;
             level.setBlock(pos, state.setValue(POWER, strength), 2);
             for (Direction direction : Direction.values()) {
                 level.updateNeighborsAt(pos.relative(direction), state.getBlock());
             }
             level.updateNeighborsAt(pos, state.getBlock());
         }
+        if (changed > 0 && RCConfig.debugLog()) {
+            RCConfig.LOGGER.info("[redstonecircuit] run written by {} at {}: {} of {} cell(s), {} -> {}",
+                    branch, first.toShortString(), changed, run.size(), from, strength);
+        }
+    }
+
+    /**
+     * One line naming which branch a re-evaluation took and what it handed the work to, for the two branches that
+     * write nothing themselves.
+     *
+     * <p>Those two are the ones worth naming: a run beside a host block leaves the state alone and asks the settle
+     * pass, and a run beside a machine leaves it alone and asks the carrier union - so "the surface wire never
+     * changed" has three possible answers (the arithmetic decided it, the settle pass owned it, or the union did)
+     * and without this line they are indistinguishable from the outside. Throttled per origin, because this runs on
+     * every neighbour notification.
+     */
+    private static void logBranch(Level level, BlockPos origin, String branch, int hosts) {
+        if (!RCConfig.debugLog() || !shouldLogBranch(level, origin)) {
+            return;
+        }
+        RCConfig.LOGGER.info("[redstonecircuit] run at {} took the {} branch ({} host block(s) beside it): "
+                        + "this call writes nothing, the solve it names owns the value",
+                origin.toShortString(), branch, hosts);
+    }
+
+    /** True when this origin has not been reported for {@link #BRANCH_LOG_INTERVAL} ticks. */
+    private static boolean shouldLogBranch(Level level, BlockPos origin) {
+        long now = level.getGameTime();
+        Long last = branchLog.get(origin);
+        if (last != null && now - last < BRANCH_LOG_INTERVAL) {
+            return false;
+        }
+        if (branchLog.size() > BRANCH_LOG_CELLS) {
+            branchLog.clear();
+        }
+        branchLog.put(origin.immutable(), now);
+        return true;
     }
 
     /**
@@ -274,12 +371,99 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
      * decides whether it is a supply at all - a lever, a torch or a repeater inside the block feeds this wire,
      * while a <b>wire</b> inside it does not: two wires on either side of one block boundary are one network,
      * and taking the stored value of one as the other's supply is what used to hold such a pair at fifteen
-     * for ever. That value is a node of the merged solve ({@code InnerRedstoneNetwork}), never a seed.
+     * for ever. That value is a node of the merged solve ({@code InnerRedstoneNetwork}), never a seed - and the
+     * question is asked of <b>every</b> table a component can stand in: the store; the projection table, for a host
+     * another structure is carrying, whose world cell holds air and which the store can never answer for; and the
+     * structure's own coordinate, where a host of the machine this very wire is part of answers as a real block of
+     * the level while the component inside it lives in the carrier's records. The last of those is a machine and its
+     * own surface - the two halves of one device, feeding each other in both directions - so it keeps its supply,
+     * but a <b>lossless wire</b> and a lossless host of its own structure read each other's <b>own supply</b> with
+     * the reader's cell left out ({@code InnerRedstoneNetwork#losslessPairInOneStructure}) instead of each other's
+     * stored strength: two copies at gain exactly one in both directions is a pair whose every value is a fixed
+     * point, and asking what each half would be without the other comes down to zero instead.
      *
      * @param components the level's inner components, or {@code null} when there are none to consult
      */
     public static int supplyAt(Level level, BlockPos pos, @Nullable InnerRedstoneStore components) {
+        int answer = supplyAtCore(level, pos, components);
+        logSupplySides(level, pos, components, answer);
+        return answer;
+    }
+
+    /**
+     * <b>Every side of one wire cell, and what each side answered.</b>
+     *
+     * <p>Diagnostics only: the composed strength cannot say <em>which</em> neighbour supplied it, and "the wire comes
+     * back to fifteen after the source is gone" is answered by exactly that. Each side is re-read through the same
+     * helpers the solve uses ({@code ownkind} = the run itself, {@code node} = a wire inside a host block,
+     * {@code host:} = a component record, {@code signal} = the ordinary read, {@code wirehost} = a wire-typed store
+     * slot, {@code err} = the read threw).
+     *
+     * <p>Throttled by wall clock: this is asked thousands of times a second and the reporter needs one readable line
+     * per second while reproducing by hand.
+     */
+    private static void logSupplySides(Level level, BlockPos pos, @Nullable InnerRedstoneStore components,
+                                       int answer) {
+        if (!RCConfig.debugLog() || !sideTraceDue()) {
+            return;
+        }
+        BlockState here = level.getBlockState(pos);
+        StringBuilder line = new StringBuilder(160);
+        for (Direction direction : Direction.values()) {
+            BlockPos neighbour = pos.relative(direction);
+            String tag;
+            int got;
+            try {
+                BlockState state = level.getBlockState(neighbour);
+                if (isSuperconductor(state) || state.is(Blocks.REDSTONE_WIRE)) {
+                    tag = "ownkind";
+                    got = 0;
+                } else {
+                    Slot held = components == null ? null : components.slotAt(neighbour);
+                    if (held == null) {
+                        if (InnerRedstoneNetwork.carriedHoldsWire(level, neighbour)) {
+                            tag = "node";
+                            got = 0;
+                        } else {
+                            tag = "signal";
+                            got = InnerRedstoneNetwork.supplyFromNeighbour(level, pos, neighbour, direction, here);
+                        }
+                    } else if (!held.type.isWire()) {
+                        tag = "host:" + held.type;
+                        got = PowerSolver.signalAnswer(held, direction.getOpposite(), false, true,
+                                RCConfig.hostConductsStrongPower());
+                    } else {
+                        tag = "wirehost";
+                        got = 0;
+                    }
+                }
+            } catch (RuntimeException | LinkageError unreadable) {
+                tag = "err";
+                got = -1;
+            }
+            line.append(' ').append(direction.getName()).append('=').append(got).append('(').append(tag).append(");");
+        }
+        RCConfig.LOGGER.info("[redstonecircuit] RUN SIDES at {}: answer={} ::{}", pos.toShortString(), answer, line);
+    }
+
+    /** When the side trace was last written, for its wall-clock throttle. */
+    private static long sideTraceAt;
+
+    /** True at most once per second, so one reproduction gives a readable trace. */
+    private static boolean sideTraceDue() {
+        long now = System.currentTimeMillis();
+        if (now - sideTraceAt < 1000L) {
+            return false;
+        }
+        sideTraceAt = now;
+        return true;
+    }
+
+    private static int supplyAtCore(Level level, BlockPos pos, @Nullable InnerRedstoneStore components) {
         int best = 0;
+        // The cell this read is made from - the run's own cell, so it is a superconducting wire by construction.
+        // Carried into the loop because the structure-frame refusal is asked about the READER and not the host.
+        BlockState here = level.getBlockState(pos);
         for (Direction direction : Direction.values()) {
             BlockPos neighbour = pos.relative(direction);
             BlockState state = level.getBlockState(neighbour);
@@ -289,7 +473,25 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
             }
             Slot held = components == null ? null : components.slotAt(neighbour);
             if (held == null) {
-                best = Math.max(best, level.getSignal(neighbour, direction));
+                // Three tables a component can stand in, and one rule that decides between them - asked of
+                // InnerRedstoneNetwork#supplyFromNeighbour rather than decided again at this call site:
+                //
+                //  * the projection table, for a host another structure is carrying: it is drawn over air, so the
+                //    store above can never answer for it and the world query is the only other place that could -
+                //    which is exactly the trap, because that query answers the host's STORED strength;
+                //  * the structure index, for a host of THIS structure standing at a coordinate the level answers
+                //    as a real block (a plot slot lives in the carrier's records, not in the level's);
+                //  * and the ordinary level query, for the world.
+                //
+                // A wire inside a host block is a NODE of somebody's solve and not a supply for the wire beside it:
+                // taken as one it is a copy at gain exactly one in both directions, and such a pair's every value is
+                // a fixed point - the latch. The one exception is a LOSSLESS wire against a lossless host
+                // (一对无损的两半), and that is not read as a copy either: each half asks the other's OWN supply with
+                // the reader's own network left out, so a pair that supplies nothing but itself comes down to zero
+                // while a real source on its far side still arrives in full. Ordinary dust pays a hop and a torch or
+                // a repeater inside a host is a source, so both of those keep the plain read.
+                best = Math.max(best, InnerRedstoneNetwork.supplyFromNeighbour(
+                        level, pos, neighbour, direction, here));
             } else if (!held.type.isWire()) {
                 best = Math.max(best, PowerSolver.signalAnswer(held, direction.getOpposite(), false,
                         true, RCConfig.hostConductsStrongPower()));

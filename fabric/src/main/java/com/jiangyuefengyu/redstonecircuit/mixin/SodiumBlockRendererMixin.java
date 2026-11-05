@@ -16,6 +16,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <p>Sodium has its own chunk renderer and never calls vanilla's {@code BlockRenderDispatcher.renderBatched}, so the
  * vanilla hook does nothing for the players most likely to run a shader pack; its per-block entry point is
  * {@code BlockRenderer#renderModel}, which is handed the position, and that is what this cancels.
+ * <p>The two positions this method receives are not the same length: {@code pos} is the world position of the block
+ * and {@code origin} is its position inside the section. Which one holds world coordinates is settled in
+ * {@link com.jiangyuefengyu.redstonecircuit.client.HostCubeSkip}, not here.
  * <p>The target is a string and the parameters are all vanilla types, so the descriptor needs no Sodium on the compile
  * classpath; whether the mixin is applied at all is decided by {@link SodiumMixinPlugin}.
  */
@@ -29,10 +32,9 @@ public abstract class SodiumBlockRendererMixin {
             require = 0)
     private void redstonecircuit$skipDrawnHost(BakedModel model, BlockState state, BlockPos pos,
                                                BlockPos origin, CallbackInfo callback) {
-        // Sodium may hand in a section-local position while the set the overlay publishes is in world coordinates;
-        // both are tried rather than guessing which - the wrong interpretation simply never matches anything.
-        if (ShaderCompat.hidesHostCube(pos) || ShaderCompat.hidesHostCube(origin.offset(pos))) {
+        if (ShaderCompat.skipsBlock(pos, origin)) {
             ShaderCompat.noteHookUsed("sodium");
+            ShaderCompat.noteMeshSkip("sodium", pos);
             callback.cancel();
         }
     }

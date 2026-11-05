@@ -1,6 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit.carrier;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.block.SuperconductingWireBlock;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
@@ -9,6 +10,7 @@ import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.state.BlockState;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -150,6 +152,17 @@ public final class CarrierWorldIo {
      * cancel that charge and a run of carried dust would stop fading. A host <b>another</b> carrier projects there is
      * still read, which is the seam two independently physicalised blocks need. The vanilla half is read exactly as
      * before, a bridge with no reader filters nothing, and a frozen bridge never reaches here at all.
+     *
+     * <p><b>A lossless seam is asked a different question.</b> A hop is paid by the receiver, so a seam between two
+     * wires that both charge nothing carries the neighbour's strength over unchanged - and read as a supply, which is
+     * exactly what this is, that makes the pair's equations {@code A = B} and {@code B = A}, whose fixed point is every
+     * value: the strength the two halves last wrote would hold each other up for ever, and taking the source away would
+     * change nothing (see {@link PowerSolver#losslessSeam}). Such a seam therefore answers what the world pushes
+     * <b>into</b> the neighbour - the strength it would hold without us, with this carrier's own projected hosts
+     * refused - while every other seam keeps reading the strength the neighbour holds, where the receiver's cost makes
+     * the pair's fixed point unique. The choice and both reads live in
+     * {@link InnerRedstoneNetwork#worldSignalIntoOwnFrame}, so the world-side solve and this bridge cannot drift apart
+     * about which seam is which.
      */
     public int signalIntoOwnFrame(BlockPos localPos, Direction localDirection) {
         if (reader == null || level == null) {
@@ -174,10 +187,67 @@ public final class CarrierWorldIo {
             }
             return signalInto(localPos, localDirection, signals);
         }
-        return InnerRedstoneNetwork.seamReader(readerTypeOf(localPos), () ->
+        ComponentType mine = readerTypeOf(localPos);
+        return InnerRedstoneNetwork.seamReader(mine, () ->
                 signalInto(localPos, localDirection,
-                        (worldPos, worldDirection) ->
-                                InnerRedstoneNetwork.worldSignalAt(level, worldPos, worldDirection, reader)));
+                        (worldPos, worldDirection) -> InnerRedstoneNetwork.worldSignalIntoOwnFrame(
+                                level, worldPos, worldDirection, reader, mine)));
+    }
+
+    /**
+     * <b>Whether the world block this local coordinate is drawn at is a lossless superconducting wire of
+     * ours</b> - the level-side counterpart of {@code InnerRedstoneNetwork#structureHoldsLosslessWire}.
+     *
+     * <p>一条超导线躺在结构的表面上时，它是世界里的一个<b>方块状态</b>（强度写在 {@code POWER} 里），不是
+     * 任何载具的 host：没有任何 solve 拥有它，也就没有任何东西会写它的强度。把它的<em>存量</em>当供给读回来，
+     * 在一个无损接收方那里是原值搬运 - 两个方向都如此 - 于是配对的两个等式 {@code A = B} 与 {@code B = A}
+     * 以每一个值为不动点，源拿走了强度还立在那里。所以这一格必须先被认出来，读它的人才能改问它
+     * <em>自己</em>被什么供着（见 {@code CarrierSpace#externalSignal(Direction)}）。
+     *
+     * <p>The structure frame asks the same question of the machine's own blocks
+     * ({@code InnerRedstoneNetwork#structureHoldsLosslessWire}); this one asks it of the level, because a
+     * wire lying on the surface belongs to the world the machine is drawn in and to no structure's storage.
+     *
+     * <p>Answered {@code false} for every reason a block cannot be established - a bridge with no level, a
+     * coordinate it cannot project, a level read that throws. {@code false} is the answer that leaves the
+     * stock read standing, and the stock read is the honest degradation: a wire that cannot be named is never
+     * turned into anything but the read that was made before this rule existed.
+     */
+    public boolean holdsLosslessWireAt(BlockPos localPos) {
+        if (level == null || localPos == null) {
+            return false;
+        }
+        try {
+            BlockState state = level.getBlockState(worldPosOf(localPos));
+            return state != null && SuperconductingWireBlock.isSuperconductor(state);
+        } catch (RuntimeException | LinkageError unreadable) {
+            return false;
+        }
+    }
+
+    /**
+     * <b>Which structure's own block storage holds the world place this local coordinate is drawn at</b>, or
+     * {@code null} when no structure's storage does and the place is simply the world.
+     *
+     * <p>Asked for one reason: a coordinate can be a real level coordinate <em>and</em> another structure's plot
+     * coordinate at the same time (a Sable sub-level's plot coordinates are level coordinates), so the world
+     * block this host is reading may in fact be a block of <b>another</b> machine's own grid. That is the
+     * physicalisation seam proper - 两个独立求解的结构互相读数的那条缝 - and it must keep answering the
+     * strength it holds, because its own solve owns it. Only a coordinate belonging to <b>this</b> host's carrier
+     * (or to nobody) may be read as a pair with this host.
+     *
+     * <p><b>Deliberately not caught here.</b> The one caller needs three answers - "no owner" is a pair, "this
+     * owner" is a pair, "another owner" is not - and a blocked lookup must not be mistaken for the middle one,
+     * because that would silently rewrite a seam read into a pair read and could answer 0 where another machine
+     * really holds a strength. So a failure is allowed out, and the caller falls back to the stock read, which is
+     * strictly safer than either guess.
+     */
+    @Nullable
+    public CarrierId structureOwnerOf(BlockPos localPos) {
+        if (level == null || localPos == null) {
+            return null;
+        }
+        return CarrierStore.structureOwnerAt(level, worldPosOf(localPos));
     }
 
     /**

@@ -48,6 +48,7 @@ repo/
 # neoforge/libs/README.md says where they come from.
 neoforge/libs/*.jar
 libs/*.jar
+fabric/libs/*.jar
 
 # dev-run client/server logs
 logs/

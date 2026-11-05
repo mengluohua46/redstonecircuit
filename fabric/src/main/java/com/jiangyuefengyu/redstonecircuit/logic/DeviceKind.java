@@ -22,7 +22,7 @@ public enum DeviceKind implements StringRepresentable {
     TRANSFORMER("transformer"),
 
     /**
-     * 时钟源 - three numbers: 秒 (a), tick (b) and 强度 (c); see {@link ClockRule}.
+     * 时钟源 - four numbers: 秒 (a), tick (b), 强度 (c) and 脉宽 1-2 tick (d); see {@link ClockRule}.
      *
      * <p>The first device whose 0 秒 0 tick is a <b>setting</b> rather than a refusal - it means "switched off" - which is
      * why its decoder refuses a field that is out of range instead of clamping it: 3601 is not a period this clock has,

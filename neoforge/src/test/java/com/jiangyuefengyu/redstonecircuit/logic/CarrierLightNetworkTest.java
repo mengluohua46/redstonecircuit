@@ -301,8 +301,8 @@ class CarrierLightNetworkTest {
     }
 
     @Test
-    @DisplayName("a pulse shorter than the delay disappears, exactly as it does in the world")
-    void aShortPulseIsSwallowed() {
+    @DisplayName("a pulse shorter than the delay comes out one delay wide, exactly as it does in the world")
+    void aShortPulseComesOutOneDelayWide() {
         FakeSpace space = new FakeSpace();
         FakeNode lever = space.node(0, 0, 0, ComponentType.LEVER).powered(15);
         FakeNode repeater = space.node(1, 0, 0, ComponentType.REPEATER)
@@ -312,10 +312,85 @@ class CarrierLightNetworkTest {
         network.solve(space, seeds(at(1, 0, 0)), 0L);
         assertEquals(1, network.pendingCount(), "setting 1 is a two-tick delay");
 
-        // The supply is gone before the delay elapses; the output is decided when the tick arrives.
+        // The supply is gone before the delay elapses. Vanilla's DiodeBlock#tick switches a component that was
+        // off on regardless of what it reads by then, and queues one more full delay to switch it off again.
         lever.powered(0);
         network.solve(space, seeds(at(1, 0, 0)), 2L);
-        assertEquals(0, repeater.level(), "a pulse shorter than the delay does not latch a repeater on");
+        assertEquals(15, repeater.level(), "it latches on, so the pulse is not swallowed");
+        assertEquals(1, network.pendingCount(), "with one more full delay queued behind it");
+
+        network.solve(space, seeds(at(1, 0, 0)), 3L);
+        assertEquals(15, repeater.level(), "three ticks in, the second delay has not elapsed");
+        network.solve(space, seeds(at(1, 0, 0)), 4L);
+        assertEquals(0, repeater.level(), "so the output pulse is exactly one delay wide");
+        assertEquals(0, network.pendingCount(), "and the queue is empty again");
+    }
+
+    @Test
+    @DisplayName("a diode beside a repeater holds its output, and letting go lets it follow again")
+    void aSideDiodeHoldsTheOutput() {
+        FakeSpace space = new FakeSpace();
+        space.node(0, 0, 0, ComponentType.LEVER).powered(15);
+        // North of the repeater below, reading further north and so outputting south - into its side.
+        FakeNode holder = space.node(1, 0, -1, ComponentType.REPEATER)
+                .facing(Direction.NORTH).powered(15);
+        FakeNode held = space.node(1, 0, 0, ComponentType.REPEATER)
+                .facing(Direction.WEST).delay(1);
+
+        CarrierLightNetwork network = new CarrierLightNetwork(64);
+        for (int tick = 0; tick < 6; tick++) {
+            network.solve(space, seeds(at(1, 0, 0)), tick);
+        }
+        assertEquals(0, held.level(), "a repeater held from the side does not follow a live input at all");
+        assertEquals(0, network.pendingCount(), "and nothing is queued for it, because its tick is skipped");
+
+        holder.powered(0);
+        network.solve(space, seeds(at(1, 0, 0)), 10L);
+        assertEquals(1, network.pendingCount(), "with the hold gone it is stale again and queues its delay");
+        network.solve(space, seeds(at(1, 0, 0)), 12L);
+        assertEquals(15, held.level(), "and follows its input once the delay is up");
+    }
+
+    @Test
+    @DisplayName("a repeater that was already on turns off at its delay, held or not")
+    void anOnRepeaterStillTurnsOff() {
+        FakeSpace space = new FakeSpace();
+        FakeNode lever = space.node(0, 0, 0, ComponentType.LEVER).powered(15);
+        FakeNode repeater = space.node(1, 0, 0, ComponentType.REPEATER)
+                .facing(Direction.WEST).delay(1);
+
+        CarrierLightNetwork network = new CarrierLightNetwork(64);
+        settle(network, space, 0L, at(1, 0, 0));
+        assertEquals(15, repeater.level(), "precondition: the lever lit it");
+
+        lever.powered(0);
+        settle(network, space, 10L, at(1, 0, 0));
+        assertEquals(0, repeater.level(), "the half that reads now is what turns it off, and it still holds");
+    }
+
+    @Test
+    @DisplayName("a torch re-checks before it relights, so a pulse shorter than its delay is still swallowed")
+    void aTorchStillSwallowsAShortPulse() {
+        FakeSpace space = new FakeSpace();
+        FakeNode lever = space.node(0, 0, 0, ComponentType.LEVER).powered(15);
+        FakeNode torch = space.node(1, 0, 0, ComponentType.TORCH).facing(Direction.WEST).powered(0);
+
+        CarrierLightNetwork network = new CarrierLightNetwork(64);
+        network.solve(space, seeds(at(1, 0, 0)), 0L);
+        assertEquals(0, torch.level(), "a fed torch is out");
+        assertEquals(0, network.pendingCount(), "and there is nothing to queue while its input is there");
+
+        // The input leaves: the torch may light again, so it queues its two-tick delay.
+        lever.powered(0);
+        network.solve(space, seeds(at(1, 0, 0)), 1L);
+        assertEquals(1, network.pendingCount(), "a torch that may light again queues its delay");
+
+        // The input is back before that delay is up. Unlike a diode, a torch asks again before it relights -
+        // vanilla's RedstoneTorchBlock#tick does the same - so nothing latches on.
+        lever.powered(15);
+        network.solve(space, seeds(at(1, 0, 0)), 3L);
+        assertEquals(0, torch.level(), "a torch re-checks, so a pulse that has gone stays gone");
+        assertEquals(0, network.pendingCount(), "and nothing is left queued");
     }
 
     @Test

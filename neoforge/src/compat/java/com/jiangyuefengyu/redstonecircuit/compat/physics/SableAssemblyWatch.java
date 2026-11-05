@@ -29,6 +29,11 @@ import net.minecraft.server.level.ServerLevel;
  * structures are assembled for the rest of the run. A structure with no body is not a wasted block but a massless
  * body in a physics step that cannot be asked to survive one, whereas a machine that stops assembling is a machine
  * whose blocks simply stay ordinary blocks in the world.
+ *
+ * <p>A structure that is no longer in the container is deliberately <b>not</b> that verdict. It was taken out by
+ * Sable's own bookkeeping - a crop that broke once it had nothing to stand on, an egg that hatched - and the body went
+ * with it, so nothing of it is left for the physics step to choke on. That branch writes a line and lets assembly run
+ * on; only a body that is still there and still cannot be weighed is evidence that the physics step is unusable.
  */
 final class SableAssemblyWatch {
 
@@ -78,12 +83,14 @@ final class SableAssemblyWatch {
 
     private static void judge(PlacerAssemblyWatch.Pending entry, SubLevel found) {
         if (found == null) {
-            if (PlacerAssemblyGate.switchOff(
-                    "sub-level " + entry.uuid() + " was gone before its body could be read back")) {
-                RCConfig.LOGGER.warn("[redstonecircuit] block placer: the structure assembled from the cell at world {} "
-                        + "(sub-level {}) was gone from the container before its body could be read back, which is what a "
-                        + "structure with nothing in its plot does; no further structure will be assembled for the rest "
-                        + "of this server run, and the machine keeps placing its blocks into the world",
+            // Nothing is left to judge: a structure whose block removed itself - a crop that broke the moment it had
+            // nothing to stand on, an egg that hatched - takes its sub-level with it. A body that no longer exists is
+            // not one the physics step can be asked to survive, so this branch is a line and not a switch-off; the
+            // guard against a massless body belongs to the branch below, where a body is there to be weighed.
+            if (RCConfig.debugLog()) {
+                RCConfig.LOGGER.info("[redstonecircuit] block placer: the structure assembled from the cell at world {} "
+                        + "(sub-level {}) was gone from the container before its body could be read back; nothing of it "
+                        + "is left in the physics step, so structures keep being assembled",
                         entry.worldTarget().toShortString(), entry.uuid());
             }
             return;

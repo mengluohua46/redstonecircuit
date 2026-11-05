@@ -1,6 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit.carrier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -12,6 +13,7 @@ import java.util.UUID;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -359,4 +361,80 @@ class CarrierStructureSignalTest {
         assertEquals(15, on.externalSignal(Direction.SOUTH),
                 "and the same space with the switch on reads it - the switch is the whole difference");
     }
+
+    /**
+     * <b>The read the rule asks for: the structure's own lossless wire
+     * block is the other half of one machine, not an external supply to it.</b>
+     *
+     * <p>One component lives inside a block the structure carries; the cell above that block holds a
+     * superconducting wire <em>block</em> - a block state of the structure's own grid, which the carrier index
+     * never records (only a host that holds a component is a host). Refusing it costs
+     * the machine its own surface: a wire the machine placed on top of itself could no longer feed what it was
+     * laid on. What is wrong is not the pair but the <em>copy</em>: read as its stock strength the wire hands over a
+     * value no source supplies any more, at gain exactly one because a superconductor pays nothing for a hop.
+     *
+     * <p>So the read asks the other question - what the wire block's <b>own sides</b> push into it, with <b>this
+     * host's cell</b> left out ({@code supplyAround(wireCell, queryPos, ...)}). A value is
+     * {@code max(own supply, neighbours)}, so leaving out the reader's own term can only lower the answer: a real
+     * source on the wire's far side still arrives at full strength, and a pair that supplies nothing but itself
+     * comes down to zero.
+     *
+     * <p>A unit test has no block registry ({@code Blocks.AIR.defaultBlockState()} throws before it returns - see
+     * {@code FakeStructure}'s note, which is why it answers {@code null}), so the wire's own state cannot be built
+     * here and this scene cannot be settled numerically without a level. What is pinned is that the cut is gone,
+     * that what replaces it is the same pure rule the run side asks, and which cell that rule leaves out.
+     */
+    @Test
+    @DisplayName("the structure half reads the wire block's own supply with this host's cell left out")
+    void theStructureHalfAsksTheWireBlocksOwnSupply() throws Exception {
+        String space = flatten("src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierSpace.java");
+        assertFalse(space.contains("the neighbour is a lossless superconducting wire of the structure's own blocks"),
+                "the cut is gone - a lossless wire of the machine's own blocks is read again, because a "
+                        + "machine on its own surface is exactly that pair");
+        assertTrue(space.contains("InnerRedstoneNetwork.structureHoldsLosslessWire(blocks, neighbour) && losslessPartnerHere()"),
+                "what replaces the cut is the pair question, and it is asked of the SAME pure function the run "
+                        + "side asks - one rule, so the two directions cannot drift apart");
+        assertTrue(space.contains("InnerRedstoneNetwork.losslessPairInOneStructure(self == null ? null : self.type, ComponentType.SUPERCONDUCTOR, carrier, carrier)"),
+                "this host's own component kind meets the wire block's: only two lossless halves are a pair, so a "
+                        + "torch or a repeater inside this host keeps the plain read and the inside still lights");
+        assertTrue(space.contains("InnerRedstoneNetwork.supplyAround(wireCell, queryPos, (side, direction) -> {"),
+                "and the read is around the wire block with THIS host's coordinate excluded - queryPos is the "
+                        + "reader, and it is the only cell left out");
+        assertTrue(space.indexOf("structureHoldsLosslessWire(blocks, neighbour) && losslessPartnerHere()")
+                        < space.indexOf("InnerRedstoneNetwork.readSignal(blocks, neighbour, direction)"),
+                "asked BEFORE the stock read: a supply already taken cannot be taken back, and the lossless copy "
+                        + "is what would win the max");
+        assertTrue(space.contains("the neighbour is one of this carrier's own hosts"),
+                "the older guard for a host of the index is still there and still first: a slot's value arrives "
+                        + "through the inner relationship, which charges the hop");
+    }
+
+    @Test
+    @DisplayName("only the lossless wire is a pair: dust of the machine's own blocks still feeds it")
+    void thePairIsTheLosslessWiresAlone() throws Exception {
+        String network = flatten("src/main/java/com/jiangyuefengyu/redstonecircuit/logic/InnerRedstoneNetwork.java");
+        assertTrue(network.contains("state != null && SuperconductingWireBlock.isSuperconductor(state)"),
+                "the rule asks for OUR superconducting wire specifically - not for 'a wire block is there' and "
+                        + "not for a vanilla wire: ordinary dust pays a hop, so a dust pair's equations are "
+                        + "contradictory and it comes down by itself - pairing it would change a working "
+                        + "machine's answer for no reason at all");
+        assertFalse(network.contains("Blocks.REDSTONE_WIRE) && state.getValue"),
+                "nothing here reaches for the vanilla wire block's POWER");
+
+        // The arithmetic the rule rests on, restated where the rule lives: only a lossless pair would copy.
+        assertEquals(15, PowerSolver.afterHop(ComponentType.SUPERCONDUCTOR, ComponentType.SUPERCONDUCTOR, 15),
+                "two superconductors copy each other unchanged - gain exactly one, which is why the dead value "
+                        + "stood there for ever");
+        assertEquals(14, PowerSolver.afterHop(ComponentType.DUST, ComponentType.SUPERCONDUCTOR, 15),
+                "a dust receiving pays its own hop, so a dust pair must come down by itself");
+        assertEquals(15, PowerSolver.afterHop(ComponentType.SUPERCONDUCTOR, ComponentType.DUST, 15),
+                "while a lossless receiver of a dust is free - the receiver is what pays");
+    }
+
+    /** One file's text, whitespace-flattened, so a wiring assertion is not a formatting assertion. */
+    private static String flatten(String relative) throws Exception {
+        return java.nio.file.Files.readString(java.nio.file.Path.of(relative))
+                .replace("\r\n", "\n").replaceAll("\\s+", " ");
+    }
 }
+

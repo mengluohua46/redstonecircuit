@@ -98,6 +98,80 @@ class HostPathOwnershipTest {
     }
 
     @Test
+    @DisplayName("a record with no block is drawn by the world path - unless the carried path draws that position")
+    void aRecordWithNoBlockDrawsUnlessACarriedRecordDoes() {
+        // THE STATE THIS METHOD WAS ADDED FOR. Before `drawsHere`, "a host record with no block" was drawn by
+        // nobody: `worldPathDraws(true, false)` is false, and the carried path has no candidate for a record no
+        // structure holds. A record CAN outlive its block - the store is SavedData and its only removal paths are
+        // a break event, a piston's own transfer and a capture's cut - so the component was invisible for ever.
+        assertTrue(HostPathOwnership.drawsHere(true, false, false, true),
+                "a record whose block is air, with no carried candidate at that position, is drawn");
+
+        assertFalse(HostPathOwnership.drawsHere(true, false, true, true),
+                "and NOT when the carried path is already drawing that position: two shells on one cell is the "
+                        + "other defect, so a carried host keeps the position it is projected onto");
+        assertTrue(HostPathOwnership.drawsHere(true, true, true, true),
+                "an ordinary host over a real block is unchanged, carried candidate or not");
+        assertFalse(HostPathOwnership.drawsHere(false, false, false, true),
+                "no record at all is still nothing to draw");
+        assertFalse(HostPathOwnership.drawsHere(true, false, false, false),
+                "and nothing is drawn in a chunk the client has not got: the blockless case is exactly the one "
+                        + "with no block read to fail on, so 'loaded' has to be its own argument");
+    }
+
+    @Test
+    @DisplayName("the two-fact rule itself is unchanged, and drawsHere differs from it in exactly one combination")
+    void drawsHereMatchesTheOldRuleEverywhereButTheBlocklessCombination() {
+        // 1. THE OLD RULE, ROW BY ROW, PLUS ITS COMPLEMENT. Not "drawsHere equals the old rule" - that is false by
+        // construction, because the blockless state IS the change. What has to stay put is the predicate every
+        // existing caller reads: the world path's own two facts, and the complement the carried path yields on.
+        assertTrue(HostPathOwnership.worldPathDraws(true, true), "a known host over a real block: drawn");
+        assertFalse(HostPathOwnership.worldPathDraws(true, false),
+                "a host with air under it: this rule still refuses, and that is what makes the change a change");
+        assertFalse(HostPathOwnership.worldPathDraws(false, true), "a block with no component of ours");
+        assertFalse(HostPathOwnership.worldPathDraws(false, false), "nothing to draw either way");
+        for (boolean worldHost : new boolean[] {true, false}) {
+            for (boolean blockPresent : new boolean[] {true, false}) {
+                assertNotEquals(HostPathOwnership.worldPathDraws(worldHost, blockPresent),
+                        HostPathOwnership.fallbackDraws(worldHost, blockPresent),
+                        "the complement the carried path yields on is still exact: host=" + worldHost
+                                + " block=" + blockPresent);
+            }
+        }
+
+        // 2. `drawsHere` IS THE OLD RULE EVERYWHERE EXCEPT THE ONE COMBINATION THIS FEATURE IS: a record with air
+        // under it, in a chunk the client has. Three of the four (worldHost, blockPresent) rows answer exactly as
+        // the old rule does for both values of `carriedDrawsHere`, and the fourth is decided by that argument
+        // alone - nothing else in the space moved.
+        for (boolean worldHost : new boolean[] {true, false}) {
+            for (boolean blockPresent : new boolean[] {true, false}) {
+                for (boolean carriedDrawsHere : new boolean[] {true, false}) {
+                    String where = "host=" + worldHost + " block=" + blockPresent
+                            + " carried=" + carriedDrawsHere;
+                    if (worldHost && !blockPresent) {
+                        // THE ONE ROW THAT CHANGED, both ways round: drawn when no carried candidate draws
+                        // here, and left to the carried path when one does.
+                        assertEquals(!carriedDrawsHere, HostPathOwnership.drawsHere(worldHost, blockPresent,
+                                        carriedDrawsHere, true),
+                                "a record with no block is drawn unless a carried candidate draws that "
+                                        + "position: " + where);
+                    } else {
+                        assertEquals(HostPathOwnership.worldPathDraws(worldHost, blockPresent),
+                                HostPathOwnership.drawsHere(worldHost, blockPresent, carriedDrawsHere, true),
+                                "every other combination is the old rule, unchanged: " + where);
+                    }
+                    // And no combination is drawn in a chunk the client has not got. The row above is exactly the
+                    // one with no block left to read, which is why `loaded` is its own argument and not folded
+                    // into `blockPresent`: an unloaded chunk answers "air" for everything, so folding them would
+                    // draw the whole of a chunk the client was never sent.
+                    assertFalse(HostPathOwnership.drawsHere(worldHost, blockPresent, carriedDrawsHere, false),
+                            "an unloaded chunk draws nothing, whatever the other three facts say: " + where);
+                }
+            }
+        }
+    }
+
+    @Test
     @DisplayName("an Owner has two values and no third: 'neither path' is not representable")
     void thereIsNoNeither() {
         assertEquals(2, HostPathOwnership.Owner.values().length,

@@ -1,0 +1,140 @@
+{
+  "variants": {
+    "face=ceiling,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 270
+    },
+    "face=ceiling,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 270
+    },
+    "face=ceiling,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 270
+    },
+    "face=ceiling,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 270
+    },
+    "face=ceiling,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 180
+    },
+    "face=ceiling,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 180
+    },
+    "face=ceiling,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 180
+    },
+    "face=ceiling,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 180
+    },
+    "face=ceiling,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "face=ceiling,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "face=ceiling,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "face=ceiling,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "face=ceiling,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 90
+    },
+    "face=ceiling,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 90
+    },
+    "face=ceiling,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 90
+    },
+    "face=ceiling,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 90
+    },
+    "face=floor,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 90
+    },
+    "face=floor,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 90
+    },
+    "face=floor,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 90
+    },
+    "face=floor,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 90
+    },
+    "face=floor,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "face=floor,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "face=floor,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "face=floor,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "face=floor,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 180
+    },
+    "face=floor,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 180
+    },
+    "face=floor,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 180
+    },
+    "face=floor,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 180
+    },
+    "face=floor,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 270
+    },
+    "face=floor,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 270
+    },
+    "face=floor,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 270
+    },
+    "face=floor,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 270
+    }
+  }
+}

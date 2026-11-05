@@ -5,6 +5,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.jetbrains.annotations.Nullable;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 
@@ -177,9 +180,48 @@ public final class ShaderCompat {
         return shaderPackInUse();
     }
 
-    /** Whether the chunk mesher should skip a block at this position. Called from mesher threads. */
-    public static boolean hidesHostCube(BlockPos pos) {
-        return hidingHostCubes && hidden.contains(pos.asLong());
+    /**
+     * Whether the chunk mesher should skip a block. Called from mesher threads.
+     *
+     * @param pos    the position the hook was handed; a world position in every known hook
+     * @param origin the hook's optional second position, {@code null} where it has none
+     */
+    public static boolean skipsBlock(BlockPos pos, @Nullable BlockPos origin) {
+        return hidingHostCubes && HostCubeSkip.skips(hidden, pos, origin);
+    }
+
+    /** (Hook, position) pairs already called out, so one block is one line however often it is rebuilt. */
+    private static final Set<String> MESH_SKIPS = ConcurrentHashMap.newKeySet();
+    /** Distinct pairs that may be printed; past it the skips are counted, because a wrong verdict is per block. */
+    private static final int MESH_SKIP_LOG_LIMIT = 4096;
+    private static final AtomicLong MESH_SKIPS_SUPPRESSED = new AtomicLong();
+
+    /**
+     * Records one block a mesh hook left out of the mesh - only while {@code debugLog} is on.
+     *
+     * <p>"The machine has a hole in it" is answered by the position, not by the fact that a hook ran: the
+     * line names the block the mesher dropped, to be compared with where the overlay drew. Bounded on
+     * purpose, because a wrong host set would otherwise write a line per block per rebuild.
+     */
+    public static void noteMeshSkip(String hook, BlockPos pos) {
+        if (!RCConfig.debugLog()) {
+            return;
+        }
+        String key = hook + '@' + pos.asLong();
+        if (MESH_SKIPS.contains(key)) {
+            return;
+        }
+        if (MESH_SKIPS.size() >= MESH_SKIP_LOG_LIMIT) {
+            if (MESH_SKIPS_SUPPRESSED.getAndIncrement() == 0L) {
+                RCConfig.LOGGER.info(
+                        "[redstonecircuit] mesh skip log full at {} position(s); the rest are counted only",
+                        MESH_SKIP_LOG_LIMIT);
+            }
+            return;
+        }
+        if (MESH_SKIPS.add(key)) {
+            RCConfig.LOGGER.info("[redstonecircuit] mesh skip ({}) at {}", hook, pos.toShortString());
+        }
     }
 
     /** Hook names that have already been reported, so a diagnosis does not flood the log. */
@@ -188,9 +230,9 @@ public final class ShaderCompat {
     /**
      * Records that a mesh hook really ran and recognised one of our hosts.
      *
-     * <p>Logged once per hook. "Nothing happens in game" has two very different causes - the overlay
-     * never switched to vanilla geometry, or it did and the mesher is not listening - and this is what
-     * tells them apart from a log without guessing.
+     * <p>Logged once per hook, deliberately not behind {@code debugLog}: "nothing happens in game" has two very
+     * different causes - the overlay never switched to vanilla geometry, or it did and the mesher is not listening -
+     * and in a release jar this is the only line that tells them apart.
      */
     public static void noteHookUsed(String hook) {
         if (REPORTED.add(hook)) {
@@ -221,6 +263,9 @@ public final class ShaderCompat {
         } else if (!hiding && hidingHostCubes) {
             RCConfig.LOGGER.info("[redstonecircuit] shader mode off: host blocks are back in the mesh");
         }
+        if (!next.isEmpty() && RCConfig.debugLog()) {
+            logHiddenSet(next);
+        }
         hidden = Set.copyOf(next);
         hidingHostCubes = hiding;
         Minecraft minecraft = Minecraft.getInstance();
@@ -238,6 +283,33 @@ public final class ShaderCompat {
             }
         }
         return true;
+    }
+
+    /** How many hidden hosts the debug line names before it summarises the rest. */
+    private static final int HIDDEN_LOG_LIMIT = 8;
+
+    /**
+     * Names the hosts just taken out of the mesh, so a log can answer "which blocks did the overlay take
+     * over" without a second run.
+     *
+     * <p>Bounded: a machine can hide hundreds of hosts and the first few are enough to recognise it.
+     */
+    private static void logHiddenSet(Set<Long> hosts) {
+        StringBuilder line = new StringBuilder("[redstonecircuit] hiding ")
+                .append(hosts.size()).append(" host block(s): ");
+        int printed = 0;
+        for (long packed : hosts) {
+            if (printed == HIDDEN_LOG_LIMIT) {
+                line.append(", +").append(hosts.size() - printed).append(" more");
+                break;
+            }
+            if (printed > 0) {
+                line.append(", ");
+            }
+            line.append(BlockPos.of(packed).toShortString());
+            printed++;
+        }
+        RCConfig.LOGGER.info("{}", line);
     }
 
     /** Rebuilds every mesh, for the one event that changes every block at once: the goggles going on. */

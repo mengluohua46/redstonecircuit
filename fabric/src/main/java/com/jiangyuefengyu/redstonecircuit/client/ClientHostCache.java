@@ -17,6 +17,7 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierIndex;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierProjection;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierTrace;
+import com.jiangyuefengyu.redstonecircuit.carrier.HostPathOwnership;
 import com.jiangyuefengyu.redstonecircuit.carrier.LandedHosts;
 import com.jiangyuefengyu.redstonecircuit.data.HostEntry;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
@@ -35,6 +36,12 @@ import net.minecraft.world.level.Level;
  * <p>The server is authoritative except for one defensive case: a carrier whose pose has gone stale is let go of and the
  * hosts it held fall back to their original world positions ({@link #tickCarriers}), since a host may only be treated as
  * riding while the client knows where that structure is. That fallback is a view and not data.
+ *
+ * <p><b>A record whose block is air is drawn, not filtered.</b> The world store's records are saved data and outlive a
+ * block that was removed without a break event, so the client can hold a component where the world has nothing; the
+ * world path draws it there and refuses only the cells the carried path is drawing (see
+ * {@code HostPathOwnership#drawsHere} and {@link #carriedPathDrawsHere}). It is a supported state, which is why the
+ * airborne-entry line below counts it instead of calling it a ghost.
  */
 public final class ClientHostCache {
 
@@ -90,10 +97,10 @@ public final class ClientHostCache {
         // A removal entry is the server's word that no host is there, and the one message that also says no block is
         // coming: without it a landed record whose cell is air would draw its shell in mid-air for ever.
         forgetLandedRemovals(entries);
-        // A host frame drawn in air means this table was just told about a cell the world has no block in: a carried
-        // host's blocks live at the structure's own coordinates while its entry is addressed where the machine is drawn.
+        // An addition at a cell the world has no block in is counted, not called out: both of its authors are
+        // supported states now, and the renderer draws the second one (see noteAirborneEntries).
         if (RCConfig.debugLog()) {
-            probeForAirborneEntries(entries);
+            noteAirborneEntries(entries);
         }
     }
 
@@ -109,29 +116,104 @@ public final class ClientHostCache {
         }
     }
 
-    /** Names every just-applied <b>addition</b> whose cell the world has no block in; see {@link #applyChanges}. */
-    private static void probeForAirborneEntries(List<HostEntry> entries) {
-        net.minecraft.client.multiplayer.ClientLevel level = net.minecraft.client.Minecraft.getInstance().level;
+    /**
+     * <b>The world host records that have no block: one line per window, and never a fault.</b>
+     *
+     * <p>Two <b>supported</b> states put an addition at a cell the client's world has air in, which is why this is
+     * no longer called a ghost probe and no longer writes a line per entry:
+     *
+     * <ol>
+     *   <li><b>a carried host, announced where it is drawn.</b> Its block is inside the structure, so the world has
+     *       air there by construction, and the carrier announces a host at the <em>projected</em> position on
+     *       purpose so that neighbour wiring reads the cell. The carried path draws it.</li>
+     *   <li><b>a record that outlived its block.</b> The world store's records leave only through a break event, a
+     *       piston's own transfer and a capture's cut, so a block removed any other way leaves its component
+     *       behind, and the store is {@code SavedData}: the record is read back on the next load and survives.
+     *       That is a state the renderer draws - see {@link HostPathOwnership#drawsHere} - and the answer to a 
+     *       persisting one is "make it visible", not "delete it".</li>
+     * </ol>
+     *
+     * <p><b>Throttled, because it is a population count rather than an event.</b> One persisting record
+     * re-announced on every edge of a clock produced 122 of these in a single session and buried the question the
+     * line exists to answer. The first such entry of a {@value #AIR_WINDOW_TICKS}-tick window writes one line
+     * carrying that window's counts; every entry after it inside the same window only adds to them. The window
+     * rolls over on game time rather than a wall clock, so it costs three static numbers and never a timer.
+     */
+    private static void noteAirborneEntries(List<HostEntry> entries) {
+        ClientLevel level = Minecraft.getInstance().level;
         if (level == null) {
             return;
         }
+        int named = 0;
+        int drawnByCarrier = 0;
+        BlockPos first = null;
+        String type = null;
         for (HostEntry entry : entries) {
-            // A removal for an air cell is the ordinary, correct message, so only an ADDITION there is worth naming.
+            // A removal for an air cell is the ordinary, correct message, so only an ADDITION there is counted.
             if (entry.slot() == null || !level.hasChunkAt(entry.pos())) {
                 continue;
             }
-            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(entry.pos());
-            if (state.isAir()) {
-                RCConfig.LOGGER.info("[redstonecircuit] ghost probe: host entry for air at {} (slot={})",
-                        entry.pos().toShortString(), entry.slot().type.name());
+            if (!level.getBlockState(entry.pos()).isAir()) {
+                continue;
+            }
+            if (first == null) {
+                first = entry.pos();
+                type = entry.slot().type.name();
+            }
+            named++;
+            if (carriedPathDrawsHere(level.dimension(), entry.pos())) {
+                drawnByCarrier++;
             }
         }
+        if (named == 0) {
+            return;
+        }
+        long now = level.getGameTime();
+        if (airWindowStart < 0L || now < airWindowStart || now - airWindowStart >= AIR_WINDOW_TICKS) {
+            // A fresh window: this message is the first one it will report.
+            airWindowStart = now;
+            airWindowRecords = 0;
+            airWindowCarried = 0;
+        }
+        boolean alreadySpoke = airWindowRecords != 0;
+        airWindowRecords += named;
+        airWindowCarried += drawnByCarrier;
+        if (alreadySpoke) {
+            // Somewhere inside a window that has already spoken: counted, not printed.
+            return;
+        }
+        RCConfig.LOGGER.info("[redstonecircuit] world host in air at {} (slot={}): a record with no block, and "
+                        + "the renderer draws it - a supported state, not a fault; {} this window, {} of them a "
+                        + "carried host's own drawn position",
+                first.toShortString(), type, airWindowRecords, airWindowCarried);
     }
 
     /**
+     * How long one window of {@link #noteAirborneEntries} lasts, in game ticks - one minute.
+     *
+     * <p>A minute rather than a second because the population it counts is a persisting record re-announced on a
+     * clock's edges: the observed session produced 122 lines in three minutes, and the number this line is for is
+     * "how many records like that are there", which a minute answers as well as a tick does.
+     */
+    private static final int AIR_WINDOW_TICKS = 1200;
+
+    /** When the current window opened, or {@code -1} before the first; game time, never a wall clock. */
+    private static long airWindowStart = -1L;
+
+    /** How many air-cell records the current window has seen. */
+    private static int airWindowRecords;
+
+    /** How many of those a carrier is drawing at the same position. */
+    private static int airWindowCarried;
+
+    /**
      * Forgets the landed records the world path has genuinely taken over right now, judged by the one predicate the
-     * render pass uses ({@link #worldPathDraws}): a world-host slot is not enough, the block has to be there too. Only
-     * entries that add a slot are consulted, since a {@code null} slot must not drop a landed record.
+     * render pass uses ({@link #worldPathDraws}). Only entries that add a slot are consulted, since a {@code null} slot
+     * must not drop a landed record.
+     *
+     * <p>A landed record is safe under the blockless state that predicate now draws: the position it is drawn at is
+     * its own ({@code carriedPathDrawsHere} answers true for it), so the world path refuses there and nothing is
+     * forgotten - the record keeps drawing itself until the world really claims the cell with a block.
      */
     private static void forgetLandedWhereWorldPathDraws(ResourceKey<Level> dimension,
                                                        List<HostEntry> entries) {
@@ -152,15 +234,106 @@ public final class ClientHostCache {
     }
 
     /**
-     * Whether the ordinary world path draws a position - the single question every drawing and yielding decision on the
-     * client is made by. The world-host slot is read from the host index, and the block test additionally requires the
-     * chunk to be loaded, because an unloaded chunk answers "air" for every position in it.
+     * Whether the world path draws a position - the single question every drawing and yielding decision on the client
+     * is made by. The world-host slot is read from the host index, and the block test additionally requires the chunk to
+     * be loaded, because an unloaded chunk answers "air" for every position in it.
+     *
+     * <p><b>What changed, and it is one state.</b> This used to answer "a host record <em>and</em> a block", so a
+     * record whose block is air was drawn by nobody: the world path refused it and the carried path has no candidate
+     * for it either. That state is supported - a record can outlive its block, and the store is {@code SavedData},
+     * so it comes back on the next load - and it is now drawn here, under the same goggles gate and by the same
+     * shell-and-contents pass as every other component inside a block. {@link HostPathOwnership#drawsHere} is the
+     * rule; this method only supplies its four facts.
+     *
+     * <p>The carried walk below is made <b>only</b> in the one combination the rule consults it in - a known host
+     * with no block in a loaded chunk - so an ordinary frame pays nothing for it.
      */
     public static boolean worldPathDraws(ClientLevel level, ResourceKey<Level> dimension, BlockPos pos,
                                         @Nullable Slot slot) {
         boolean worldHost = slot != null && slotAt(dimension, pos) != null;
-        boolean blockPresent = level.isLoaded(pos) && !level.getBlockState(pos).isAir();
-        return LandedHosts.worldPathDraws(worldHost, blockPresent);
+        boolean loaded = level.isLoaded(pos);
+        boolean blockPresent = loaded && !level.getBlockState(pos).isAir();
+        boolean carriedDrawsHere = loaded && worldHost && !blockPresent
+                && carriedPathDrawsHere(dimension, pos);
+        return HostPathOwnership.drawsHere(worldHost, blockPresent, carriedDrawsHere, loaded);
+    }
+
+    /**
+     * <b>Whether the carried path draws a host at this world position</b> - the refusal that keeps a record with no
+     * block from being drawn twice, and the same answer the airborne-entry count asks.
+     *
+     * <p>Three things are drawn by the carried path, and each is asked in the frame it is drawn in:
+     *
+     * <ul>
+     *   <li>a <b>landed</b> record - {@link LandedHosts#contains}: the carrier put it down and the world has not
+     *       claimed the cell yet;</li>
+     *   <li>a <b>live carrier's projected cell</b>: the inverse of the projection the moving machine is drawn
+     *       with ({@link CarrierProjection#localBlockOf}), so the answer is exact for a turned or scaled
+     *       structure rather than "the block the number rounds to";</li>
+     *   <li>a <b>block a carried record came from</b> - {@link #carriedRecordCameFrom}. This is the one that
+     *       makes the blockless state safe: a structure picking a host up leaves the world store's record
+     *       behind at the cell it took the block from (the store's removal paths do not include a pickup), and
+     *       the client's host sync is never told that cell is empty. That cell has air, a record and a component
+     *       inside a machine - and the component is <em>inside the machine</em>. Drawing it here as well is the
+     *       same component twice;</li>
+     * </ul>
+     *
+     * <p>A carrier the client has <b>no pose</b> for needs no branch of its own: it draws its hosts at the blocks
+     * they came from ({@code CarrierIndex.Drawable#fallbackPos}), which is the origin walk above.
+     *
+     * <p>All of it is asked only for a position the world path would otherwise newly claim (a known host, air, in
+     * a loaded chunk), so an ordinary frame pays one projection per carrier at most.
+     */
+    static boolean carriedPathDrawsHere(ResourceKey<Level> dimension, BlockPos pos) {
+        if (!CARRIERS.acceptsDimension(dimension)) {
+            // The index describes another dimension: it draws nothing in this one, so nothing here is its.
+            return false;
+        }
+        if (landed.contains(pos)) {
+            return true;
+        }
+        if (carriedRecordCameFrom(pos)) {
+            return true;
+        }
+        for (CarrierId carrier : CARRIERS.carriers()) {
+            CarrierPose pose = CARRIERS.poseOf(carrier);
+            if (pose == null) {
+                continue;
+            }
+            BlockPos local = CarrierProjection.localBlockOf(pose, pos);
+            CarrierIndex.CarriedView view = local == null ? null : CARRIERS.atLocal(carrier, local);
+            if (view != null && view.slot() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a component the carried path holds was taken out of the world at this position: a riding host's
+     * origin, a landed host's origin, or a host whose carrier went stale. The position is where the block
+     * <em>was</em>, so the world store may still hold a record there while the component itself is somewhere else -
+     * inside a machine, or at the place it was put back down. Both answers are the same refusal: not here.
+     */
+    private static boolean carriedRecordCameFrom(BlockPos pos) {
+        for (CarrierIndex.CarriedView view : fallbacks) {
+            if (pos.equals(view.origin())) {
+                return true;
+            }
+        }
+        for (CarrierIndex.CarriedView view : landed.all()) {
+            if (pos.equals(view.origin())) {
+                return true;
+            }
+        }
+        for (CarrierId carrier : CARRIERS.carriers()) {
+            for (CarrierIndex.CarriedView view : CARRIERS.viewsOf(carrier)) {
+                if (pos.equals(view.origin())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

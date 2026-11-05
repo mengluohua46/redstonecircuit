@@ -3,6 +3,8 @@ package com.jiangyuefengyu.redstonecircuit.carrier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.state.BlockState;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -90,6 +92,29 @@ public final class ProductFrame {
     }
 
     /**
+     * The frame a host's own coordinate is drawn in, for a caller that has <b>already resolved which structure
+     * owns it and memoised that structure's pose</b> - the 同步火把 group pass asks both once per carrier per
+     * tick, and must not pay a second plot walk per member just to build the same frame.
+     *
+     * <p>The frame {@link #carriedAt} would have built for that coordinate, with the ownership question left
+     * to the caller: a sub-level keeps its blocks in the level, so both the position it is drawn at and its
+     * local coordinate are real places to ask ({@code storageInLevel}); a contraption's blocks are not level
+     * blocks at all. Read-only, and either a missing owner or a missing pose answers the in-place frame -
+     * exactly as {@code carriedAt} answers, because "I could not tell where this is drawn" must never become
+     * "draw it somewhere else".
+     */
+    public static ProductFrame forHost(@Nullable CarrierId carrier, @Nullable CarrierPose pose) {
+        if (carrier == null || pose == null) {
+            return IN_PLACE;
+        }
+        // 两种载体之间唯一的判据在 {@link CarrierStore#storageInLevel}: 存储就是 level 的那一种 (子层级) 两侧都读,
+        // 存储不在 level 的那一种 (contraption) 读它自己的 world - 问的因此永远是"那台机器的世界里"的邻居。
+        boolean inLevel = CarrierStore.storageInLevel(carrier);
+        BlockGetter own = inLevel ? null : CarrierStore.blockViewOf(carrier);
+        return new ProductFrame(carrier, pose, inLevel, own == null ? null : signalsIn(own));
+    }
+
+    /**
      * The frame the product block standing at {@code pos} is drawn in - or {@link #inPlace()}. One question to
      * the carrier layer and one to its source, both of which answer "no" cheaply while nothing is carried; every
      * failure answers the in-place frame, because "I could not tell where this is drawn" must never become "read
@@ -108,11 +133,26 @@ public final class ProductFrame {
             if (owner == null) {
                 return IN_PLACE;
             }
-            CarrierPose pose = CarrierStore.poseOf(level, owner);
-            return pose == null ? IN_PLACE : new ProductFrame(owner, pose, owner.isSubLevel(), null);
+            return forHost(owner, CarrierStore.poseOf(level, owner));
         } catch (RuntimeException | LinkageError unreadable) {
             return IN_PLACE;
         }
+    }
+
+    /**
+     * A reader over one carrier's <b>own</b> blocks, asked in its own coordinates: what the block one step along
+     * {@code localNeighbour}'s {@code localFace} answers there. The view is the carrier's own world
+     * ({@link CarrierStore#blockViewOf}), which for a contraption is not a level at all - its neighbours travel in
+     * the machine, so a neighbour that rode along can only be read this way. Read-only; a position the carrier does
+     * not hold answers 0, which is what makes {@link #signalInto}'s {@code max} mean what it says.
+     */
+    public static CarriedSignals signalsIn(BlockGetter view) {
+        return (localNeighbour, localFace) -> {
+            BlockState state = view.getBlockState(localNeighbour);
+            return state == null ? 0
+                    : Math.max(state.getSignal(view, localNeighbour, localFace),
+                            state.getDirectSignal(view, localNeighbour, localFace));
+        };
     }
 
     /** True when this block is drawn by a carrier rather than standing where it is. */

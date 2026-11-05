@@ -14,6 +14,7 @@ import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.ticks.TickPriority;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -103,6 +104,7 @@ class PowerSolverTest {
         private final Map<Long, FakeNode> nodes = new HashMap<>();
         private int external;
         private final Map<Direction, Integer> externalPerSide = new HashMap<>();
+        private final Map<Direction, Integer> unchargedPerSide = new HashMap<>();
         private final Map<Direction, Integer> analogPerSide = new HashMap<>();
 
         private static long key(int x, int y, int z) {
@@ -132,6 +134,15 @@ class PowerSolverTest {
             return this;
         }
 
+        /**
+         * The same side with no wire hop charged, defaulting to the charged answer - what a real environment
+         * answers for anything that is not a vanilla redstone wire.
+         */
+        FakeEnv outsideUncharged(Direction side, int signal) {
+            unchargedPerSide.put(side, signal);
+            return this;
+        }
+
         @Override
         public Node nodeAt(int x, int y, int z) {
             return nodes.get(key(x, y, z));
@@ -145,6 +156,11 @@ class PowerSolverTest {
         @Override
         public int externalSignal(Direction direction) {
             return externalPerSide.getOrDefault(direction, external);
+        }
+
+        @Override
+        public int externalSignalUncharged(Direction direction) {
+            return unchargedPerSide.getOrDefault(direction, externalSignal(direction));
         }
 
         /** What the neighbour block on a side offers a comparator; the cake's four bites, and the like. */
@@ -162,6 +178,20 @@ class PowerSolverTest {
         public boolean isRedstoneConductor(int x, int y, int z) {
             // Coupling does not depend on the surrounding terrain, so this is unused by the rules.
             return false;
+        }
+
+        /** The vanilla diodes around this position, by the side they stand on. */
+        private final Map<Direction, PowerEnvironment.VanillaDiode> vanillaDiodes = new HashMap<>();
+
+        /** A vanilla diode on one side: the way it faces, and what it pushes towards us. */
+        FakeEnv diode(Direction side, Direction facing, int signal) {
+            vanillaDiodes.put(side, new PowerEnvironment.VanillaDiode(facing, signal));
+            return this;
+        }
+
+        @Override
+        public PowerEnvironment.VanillaDiode vanillaDiodeOn(Direction direction) {
+            return vanillaDiodes.get(direction);
         }
     }
 
@@ -533,6 +563,31 @@ class PowerSolverTest {
                 "back 6 is less than side 12, so compare outputs nothing");
     }
 
+    /**
+     * A vanilla wire on a comparator's <b>side</b> is read at full strength; on its <b>back</b> it keeps the
+     * hop charge.
+     *
+     * <p>Vanilla answers a comparator's side face with {@code RedStoneWireBlock#getSignal}, which is the wire's
+     * own strength - no decrement - while the back input goes through the same read a wire feeding another wire
+     * does. Charging both made subtract one too weak, and a feedback loop stopped at one instead of
+     * falling to zero. One dust of 5 pins both halves: the charged read sees 4, vanilla reads 5.
+     */
+    @Test
+    @DisplayName("a comparator's side reads a vanilla wire at full strength while its back keeps the hop charge")
+    void aComparatorSideReadsAVanillaWireUncharged() {
+        FakeEnv env = new FakeEnv();
+        FakeNode comparator = env.node(HERE, ComponentType.COMPARATOR, 0).at(0, 0, 0);
+        comparator.facing(Direction.NORTH);
+        // One vanilla dust of 5 stood on the side, and the same on the back.
+        env.outside(Direction.EAST, 4).outsideUncharged(Direction.EAST, 5);
+        env.outside(Direction.NORTH, 4).outsideUncharged(Direction.NORTH, 5);
+
+        assertEquals(5, PowerSolver.sideInputFrom(env, HERE, Direction.EAST, comparator),
+                "a wire of 5 on the side is worth 5, not 4: vanilla charges a comparator's side no hop");
+        assertEquals(4, PowerSolver.inputFrom(env, HERE, Direction.NORTH, comparator),
+                "the back input keeps the charged read - a wire there really does cost the hop");
+    }
+
     @Test
     @DisplayName("the vanilla world on the input side feeds a device, other sides do not")
     void worldSignalOnTheInputSideFeedsADevice() {
@@ -674,5 +729,180 @@ class PowerSolverTest {
         assertEquals(0, ComponentType.DUST.initialPower());
         assertEquals(0, ComponentType.REPEATER.initialPower());
         assertEquals(0, ComponentType.LEVER.initialPower());
+    }
+
+    // ------------------------------------------------------------- signal lock --
+
+    @Test
+    @DisplayName("a powered diode pointing at a repeater's side holds it")
+    void aPoweredSideDiodeHoldsTheRepeater() {
+        FakeEnv env = new FakeEnv();
+        FakeNode held = env.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        assertFalse(PowerSolver.isSignalLocked(env, HERE, held), "nothing beside it yet");
+
+        // East of it, reading further east and so outputting west: straight into the repeater's side.
+        env.node(1, 0, 0, ComponentType.REPEATER, 15).at(1, 0, 0).facing(Direction.EAST);
+        assertTrue(PowerSolver.isSignalLocked(env, HERE, held),
+                "a diode whose output reaches this side is vanilla's lock");
+    }
+
+    @Test
+    @DisplayName("only a diode holds: dust, a torch, a charged block and a silent diode do not")
+    void onlyADiodeHolds() {
+        // Each of these pushes signal towards the repeater and none of them is a diode, which is the gate that
+        // keeps this rule no wider than vanilla's.
+        FakeNode held = null;
+        FakeEnv dust = new FakeEnv();
+        held = dust.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        dust.node(1, 0, 0, ComponentType.DUST, 15);
+        assertFalse(PowerSolver.isSignalLocked(dust, HERE, held), "a wire is not a diode");
+
+        FakeEnv torch = new FakeEnv();
+        held = torch.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        torch.node(1, 0, 0, ComponentType.TORCH, 15);
+        assertFalse(PowerSolver.isSignalLocked(torch, HERE, held), "a torch is not a diode");
+
+        // A solid block charged to fifteen: the world half only ever reports a diode, so the fake answers
+        // "nothing" here - and the signal it does push is not what decides this.
+        FakeEnv block = new FakeEnv();
+        held = block.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        block.outside(Direction.EAST, 15);
+        assertFalse(PowerSolver.isSignalLocked(block, HERE, held),
+                "strong power carried by a solid block is not a lock source");
+
+        FakeEnv silent = new FakeEnv();
+        held = silent.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        silent.diode(Direction.EAST, Direction.EAST, 0);
+        assertFalse(PowerSolver.isSignalLocked(silent, HERE, held), "a diode outputting nothing holds nothing");
+
+        FakeEnv vanilladiode = new FakeEnv();
+        held = vanilladiode.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        vanilladiode.diode(Direction.EAST, Direction.EAST, 9);
+        assertTrue(PowerSolver.isSignalLocked(vanilladiode, HERE, held),
+                "a vanilla diode in the world is a lock source too");
+    }
+
+    @Test
+    @DisplayName("a diode that points away, and one the wrench cut, hold nothing")
+    void aDiodePointingAwayOrCutHoldsNothing() {
+        FakeEnv env = new FakeEnv();
+        FakeNode held = env.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        // FACING is the input side, so this one outputs eastwards - away from us.
+        env.node(1, 0, 0, ComponentType.REPEATER, 15).at(1, 0, 0).facing(Direction.WEST);
+        assertFalse(PowerSolver.isSignalLocked(env, HERE, held), "its output leaves on the far side");
+
+        // The same diode, now pointing at us, but its output side has been cut by the wrench.
+        env.at(1, 0, 0).facing(Direction.EAST).forced(Direction.WEST, false);
+        assertFalse(PowerSolver.holdsToward(env.at(1, 0, 0), Direction.EAST),
+                "a cut diode emits nothing, so it holds nothing - no separate rule needed");
+        assertFalse(PowerSolver.isSignalLocked(env, HERE, held));
+    }
+
+    @Test
+    @DisplayName("a comparator is a lock source but can never be held")
+    void aComparatorHoldsButIsNeverHeld() {
+        FakeEnv source = new FakeEnv();
+        FakeNode held = source.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        source.node(1, 0, 0, ComponentType.COMPARATOR, 8).at(1, 0, 0).facing(Direction.EAST);
+        assertTrue(PowerSolver.isSignalLocked(source, HERE, held),
+                "isDiode includes the comparator, so it holds its neighbours");
+
+        FakeEnv self = new FakeEnv();
+        FakeNode comparator = self.node(HERE, ComponentType.COMPARATOR, 3).at(0, 0, 0);
+        comparator.facing(Direction.NORTH);
+        self.node(1, 0, 0, ComponentType.REPEATER, 15).at(1, 0, 0).facing(Direction.EAST);
+        assertFalse(PowerSolver.isSignalLocked(self, HERE, comparator),
+                "vanilla's DiodeBlock#isLocked is false and only the repeater overrides it");
+        assertEquals(0, PowerSolver.desiredOutput(self, HERE, comparator),
+                "so a comparator beside a live diode still follows its own input, which is 0 here");
+    }
+
+    @Test
+    @DisplayName("a diode mounted on the floor or the ceiling is held from any of the four horizontal faces")
+    void aVerticalDiodeIsHeldFromFourHorizontalFaces() {
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            FakeEnv env = new FakeEnv();
+            FakeNode held = env.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+            held.facing(Direction.UP);
+            BlockPos at = HERE.relative(side);
+            // The source outputs back towards us, so its own facing is the side it stands on.
+            env.node(at, ComponentType.REPEATER, 15).at(at.getX(), at.getY(), at.getZ()).facing(side);
+            assertTrue(PowerSolver.isSignalLocked(env, HERE, held),
+                    "a ceiling-mounted repeater reads its four horizontal sides, " + side + " included");
+        }
+        // ...and not from above or below: vanilla's clock-wise sides do not exist there, ours are horizontal.
+        FakeEnv above = new FakeEnv();
+        FakeNode held = above.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        held.facing(Direction.UP);
+        above.node(0, 1, 0, ComponentType.REPEATER, 15).at(0, 1, 0).facing(Direction.UP);
+        assertFalse(PowerSolver.isSignalLocked(above, HERE, held), "the axis itself is not a lock side");
+    }
+
+    @Test
+    @DisplayName("a held repeater answers what it already holds, whatever its input does")
+    void aHeldRepeaterIsFrozen() {
+        FakeEnv env = new FakeEnv();
+        FakeNode held = env.node(HERE, ComponentType.REPEATER, 7).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        // A live input on its own side, and a live diode on its east side.
+        env.node(0, 0, -1, ComponentType.LEVER, 15);
+        env.node(1, 0, 0, ComponentType.REPEATER, 15).at(1, 0, 0).facing(Direction.EAST);
+
+        assertEquals(7, PowerSolver.desiredOutput(env, HERE, held),
+                "a live input changes nothing while the component is held");
+        assertEquals(7, PowerSolver.desiredOutput(env, HERE, held), "and asking twice changes nothing either");
+    }
+
+    @Test
+    @DisplayName("a diode that lets go lets the repeater follow again")
+    void lettingGoLetsItFollowAgain() {
+        FakeEnv env = new FakeEnv();
+        FakeNode held = env.node(HERE, ComponentType.REPEATER, 7).at(0, 0, 0);
+        held.facing(Direction.NORTH);
+        env.node(0, 0, -1, ComponentType.LEVER, 15);
+        FakeNode source = env.node(1, 0, 0, ComponentType.REPEATER, 15).at(1, 0, 0);
+        source.facing(Direction.EAST);
+        assertEquals(7, PowerSolver.desiredOutput(env, HERE, held), "held: frozen");
+
+        source.setPower(0);
+        assertFalse(PowerSolver.isSignalLocked(env, HERE, held), "a source that went silent holds nothing");
+        assertEquals(15, PowerSolver.desiredOutput(env, HERE, held), "and the repeater follows its input");
+    }
+
+    // ------------------------------------------------------------ tick priority --
+
+    @Test
+    @DisplayName("vanilla's tick priority: HIGH, VERY_HIGH when switching off, EXTREMELY_HIGH behind a diode")
+    void tickPriorityMatchesVanilla() {
+        FakeEnv off = new FakeEnv();
+        FakeNode stale = off.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        stale.facing(Direction.NORTH);
+        assertEquals(TickPriority.HIGH, PowerSolver.tickPriority(off, HERE, stale),
+                "an ordinary stale repeater is HIGH");
+
+        stale.setPower(15);
+        assertEquals(TickPriority.VERY_HIGH, PowerSolver.tickPriority(off, HERE, stale),
+                "one that is already on and about to go off is VERY_HIGH");
+
+        // The diode we output into, facing anywhere but our output direction: the case vanilla promotes.
+        FakeEnv behind = new FakeEnv();
+        FakeNode promoted = behind.node(HERE, ComponentType.REPEATER, 0).at(0, 0, 0);
+        promoted.facing(Direction.NORTH);
+        behind.node(0, 0, 1, ComponentType.REPEATER, 0).at(0, 0, 1).facing(Direction.NORTH);
+        assertEquals(TickPriority.EXTREMELY_HIGH, PowerSolver.tickPriority(behind, HERE, promoted),
+                "a diode on its output side facing anywhere but that side is the chain vanilla promotes");
+
+        // The mutual pair - the neighbour reading from our output direction - stays at the plain priority.
+        behind.at(0, 0, 1).facing(Direction.SOUTH);
+        assertEquals(TickPriority.HIGH, PowerSolver.tickPriority(behind, HERE, promoted),
+                "two diodes facing each other are not the case this promotes");
     }
 }

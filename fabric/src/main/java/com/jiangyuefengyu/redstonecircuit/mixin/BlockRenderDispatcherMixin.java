@@ -57,8 +57,10 @@ public abstract class BlockRenderDispatcherMixin {
         // Unconditional and first, once per hook: this is the line that tells "the mixin was never
         // applied" apart from "it was applied and never matched a host". Nothing else in the log can.
         ShaderCompat.noteHookEntered("vanilla", pos);
-        if (ShaderCompat.hidesHostCube(pos)) {
+        // No second position on this path: the mesher hands in world coordinates and nothing else.
+        if (ShaderCompat.skipsBlock(pos, null)) {
             ShaderCompat.noteHookUsed("vanilla");
+            ShaderCompat.noteMeshSkip("vanilla", pos);
             callback.cancel();
         }
     }

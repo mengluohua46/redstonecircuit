@@ -70,7 +70,7 @@ class CarrierEntryTraceTest {
         assertEquals("MISS", CarrierEntryTrace.Outcome.MISS.name());
         assertEquals("REFUSED", CarrierEntryTrace.Outcome.REFUSED.name());
         for (CarrierEntryTrace.Outcome outcome : CarrierEntryTrace.Outcome.values()) {
-            String line = CarrierEntryTrace.entryLine("RIGHT_CLICK_BLOCK", "作者", "1, 2, 3", "up",
+            String line = CarrierEntryTrace.entryLine("RIGHT_CLICK_BLOCK", "probe", "1, 2, 3", "up",
                     "MAIN_HAND", "minecraft:redstone x1", "component", outcome, "detail");
             assertTrue(line.contains("-> " + outcome.name() + " "), "the arrow and the outcome: " + line);
         }
@@ -84,13 +84,13 @@ class CarrierEntryTraceTest {
     @Test
     @DisplayName("the entry line carries every field an acceptance run reads")
     void theEntryLineCarriesEveryField() {
-        String line = CarrierEntryTrace.entryLine("CONTRAPTION_PACKET", "作者", "20481031, 128, 20524040",
+        String line = CarrierEntryTrace.entryLine("CONTRAPTION_PACKET", "probe", "20481031, 128, 20524040",
                 "east", "OFF_HAND", "minecraft:redstone_torch x3", "component",
                 CarrierEntryTrace.Outcome.MISS, "(looked up with CarrierStore.hitAt)");
 
         assertTrue(line.startsWith("[redstonecircuit] carrier entry trace: "), line);
         assertTrue(line.contains("entry=CONTRAPTION_PACKET"), "the entry point's name: " + line);
-        assertTrue(line.contains("by=作者"), "who: " + line);
+        assertTrue(line.contains("by=probe"), "who: " + line);
         assertTrue(line.contains("raw=20481031, 128, 20524040"), "the raw coordinate: " + line);
         assertTrue(line.contains("face=east"), "the face: " + line);
         assertTrue(line.contains("hand=OFF_HAND"), "the hand: " + line);

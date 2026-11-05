@@ -24,7 +24,7 @@ import net.minecraft.nbt.CompoundTag;
  * neighbouring block's geometry, which draws over it - a picture that looks like it has lost two of its sides.
  *
  * <p>The pictures are built by the same {@code StructurePreview.of} a capture goes through. {@code 32³ at scale 2} is
- * the case the author's log names (a 16³ picture of 1,405 cells), so it is the case pinned here: a 32³ box with a
+ * the case a log names (a 16³ picture of 1,405 cells), so it is the case pinned here: a 32³ box with a
  * one-block shell has to arrive as a 16³ picture whose every wall is present, at one cell per {@code [0,1]³} corner and
  * inside the block.
  */

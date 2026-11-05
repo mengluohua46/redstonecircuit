@@ -1,5 +1,8 @@
 package com.jiangyuefengyu.redstonecircuit;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.jiangyuefengyu.redstonecircuit.block.WeatherDetectorBlock;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
@@ -86,6 +89,20 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         if (node != null && !node.isEmpty()) {
             node.slot().injectedPower = -1;
         }
+    }
+
+    /**
+     * Turns a supply on at a component that was placed silent, as if the lever feeding it had been thrown.
+     *
+     * <p>Queued the same way {@link #clearSource} is - the value alone changes nothing until a solve reads it -
+     * so a test can bring a part of its circuit up <em>after</em> the rest has been observed working.
+     */
+    private static void powerSource(GameTestHelper helper, BlockPos pos, int power) {
+        InnerRedstoneNode node = InnerRedstoneStore.get(helper.getLevel()).get(pos);
+        if (node != null && !node.isEmpty()) {
+            node.slot().injectedPower = power;
+        }
+        InnerRedstoneNetwork.markDirtyWithNeighbours(helper.getLevel(), pos);
     }
 
     /** Places an inner component of any type and returns its slot so tests can inspect power. */
@@ -672,6 +689,42 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         }));
     }
 
+    /**
+     * A comparator's side input is read at full strength when a vanilla wire feeds it.
+     *
+     * <p>Vanilla answers a comparator's side face through {@code RedStoneWireBlock#getSignal}, which reports the
+     * wire's own strength and charges nothing - the same rule {@code PowerSolver#neighbourValue} states for the
+     * inner half. Charging the hop on the world half instead makes a subtract come out one too high, which is 
+     * exactly the failure: a feedback loop whose two faces read the same signal stopped at one instead
+     * of reaching zero. This pins the arithmetic: fifteen on the back, fifteen on the side, nothing out.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void comparatorSideReadsAWireAtFullStrength(GameTestHelper helper) {
+        setBlock(helper, 0, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 0, 2, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 1, 1, 2, Blocks.REDSTONE_WIRE.defaultBlockState());
+
+        BlockPos back = at(helper, 0, 1, 1);
+        BlockPos comparator = at(helper, 1, 1, 1);
+        placeComponent(helper, back, ComponentType.LEVER, 15, Direction.NORTH);
+        Slot comparatorSlot =
+                placeComponent(helper, comparator, ComponentType.COMPARATOR, 0, Direction.WEST);
+        comparatorSlot.mode = ComparatorMode.SUBTRACT;
+
+        // The side supply goes in last, so its update reaches the wire the comparator's south face reads.
+        setBlock(helper, 1, 1, 3, Blocks.REDSTONE_BLOCK.defaultBlockState());
+
+        afterTicks(helper, 4, () -> helper.succeedWhen(() -> {
+            helper.assertTrue(wirePower(helper, 1, 1, 2) == 15,
+                    "the redstone block should hold the side wire at 15, got " + wirePower(helper, 1, 1, 2));
+            helper.assertTrue(powerAt(helper, comparator) == 0,
+                    "15 on the back minus 15 on the side is nothing, so the side wire must not be charged a"
+                            + " hop: got " + powerAt(helper, comparator) + " with the wire at "
+                            + wirePower(helper, 1, 1, 2));
+        }));
+    }
+
     // ------------------------------------------- directional sources ---------
 
     /**
@@ -956,6 +1009,60 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
                     "subtract takes the side input off the back, so 15 - 15 is nothing, got "
                             + powerAt(helper, output))));
         });
+    }
+
+    /**
+     * A host block's change reaches the vanilla wire beside it by the end of the tick it happened in.
+     *
+     * <p><b>What this does not prove:</b> that the cascade is what put it there. Measured both ways - with the
+     * cascade and with it forced off - this assertion holds, because the end-of-tick flush already lands inside
+     * the tick. The cascade's own effect is the <em>re-solve</em> of what that flush caused, and no topology
+     * tried here isolates it: a loop of inner dust and vanilla wire sits at zero by itself, and a second host on
+     * the far side of a wire that a host is powering stays dark by design (see
+     * {@link #vanillaWireFollowsInnerPower}). The discriminating evidence is a live machine, where the same
+     * loop oscillates as shipped and falls to zero with the coalescing switch off.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void aHostReachesTheVanillaWireBesideItInsideTheTick(GameTestHelper helper) {
+        setBlock(helper, 1, 1, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 3, 1, 1, Blocks.STONE.defaultBlockState());
+        // A vanilla wire needs a solid block under it, or the first update drops it off the world.
+        setBlock(helper, 2, 0, 1, Blocks.STONE.defaultBlockState());
+        setBlock(helper, 2, 1, 1, Blocks.REDSTONE_WIRE.defaultBlockState());
+
+        BlockPos source = at(helper, 1, 1, 1);
+        BlockPos far = at(helper, 3, 1, 1);
+        // A dust either side, so both hosts are nothing but a block that carries a stored value: the source one
+        // is turned on by the test and the far one has to learn about it through the wire and nothing else.
+        placeDust(helper, source, 0);
+        placeDust(helper, far, 0);
+
+        // Settle the machine at nothing first, so the tick under test is the one that carries the change.
+        tick(helper);
+        tick(helper);
+        helper.assertTrue(wirePower(helper, 2, 1, 1) == 0,
+                "the wire starts dark, got " + wirePower(helper, 2, 1, 1));
+        helper.assertTrue(powerAt(helper, far) == 0,
+                "and so does the far host, got " + powerAt(helper, far));
+
+        // One flip, one solve, and no notification sent from here: the supply is turned on where the solve reads
+        // it, so the only thing that can carry the change across the wire is the notification that solve sends -
+        // and the far host only learns from the notification the wire sends back.
+        powerSource(helper, source, 15);
+        tick(helper);
+        // The wire is vanilla, so it only hears about the change from the notification the solve sends. That the
+        // notification lands inside the tick is what this line pins - it holds with the cascade off as well.
+        helper.assertTrue(wirePower(helper, 2, 1, 1) > 0,
+                "the wire must carry the new value by the end of the same tick, got "
+                        + wirePower(helper, 2, 1, 1)
+                        + " (cascades " + com.jiangyuefengyu.redstonecircuit.logic.SolverNotifications
+                                .lastStats(helper.getLevel()).cascades() + ")");
+        // Why the chain stops here: a host reading a wire that a *host* is powering is refused by design - see
+        // vanillaWireFollowsInnerPower, where both halves are charged a hop precisely so that the pair cannot hold
+        // each other up. So a second host on the far side of this wire stays dark in the harness however long it
+        // is given, and that is a property of the read rather than of the notification. The wire is the part the
+        // cascade owns; the far host is covered by vanillaWireFeedsInnerRedstone, from a supply that is not ours.
+        helper.succeed();
     }
 
     /** A button stored inside a block springs back on its own, like vanilla's. */
@@ -2419,5 +2526,159 @@ public final class InnerRedstoneGameTest implements FabricGameTest {
         InnerRedstoneInteraction.cleanup(helper.getLevel(), host);
         helper.assertItemEntityPresent(Items.REDSTONE, new BlockPos(1, 1, 1), 4.0);
         helper.succeed();
+    }
+
+    // ------------------------------------------------------ side lock (1.3.0) --
+
+    /**
+     * Lays out the canonical held repeater: a repeater fed from the west, and - south of it, so it stands on one
+     * of that repeater's two side inputs - a second repeater reading further south and so outputting north into
+     * it. Vanilla's lock source is exactly that: a diode pointing in, outputting something.
+     *
+     * <p><b>The lock source is laid down silent on purpose.</b> A diode that is already outputting would hold its
+     * neighbour from the very first tick, and a repeater that never got to switch on cannot show that a hold
+     * freezes it - only that it never rose. So the source's own input is placed dead, and a test throws it on
+     * with {@link #powerSource} once it has seen the repeater next door follow its input.
+     */
+    private static void layOutHeldRepeater(GameTestHelper helper) {
+        for (int x = 1; x <= 2; x++) {
+            for (int z = 1; z <= 3; z++) {
+                setBlock(helper, x, 1, z, Blocks.STONE.defaultBlockState());
+            }
+        }
+        placeDust(helper, at(helper, 1, 1, 1), 15);
+        placeComponent(helper, at(helper, 2, 1, 1), ComponentType.REPEATER, 0, Direction.WEST);
+        // Silence, not a supply: power 0 leaves injectedPower at -1, so this piece of dust is only a receiver.
+        placeDust(helper, at(helper, 2, 1, 3), 0);
+        placeComponent(helper, at(helper, 2, 1, 2), ComponentType.REPEATER, 0, Direction.SOUTH);
+    }
+
+    /**
+     * <b>A diode beside a repeater holds it, and its input moving changes nothing.</b>
+     *
+     * <p>The repeater is first seen to follow its input, then the diode beside it comes up, and only then is
+     * the input taken away - so what is proved is a <em>held</em> output and not a repeater that never switched
+     * on. Vanilla's locked repeater does not tick at all, so nothing may schedule its way to 0 either.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void aSideDiodeHoldsARepeaterStill(GameTestHelper helper) {
+        layOutHeldRepeater(helper);
+        BlockPos held = at(helper, 2, 1, 1);
+        BlockPos holder = at(helper, 2, 1, 2);
+        BlockPos input = at(helper, 1, 1, 1);
+        BlockPos holderInput = at(helper, 2, 1, 3);
+
+        afterTicks(helper, 8, () -> {
+            helper.assertTrue(powerAt(helper, held) == 15,
+                    "precondition: the repeater follows its input, got " + powerAt(helper, held));
+            helper.assertTrue(powerAt(helper, holder) == 0,
+                    "and the diode beside it is still silent, so the repeater rose on its own input - not on a "
+                            + "hold it never left. got " + powerAt(helper, holder));
+
+            // Now the hold comes up: the diode's own input is thrown, and its two-tick delay runs out.
+            powerSource(helper, holderInput, 15);
+
+            afterTicks(helper, 6, () -> {
+                helper.assertTrue(powerAt(helper, holder) == 15,
+                        "precondition: the diode beside it is outputting now, got "
+                                + powerAt(helper, holder));
+
+                // The input goes away. Unheld, this repeater would be off two ticks later.
+                clearSource(helper, input);
+                InnerRedstoneNetwork.markDirtyWithNeighbours(helper.getLevel(), input);
+
+                afterTicks(helper, 10, () -> helper.succeedWhen(() -> helper.assertTrue(
+                        powerAt(helper, held) == 15,
+                        "a held repeater keeps its output however its input moves, got "
+                                + powerAt(helper, held))));
+            });
+        });
+    }
+
+    /**
+     * <b>And it follows again once the hold goes</b> - which is the half that has to work without any new
+     * queue: the diode beside it announces its own output change, and the notification chain is what re-derives
+     * the repeater it was holding.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void aRepeaterFollowsAgainOnceTheHoldGoes(GameTestHelper helper) {
+        layOutHeldRepeater(helper);
+        BlockPos held = at(helper, 2, 1, 1);
+        BlockPos holder = at(helper, 2, 1, 2);
+        BlockPos input = at(helper, 1, 1, 1);
+        BlockPos holderInput = at(helper, 2, 1, 3);
+
+        afterTicks(helper, 8, () -> {
+            helper.assertTrue(powerAt(helper, held) == 15,
+                    "precondition: it follows its input, got " + powerAt(helper, held));
+            helper.assertTrue(powerAt(helper, holder) == 0,
+                    "precondition: the diode beside it is silent, got " + powerAt(helper, holder));
+
+            // The hold comes up first, then the input goes: held and frozen.
+            powerSource(helper, holderInput, 15);
+
+            afterTicks(helper, 6, () -> {
+                helper.assertTrue(powerAt(helper, holder) == 15,
+                        "precondition: the diode beside it is outputting now, got "
+                                + powerAt(helper, holder));
+                clearSource(helper, input);
+                InnerRedstoneNetwork.markDirtyWithNeighbours(helper.getLevel(), input);
+
+                afterTicks(helper, 8, () -> {
+                    helper.assertTrue(powerAt(helper, held) == 15,
+                            "still held: the input is dead but the diode beside it is not, got "
+                                    + powerAt(helper, held));
+
+                    // Now the hold itself goes: the diode's own input is taken away, it drains, and with it the
+                    // reason the repeater next door was frozen.
+                    clearSource(helper, holderInput);
+                    InnerRedstoneNetwork.markDirtyWithNeighbours(helper.getLevel(), holderInput);
+
+                    afterTicks(helper, 6, () -> helper.succeedWhen(() -> helper.assertTrue(
+                            powerAt(helper, held) == 0,
+                            "with the hold gone the repeater follows its dead input, got "
+                                    + powerAt(helper, held))));
+                });
+            });
+        });
+    }
+
+    /**
+     * <b>A pulse shorter than the delay still comes out, one delay wide.</b>
+     *
+     * <p>Setting 4 is eight ticks, which is what makes this observable: the pulse arrives and is gone two ticks
+     * later, while the re-evaluation it queued only comes due eight ticks in. Vanilla switches the repeater on
+     * at that moment whatever it reads - and queues one more full delay to switch it off - so the output comes
+     * out between roughly tick eight and tick sixteen. That window is sampled in its middle, and the fall
+     * afterwards is asserted too.
+     */
+    @GameTest(template = "redstonecircuit:empty")
+    public void aPulseShorterThanTheDelayStillComesOut(GameTestHelper helper) {
+        for (int x = 1; x <= 3; x++) {
+            setBlock(helper, x, 1, 1, Blocks.STONE.defaultBlockState());
+        }
+        BlockPos input = at(helper, 1, 1, 1);
+        BlockPos repeater = at(helper, 2, 1, 1);
+        Slot slot = placeComponent(helper, repeater, ComponentType.REPEATER, 0, Direction.WEST);
+        slot.delay = 4;
+        placeDust(helper, input, 15);
+
+        afterTicks(helper, 3, () -> {
+            helper.assertTrue(powerAt(helper, repeater) == 0,
+                    "precondition: eight ticks of delay, so nothing has switched yet, got "
+                            + powerAt(helper, repeater));
+            // The pulse is over long before the delay is.
+            clearSource(helper, input);
+            InnerRedstoneNetwork.markDirtyWithNeighbours(helper.getLevel(), input);
+        });
+
+        // About twelve ticks in: past the latched tick, well before the second delay runs out.
+        afterTicks(helper, 9, () -> helper.assertTrue(powerAt(helper, repeater) == 15,
+                "the pulse must come out one delay wide instead of vanishing, got "
+                        + powerAt(helper, repeater)));
+
+        afterTicks(helper, 12, () -> helper.succeedWhen(() -> helper.assertTrue(
+                powerAt(helper, repeater) == 0,
+                "and it must end again one delay later, got " + powerAt(helper, repeater))));
     }
 }

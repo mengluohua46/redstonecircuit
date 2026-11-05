@@ -1,0 +1,48 @@
+{
+  "variants": {
+    "facing=down,lit=false": {
+      "model": "redstonecircuit:block/sync_torch"
+    },
+    "facing=up,lit=false": {
+      "model": "redstonecircuit:block/sync_torch",
+      "x": 180
+    },
+    "facing=east,lit=false": {
+      "model": "redstonecircuit:block/sync_torch_wall",
+      "y": 180
+    },
+    "facing=west,lit=false": {
+      "model": "redstonecircuit:block/sync_torch_wall"
+    },
+    "facing=north,lit=false": {
+      "model": "redstonecircuit:block/sync_torch_wall",
+      "y": 90
+    },
+    "facing=south,lit=false": {
+      "model": "redstonecircuit:block/sync_torch_wall",
+      "y": 270
+    },
+    "facing=down,lit=true": {
+      "model": "redstonecircuit:block/sync_torch_on"
+    },
+    "facing=up,lit=true": {
+      "model": "redstonecircuit:block/sync_torch_on",
+      "x": 180
+    },
+    "facing=east,lit=true": {
+      "model": "redstonecircuit:block/sync_torch_wall_on",
+      "y": 180
+    },
+    "facing=west,lit=true": {
+      "model": "redstonecircuit:block/sync_torch_wall_on"
+    },
+    "facing=north,lit=true": {
+      "model": "redstonecircuit:block/sync_torch_wall_on",
+      "y": 90
+    },
+    "facing=south,lit=true": {
+      "model": "redstonecircuit:block/sync_torch_wall_on",
+      "y": 270
+    }
+  }
+}

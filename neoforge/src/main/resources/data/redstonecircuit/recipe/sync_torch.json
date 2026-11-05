@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "E": { "item": "minecraft:echo_shard" },
+    "R": { "item": "minecraft:redstone_torch" }
+  },
+  "pattern": [ "E", "R" ],
+  "result": { "count": 1, "id": "redstonecircuit:sync_torch" }
+}

@@ -102,6 +102,10 @@ public final class PocketMaterializer {
         // 时钟源's settings, the same kind of "beside the block, not in it" data as a slot - see
         // StructurePayload#settingData for why it travels in the payload at all.
         Map<BlockPos, CompoundTag> settings = new HashMap<>();
+        // A standing 同步火把's channel, beside the block like the two above.
+        Map<BlockPos, Integer> syncTorsches = new HashMap<>();
+        // 捕获时的号码 → 这一份产物自己的号码, 一个只换一次 (与 StructureRelease#freshChannel 同一条规则).
+        Map<Integer, Integer> freshChannels = new HashMap<>();
         for (StructurePayload.BlockEntityEntry entry : payload.blockEntities()) {
             blockEntities.put(entry.localPos(), entry.nbt());
         }
@@ -110,6 +114,14 @@ public final class PocketMaterializer {
         }
         for (StructurePayload.SettingEntry entry : payload.settingData()) {
             settings.put(entry.localPos(), entry.setting());
+        }
+        for (StructurePayload.SyncTorchEntry entry : payload.syncTorchData()) {
+            syncTorsches.put(entry.localPos(), entry.channel());
+        }
+        if (com.jiangyuefengyu.redstonecircuit.RCConfig.debugLog()) {
+            com.jiangyuefengyu.redstonecircuit.RCConfig.LOGGER.info(
+                    "[redstonecircuit] pocket materialise in {}: {} standing sync torch channel(s) in the payload, {} component slot(s)",
+                    claimed.plot().origin().toShortString(), payload.syncTorchData().size(), payload.slotData().size());
         }
 
         var blocks = pocket.holderLookup(Registries.BLOCK);
@@ -166,9 +178,17 @@ public final class PocketMaterializer {
                             created.setChanged();
                         }
                     }
+                    Integer channel = syncTorsches.get(new BlockPos(x, y, z));
+                    if (channel != null) {
+                        // After the block, so this row wins over the unbound one its own onPlace just wrote, and
+                        // under a number of this product's own: a copy must not join the machine it was copied from.
+                        store.putSyncTorch(pos, channel <= 0 ? channel
+                                : freshChannels.computeIfAbsent(channel, ignored -> store.allocateSyncChannel()));
+                    }
                     CompoundTag node = slots.get(new BlockPos(x, y, z));
                     if (node != null) {
-                        store.getOrCreate(pos).setSlot(InnerRedstoneNode.load(node).slot());
+                        store.getOrCreate(pos).setSlot(ownChannels(store, freshChannels,
+                                InnerRedstoneNode.load(node).slot()));
                     }
                     CompoundTag setting = settings.get(new BlockPos(x, y, z));
                     if (setting != null) {
@@ -238,6 +258,21 @@ public final class PocketMaterializer {
      * ({@code StructureBlockEntity#repairPlot}). What is new is doing it now, while the outer structure is still
      * being written - see {@link #materializeInto} for why.
      */
+    /**
+     * A component the copy carries, under a channel number of the copy's own - see {@code StructureRelease#freshChannel}
+     * for why the grouping is kept and the number is not.
+     */
+    private static com.jiangyuefengyu.redstonecircuit.data.Slot ownChannels(
+            InnerRedstoneStore store, Map<Integer, Integer> freshChannels,
+            com.jiangyuefengyu.redstonecircuit.data.Slot slot) {
+        if (slot.type != com.jiangyuefengyu.redstonecircuit.data.ComponentType.SYNC_TORCH || slot.syncGroup <= 0) {
+            return slot;
+        }
+        com.jiangyuefengyu.redstonecircuit.data.Slot copy = slot.copy();
+        copy.syncGroup = freshChannels.computeIfAbsent(slot.syncGroup, ignored -> store.allocateSyncChannel());
+        return copy;
+    }
+
     private static void materialiseNested(ServerLevel pocket, StructureBlockEntity product, boolean shell,
                                           int depth) {
         if (depth >= MAX_NESTED_MATERIALIZE || product.structureId() == null) {

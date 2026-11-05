@@ -9,8 +9,10 @@ import java.util.UUID;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.core.BlockPos;
@@ -65,6 +67,29 @@ public final class StructureRelease {
         private final Map<Integer, StructurePayload.SlotEntry> slots;
         /** A clock's settings, which live beside the block rather than in it. */
         private final Map<Integer, StructurePayload.SettingEntry> settings;
+    /** A standing 同步火把's channel, by the index of the cell it stands at. */
+    private final Map<Integer, StructurePayload.SyncTorchEntry> syncTorches;
+    /** 捕获时的频道号 → 这一次放出来的频道号, 一个号只换一次, 于是同一组的成员还是同一组. */
+    private final Map<Integer, Integer> freshChannels = new HashMap<>();
+
+    /**
+     * <b>A deployed machine gets channel numbers of its own.</b>
+     *
+     * <p>The numbers it was captured with belonged to the machine it was copied from: reusing them ties a fresh copy
+     * to whatever still answers to that number elsewhere in the world. The <b>grouping</b> is what the capture is for,
+     * so it is kept: one channel number in, one number out. Minted lazily from the level, once per captured number.
+     */
+    private int freshChannel(InnerRedstoneStore store, int captured) {
+        if (captured <= 0) {
+            return captured;
+        }
+        Integer minted = this.freshChannels.get(captured);
+        if (minted == null) {
+            minted = store.allocateSyncChannel();
+            this.freshChannels.put(captured, minted);
+        }
+        return minted;
+    }
         private final Options options;
         private int cursor;
         private long lastReport;
@@ -87,6 +112,8 @@ public final class StructureRelease {
                     payload.header().size());
             this.settings = byLocalIndex(payload.settingData(), StructurePayload.SettingEntry::localPos,
                     payload.header().size());
+        this.syncTorches = byLocalIndex(payload.syncTorchData(), StructurePayload.SyncTorchEntry::localPos,
+                payload.header().size());
         }
 
         /** Writes this release down as unfinished, so a crash in the middle of it can be repaired. */
@@ -215,6 +242,11 @@ public final class StructureRelease {
         }
 
         Job job = new Job(payload, level, origin, states, options);
+        if (com.jiangyuefengyu.redstonecircuit.RCConfig.debugLog()) {
+            com.jiangyuefengyu.redstonecircuit.RCConfig.LOGGER.info(
+                    "[redstonecircuit] structure release at {}: {} component slot(s), {} standing sync torch channel(s)",
+                    origin.toShortString(), payload.slotData().size(), payload.syncTorchData().size());
+        }
         JOBS.add(job);
         // A release that fits in one tick cannot be interrupted, so only a bigger one is journalled.
         int perTick = Math.max(1, options.blocksPerTick());
@@ -292,11 +324,28 @@ public final class StructureRelease {
             // next to the block rather than as part of it.
             InnerRedstoneNode node = InnerRedstoneNode.load(slot.node());
             InnerRedstoneStore store = InnerRedstoneStore.get(job.level());
-            store.getOrCreate(pos).setSlot(node.slot());
+            Slot released = node.slot();
+            if (released.type == ComponentType.SYNC_TORCH) {
+                // 部署出来的机器用自己的频道号 (见 freshChannel): 分组留着, 号码是新的.
+                released = released.copy();
+                released.syncGroup = job.freshChannel(store, node.slot().syncGroup);
+            }
+            store.getOrCreate(pos).setSlot(released);
             store.markDirty();
             // The mirror of the rule above: a component put back has to be named on the wire too, or the server
             // has it and the client does not, leaving it undrawn until something else touches that position.
-            HostSync.broadcast(job.level(), pos, node.slot());
+            HostSync.broadcast(job.level(), pos, released);
+        }
+
+        StructurePayload.SyncTorchEntry torch = job.syncTorches.get(index);
+        if (torch != null) {
+            // The block is already in place and its own onPlace wrote an unbound row; this one replaces it, so the
+            // torch comes back into the group it was captured from instead of becoming a one-member group.
+            InnerRedstoneStore store = InnerRedstoneStore.get(job.level());
+            store.putSyncTorch(pos, job.freshChannel(store, torch.channel()));
+            store.markDirty();
+            // And the client has to learn the whole membership again: this is the line the connecting line needs.
+            HostSync.broadcastSyncGroups(job.level());
         }
 
         // A clock's or an extender's setting is written beside the block for the same reason: no block state has room

@@ -142,6 +142,12 @@ public final class InnerComponentModel {
             case REPEATER -> repeater(slot, out);
             case COMPARATOR -> comparator(slot, out);
             case TORCH -> torch(slot, out);
+            // 同步火把没有盒子形状: 它由 {@code InnerComponentVisuals} 用我们自己方块的原版模型画出来
+            // (也就是本模组的那两张贴图), 与立在世界里的那一支同一个样子。
+            case SYNC_TORCH -> {
+            }
+            // 触发器 同样没有盒子形状: 它由 {@code InnerComponentVisuals} 用它自己的方块模型画出来 (trigger /
+            // trigger_on), 两份几何叠在一起只会互相穿插。
             case LEVER, BUTTON -> lever(slot, out);
             case PRESSURE_PLATE -> out.add(new Box(0, FLOOR, 0, 0.4F, 0.04F, 0.4F, 0xFF8B1A1A));
         }

@@ -36,6 +36,16 @@ public final class RcTooltips {
         return Component.translatable(key).withStyle(style);
     }
 
+    /**
+     * A line that reports a <b>value</b> rather than teaching a gesture - a tool's current channel, and the like.
+     *
+     * <p>Always visible, unlike a summary or a detail: what a setting currently is, is not part of the how-to. Hiding it
+     * behind [Shift] would mean a player has to hold a key to read back the number they just picked.
+     */
+    public static Component state(String key, Object... args) {
+        return Component.translatable(key, args).withStyle(ChatFormatting.AQUA);
+    }
+
     /** A requirement or a warning: also a [Shift] detail, in red, because it is the line that says "this will not work". */
     public static Component required(String key) {
         return Component.translatable(key).withStyle(ChatFormatting.DARK_RED);

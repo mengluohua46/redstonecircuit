@@ -2,6 +2,7 @@ package com.jiangyuefengyu.redstonecircuit.network;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -93,6 +94,8 @@ public final class RCNetwork {
     public static void register() {
         PayloadTypeRegistry.playS2C().register(HostSnapshotPayload.TYPE,
                 HostSnapshotPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playS2C().register(SyncGroupPayload.TYPE,
+                SyncGroupPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(HostSlotPayload.TYPE,
                 HostSlotPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(WrenchSelectionPayload.TYPE,
@@ -372,6 +375,121 @@ public final class RCNetwork {
                 entries.add(new HostEntry(pos, readSlot(buffer)));
             }
             return new HostSlotPayload(dimension, entries);
+        }
+    }
+
+    /**
+     * 同步火把的组: 一个维度里每个频道有谁.
+     *
+     * <p>整份而不是增量, 与 {@link HostSnapshotPayload} 同一个理由: 组的成员是<b>相对</b>的 (两个相隔很远的火把属于
+     * 一起), 而一个客户端看得见的只有脚下 - 所以"你看到的这一组还有没有别人"这件事只有服务器答得上来, 而增量一旦丢了
+     * 一条, 客户端就会永远多画一个成员。
+     *
+     * <p>坐标打包成一个 {@code long} ({@code BlockPos#asLong}) 而不是三个 varint: 一个频道的成员表通常是几十个位置,
+     * 一个 long 就是一次固定长度写。
+     */
+    public record SyncGroupPayload(ResourceKey<Level> dimension, List<SyncGroup> groups)
+            implements CustomPacketPayload {
+
+        /**
+         * 一个被搬着的成员: 在哪台机器上, 机器里的哪个坐标。
+         *
+         * <p>没有位姿: 位姿走的是 {@link CarrierPayload} 那条既有的消息, 而一台机器只有一份位姿 - 在每个成员身上
+         * 各写一遍既浪费又会出现两次不同步。客户端要画这一段, 就把这台机器已经收到的位姿套在 {@code local} 上。
+         */
+        public record CarriedMember(CarrierId carrier, BlockPos local) {
+        }
+
+        /**
+         * 一个频道和它的成员, 两段: 世界坐标上的成员, 与被搬着的成员。
+         *
+         * <p>两段而不是一段, 因为身份的<b>种类</b>不同: 前一段是一个位置, 后一段是 (机器, 机器内的坐标)。一支火把
+         * 要么在世界里 (立着或内嵌), 要么在机器里, 所以同一个频道号下两段合起来才是全部成员 - 而"同一频道一起亮"
+         * 跨过这段边界, 正是这件设备的语义。
+         *
+         * <p>频道号就是颜色的来源, 所以它必须跟着包走。
+         */
+        public record SyncGroup(int channel, List<BlockPos> members, List<CarriedMember> carried) {
+        }
+
+        /**
+         * 客户端那一半收"被搬着的成员"的入口, 由 {@code client/} 装一次。
+         *
+         * <p>两块数据落在两个地方, 因为认识机器位姿的那一半只有客户端代码: 世界坐标的那一段走
+         * {@link SyncGroupView#apply}, 被搬着的那一段走这里装进来的接收方。没装就什么都不做 - 世界那一段照旧。
+         */
+        @FunctionalInterface
+        public interface CarriedSink {
+
+            /** The carried half of one snapshot, per channel, for one dimension. */
+            void accept(ResourceKey<Level> dimension, Map<Integer, List<CarriedMember>> carried);
+        }
+
+        private static volatile CarriedSink carriedSink;
+
+        /** Called once from the client half; {@code null} uninstalls it. */
+        public static void installCarriedSink(@Nullable CarriedSink sink) {
+            carriedSink = sink;
+        }
+
+        public static final CustomPacketPayload.Type<SyncGroupPayload> TYPE =
+                new CustomPacketPayload.Type<>(RedstoneCircuit.id("sync_group"));
+
+        public static final StreamCodec<RegistryFriendlyByteBuf, SyncGroupPayload> STREAM_CODEC =
+                StreamCodec.of(SyncGroupPayload::encode, SyncGroupPayload::decode);
+
+        @Override
+        public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+
+        private static void encode(RegistryFriendlyByteBuf buffer, SyncGroupPayload payload) {
+            buffer.writeResourceLocation(payload.dimension().location());
+            buffer.writeVarInt(payload.groups().size());
+            for (SyncGroup group : payload.groups()) {
+                buffer.writeVarInt(group.channel());
+                // 两段按固定顺序写在同一个组后面: 世界坐标 (定长 long), 再被搬着的 (身份 + 局部坐标)。
+                buffer.writeVarInt(group.members().size());
+                for (BlockPos pos : group.members()) {
+                    buffer.writeLong(pos.asLong());
+                }
+                buffer.writeVarInt(group.carried().size());
+                for (CarriedMember member : group.carried()) {
+                    writeCarrier(buffer, member.carrier());
+                    buffer.writeLong(member.local().asLong());
+                }
+            }
+        }
+
+        private static SyncGroupPayload decode(RegistryFriendlyByteBuf buffer) {
+            ResourceKey<Level> dimension =
+                    ResourceKey.create(Registries.DIMENSION, buffer.readResourceLocation());
+            int size = buffer.readVarInt();
+            List<SyncGroup> groups = new ArrayList<>(size);
+            for (int i = 0; i < size; i++) {
+                int channel = buffer.readVarInt();
+                int members = buffer.readVarInt();
+                List<BlockPos> positions = new ArrayList<>(members);
+                for (int j = 0; j < members; j++) {
+                    positions.add(BlockPos.of(buffer.readLong()));
+                }
+                int carriedSize = buffer.readVarInt();
+                List<CarriedMember> carried = new ArrayList<>(carriedSize);
+                for (int j = 0; j < carriedSize; j++) {
+                    CarrierId carrier = readCarrier(buffer);
+                    carried.add(new CarriedMember(carrier, BlockPos.of(buffer.readLong())));
+                }
+                if (channel > 0) {
+                    groups.add(new SyncGroup(channel, positions, carried));
+                }
+            }
+            return new SyncGroupPayload(dimension, groups);
+        }
+
+        /** The sink the client half installed, or {@code null}. Read by {@code client/SyncGroupView#accept}, so
+         * this class never has to name a client one. */
+        public static CarriedSink carriedSink() {
+            return carriedSink;
         }
     }
 

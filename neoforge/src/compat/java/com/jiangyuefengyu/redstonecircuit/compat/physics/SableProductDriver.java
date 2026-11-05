@@ -383,6 +383,11 @@ final class SableProductDriver {
                     // structure (so the answer it is following goes stale), and a hold runs out on the world clock
                     // rather than on anything in the world (so nothing else would ever end it while it rides).
                     com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.refreshCarried(level, cell, state);
+                    // 同步火把, in the form that stands in the world: its answer is the OR of a whole channel, decided by
+                    // the group pass, and writing that answer into the machine's own cell is this walk's job for the
+                    // same reason the clock's is - the cell's own tick never comes. Before the wake-up below, so the
+                    // world is poked with the answer the torch now gives.
+                    com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock.refreshCarried(level, cell, state);
                     if (toldFor(uuid).spots.add(drawn.asLong())) {
                         pokeWorld(level, drawn, state);
                     }

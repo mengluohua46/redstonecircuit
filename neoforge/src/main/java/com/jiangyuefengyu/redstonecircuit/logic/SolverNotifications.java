@@ -23,18 +23,26 @@ import org.jetbrains.annotations.Nullable;
  * {@code neighborChanged} runs synchronously and comes straight back into the solve that sent it, so the solve
  * feeds itself. With {@code solverCoalesceNotifications} on (the default) one notification per changed
  * position goes out at the fixed point instead: the rounds still happen, they are simply no longer fed by the
- * solve itself. One session per dimension, ended by every solve; nothing is delayed a tick.
+ * solve itself. One session per dimension, ended by every solve; nothing is delayed a tick. A solve that
+ * cascades asks for that flush partway through the tick ({@link #flushKeepingOpen}), sends what it has
+ * collected and keeps collecting, so the world's answer is what the next pass sends.
  */
 public final class SolverNotifications {
 
     /**
-     * What one solve did: its settle rounds, the components it recomputed, and the positions it notified.
-     * {@code pending} is always zero by then, so it is not carried.
+     * What one solve did: its settle rounds, the components it recomputed, the positions it notified, and how
+     * many cascades it ran. {@code pending} is always zero by then, so it is not carried.
+     *
+     * <p>{@code flushed} counts every notification the solve sent, the ones {@link #flushKeepingOpen} sent
+     * inside the tick included. One cascade is one settle pass plus one keeping-open flush, so a solve that
+     * ran and never cascaded reports {@code 1} and a solve that never opened a session (the coalescing switch
+     * off) reports {@code 0}.
      */
-    public record TickStats(int rounds, int recomputes, int flushed, boolean ranSolve) {
+    public record TickStats(int rounds, int recomputes, int flushed, boolean ranSolve, int cascades,
+                            boolean capped) {
 
         static TickStats nothing() {
-            return new TickStats(0, 0, 0, false);
+            return new TickStats(0, 0, 0, false, 0, false);
         }
     }
 
@@ -59,6 +67,18 @@ public final class SolverNotifications {
 
         /** Notifications already handed to the world by this session (the coalescing-off count). */
         private int sent;
+
+        /** The same count for the flushes {@link SolverNotifications#flushKeepingOpen} performed. */
+        private int sentKeepingOpen;
+
+        /**
+         * Cascades this solve ran; one is one settle pass plus the flush that followed it, and it is what
+         * {@link SolverNotifications#end} carries into {@link TickStats}.
+         */
+        private int cascades;
+
+        /** Whether the cascade stopped with work still queued, i.e. the budget ended the tick. */
+        private boolean capped;
 
         /** How many settle rounds the solve ran; written by the solver, read by the evidence line. */
         private int rounds;
@@ -107,6 +127,20 @@ public final class SolverNotifications {
         /** How many positions are waiting for the flush. */
         public int pendingCount() {
             return pending.size();
+        }
+
+        /** One cascade ran: a settle pass plus the keeping-open flush that followed it. */
+        void noteCascade() {
+            cascades++;
+        }
+
+        /**
+         * The cascade stopped with work still queued: the budget (or the round cap) is what ended this tick, not
+         * the circuit reaching its fixed point. Reported so the operator can tell "the limit is enough" from "the
+         * limit is what is holding this machine back", which nothing else in the log says.
+         */
+        void noteCascadeCapped() {
+            capped = true;
         }
 
         /** Whether this session holds the notifications back (the switch's value at the time it began). */
@@ -265,8 +299,53 @@ public final class SolverNotifications {
         }
         int flushed = session.flushPending();
         session.ended = true;
-        LAST.put(dimension, new TickStats(session.rounds, session.recomputes, flushed, session.noted));
+        // The evidence line wants every notification the solve sent, not only the ones this last flush sent:
+        // under the cascade the earlier passes were flushed by flushKeepingOpen, and reporting zero there would
+        // be a false statement about a tick that notified a great deal.
+        LAST.put(dimension, new TickStats(session.rounds, session.recomputes,
+                flushed + session.sentKeepingOpen, session.noted, session.cascades, session.capped));
         return flushed;
+    }
+
+    /**
+     * Sends everything the open session has collected and <b>leaves it open</b>.
+     *
+     * <p>This is what the cascade between settle passes needs, and it is the one thing {@link #end} must not
+     * become: the session stays registered, so an {@link #offer} made while this flush runs - the world
+     * answering synchronously, which is exactly what {@code Level#updateNeighborsAt} does - lands in the same
+     * session's pending set instead of going out now, and the caller's next pass sees it. Nothing is sent
+     * twice, because {@link Session#flushPending} drains its set before the first notification.
+     *
+     * <p>Returns how many positions this call notified: zero when no solve is open, which is "the coalescing
+     * switch is off" or "the session has already been ended", and in both cases there is nothing to send.
+     */
+    public static int flushKeepingOpen(@Nullable ServerLevel level) {
+        return level == null ? 0 : flushKeepingOpen(level.dimension());
+    }
+
+    /** The same, named by dimension: the shape a unit test uses, since the session is keyed by dimension. */
+    public static int flushKeepingOpen(@Nullable ResourceKey<Level> dimension) {
+        Session session = dimension == null ? null : OPEN.get(dimension);
+        if (session == null || session.ended) {
+            return 0;
+        }
+        int flushed = session.flushPending();
+        session.sentKeepingOpen += flushed;
+        return flushed;
+    }
+
+    /**
+     * How many positions the open session is still holding - the question the cascade asks after a keeping-open
+     * flush: "did the world answer in a way that has to be sent again?".
+     */
+    public static int pendingCount(@Nullable ServerLevel level) {
+        return level == null ? 0 : pendingCount(level.dimension());
+    }
+
+    /** The same, named by dimension. */
+    public static int pendingCount(@Nullable ResourceKey<Level> dimension) {
+        Session session = dimension == null ? null : OPEN.get(dimension);
+        return session == null || session.ended ? 0 : session.pendingCount();
     }
 
     /** Offers one changed position to the solve that is running, or sends it immediately if none is. */

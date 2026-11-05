@@ -39,7 +39,7 @@ class StoreBroadcastWiringTest {
 
         String release = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "structure",
                 "StructureRelease.java");
-        assertTrue(release.contains("HostSync.broadcast(job.level(), pos, node.slot());"),
+        assertTrue(release.contains("HostSync.broadcast(job.level(), pos, released);"),
                 "and the other direction: a component put back into the world by a release has to be announced, or the "
                         + "server has it and the client does not");
     }

@@ -15,6 +15,7 @@ import com.jiangyuefengyu.redstonecircuit.data.ComparatorMode;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.ConnectionState;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerEnvironment;
 
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.properties.AttachFace;
@@ -117,6 +118,57 @@ class InnerComponentVisualsTest {
         slot.setConnection(Direction.EAST, ConnectionState.ON);
         assertTrue(place(slot, EVERYTHING).locked(),
                 "the wrench locked a side, so the vanilla locked bar is drawn");
+    }
+
+    @Test
+    @DisplayName("a repeater held by a diode beside it draws vanilla's locked look, with nothing stored")
+    void aHeldRepeaterLooksLocked() {
+        Slot slot = slot(ComponentType.REPEATER, Direction.NORTH);
+        // East of it, reading further east and so outputting west: straight into this repeater's side.
+        Slot holder = slot(ComponentType.REPEATER, Direction.EAST);
+
+        assertTrue(!place(slot, NOTHING).locked(),
+                "a caller with only the six booleans sees no lock source, which is the honest answer");
+        assertTrue(place(slot, only(Direction.EAST, holder)).locked(),
+                "a neighbouring diode pointing in holds it, so the vanilla lock bars are drawn");
+
+        // The fence that keeps this rule vanilla's width: the same signal, but not a diode.
+        Slot wire = slot(ComponentType.DUST, Direction.EAST);
+        assertTrue(!place(slot, only(Direction.EAST, wire)).locked(),
+                "a piece of wire at fifteen is not a lock source");
+
+        // A diode that is not outputting holds nothing either.
+        Slot silent = slot(ComponentType.REPEATER, Direction.EAST);
+        silent.power = 0;
+        assertTrue(!place(slot, only(Direction.EAST, silent)).locked(),
+                "a silent diode holds nothing");
+    }
+
+    @Test
+    @DisplayName("a repeater on the floor is held from any horizontal side, and a comparator is never held")
+    void verticalRepeatersAndComparatorsAreHeldAsTheSolverSays() {
+        Slot ceiling = slot(ComponentType.REPEATER, Direction.UP);
+        assertTrue(place(ceiling, only(Direction.NORTH, slot(ComponentType.REPEATER, Direction.NORTH)))
+                .locked(), "a ceiling-mounted repeater reads four horizontal sides, north included");
+
+        Slot comparator = slot(ComponentType.COMPARATOR, Direction.NORTH);
+        assertTrue(!place(comparator, only(Direction.EAST, slot(ComponentType.REPEATER, Direction.EAST)))
+                .locked(), "vanilla's comparator has no locked property, so it never draws that look");
+
+        Slot torch = slot(ComponentType.TORCH, Direction.DOWN);
+        assertTrue(!place(torch, only(Direction.NORTH, slot(ComponentType.REPEATER, Direction.NORTH)))
+                .locked(), "and neither does a torch, which has no lock at all");
+    }
+
+    /** A neighbour lookup that answers on one side only: what the drawing gets from the client's host index. */
+    private static InnerComponentVisuals.NeighbourSlots only(Direction side, Slot neighbour) {
+        return direction -> direction == side ? neighbour : null;
+    }
+
+    private static Placement place(Slot slot, InnerComponentVisuals.NeighbourSlots slots) {
+        Placement placement = InnerComponentVisuals.placementFor(slot, slots);
+        assertNotNull(placement, "every placeable component maps onto something");
+        return placement;
     }
 
     @Test
@@ -236,5 +288,66 @@ class InnerComponentVisualsTest {
         assertNull(InnerComponentVisuals.placementFor(
                         slot(ComponentType.PRESSURE_PLATE, Direction.DOWN), EVERYTHING),
                 "nothing is placeable as a plate yet, so the renderer falls back to the box shapes");
+    }
+
+    // ------------------------------------------------- the other half of a lock source --
+
+    /**
+     * The two halves of a neighbourhood the drawing is handed: our host index, and the vanilla block standing
+     * in the world. The second half is what {@code HostRenderPass#vanillaDiodeAt} fills from the client's own
+     * {@code ClientLevel}; here it is supplied directly, because a {@code BlockState} cannot be built outside a
+     * running game.
+     */
+    private static InnerComponentVisuals.NeighbourSlots world(Direction side, Slot neighbour,
+            PowerEnvironment.VanillaDiode diode) {
+        return new InnerComponentVisuals.NeighbourSlots() {
+
+            @Override
+            public Slot slotOn(Direction direction) {
+                return direction == side ? neighbour : null;
+            }
+
+            @Override
+            public PowerEnvironment.VanillaDiode vanillaDiodeOn(Direction direction) {
+                return direction == side ? diode : null;
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("a vanilla repeater in the ground holds the repeater inside a block, though no component exists there")
+    void aVanillaDiodeLocksTheInnerRepeater() {
+        Slot slot = slot(ComponentType.REPEATER, Direction.NORTH);
+        // East of the host block: FACING is vanilla's input side, so a diode reading east pushes west - into
+        // the host block's east side, which is one of the two sides that hold a north-facing repeater.
+        PowerEnvironment.VanillaDiode intoMe = new PowerEnvironment.VanillaDiode(Direction.EAST, 15);
+        assertTrue(place(slot, world(Direction.EAST, null, intoMe)).locked(),
+                "a vanilla diode pointing at the host draws vanilla's lock bars inside it");
+
+        PowerEnvironment.VanillaDiode awayFromMe = new PowerEnvironment.VanillaDiode(Direction.NORTH, 15);
+        assertTrue(!place(slot, world(Direction.EAST, null, awayFromMe)).locked(),
+                "a diode beside it that points somewhere else pushes nothing into the side it stands on");
+
+        PowerEnvironment.VanillaDiode silent = new PowerEnvironment.VanillaDiode(Direction.EAST, 0);
+        assertTrue(!place(slot, world(Direction.EAST, null, silent)).locked(),
+                "a diode with nothing to output holds nothing, exactly as a silent component does not");
+    }
+
+    @Test
+    @DisplayName("dust against the side does not lock: signal is not the test, being a diode is")
+    void dustBesideDoesNotLock() {
+        Slot slot = slot(ComponentType.REPEATER, Direction.NORTH);
+
+        // Inside a host block next door.
+        Slot wire = slot(ComponentType.DUST, Direction.EAST);
+        assertEquals(15, wire.power, "a piece of dust does push fifteen into the side it is laid against");
+        assertTrue(!place(slot, world(Direction.EAST, wire, null)).locked(),
+                "a component beside it at full strength is not a lock source unless it is a diode");
+
+        // A vanilla block next door: the client's lookup turns anything that is not a DiodeBlock into "no
+        // diode at all" (DiodeBlock#isDiode), so a dust line, a torch or a strongly-charged block arrives here
+        // as nothing and cannot widen the rule.
+        assertTrue(!place(slot, world(Direction.EAST, null, null)).locked(),
+                "a block that is not vanilla's diode is not a lock source, however much signal it pushes");
     }
 }

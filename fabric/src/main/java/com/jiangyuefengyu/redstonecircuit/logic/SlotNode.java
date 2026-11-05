@@ -46,6 +46,11 @@ public final class SlotNode implements PowerEnvironment.Node {
     }
 
     @Override
+    public byte syncInputs() {
+        return slot.syncInputs;
+    }
+
+    @Override
     public ComparatorMode mode() {
         return slot.mode;
     }

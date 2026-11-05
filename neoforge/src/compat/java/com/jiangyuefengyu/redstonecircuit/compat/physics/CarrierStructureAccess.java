@@ -1,8 +1,11 @@
 package com.jiangyuefengyu.redstonecircuit.compat.physics;
 
+import java.util.Map;
+
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierAccess;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore;
 
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import com.simibubi.create.content.contraptions.Contraption;
@@ -10,7 +13,10 @@ import com.simibubi.create.content.contraptions.Contraption;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -44,6 +50,69 @@ final class CarrierStructureAccess implements CarrierAccess {
                     carrier.shortId(), failed.toString());
             return null;
         }
+    }
+
+    /**
+     * <b>Write one of a contraption's own blocks</b> - the half {@link CarrierAccess} does not have, and the reason
+     * {@code CarrierSource#setCarriedBlock} exists at all.
+     *
+     * <p>Reached only for a carrier whose storage is <b>not</b> the level: the criterion is
+     * {@link CarrierStore#storageInLevel}, and the sub-level half of the write lives there, beside the sub-level
+     * half of the read. That is why there is no fork here at all, and why nothing on this path may touch the level:
+     * a contraption's local coordinate is anchor-relative, so in the level it is somebody else's block.
+     *
+     * <p>A failure is reported and answered {@code false} rather than thrown: this runs inside a tick, and a machine
+     * that cannot be written is a machine that does not light, which is far less than a tick that dies.
+     *
+     * @return whether the block really changed
+     */
+    boolean setBlock(CarrierId carrier, BlockPos local, BlockState state) {
+        if (carrier == null || local == null || state == null || CarrierStore.storageInLevel(carrier)) {
+            return false;
+        }
+        try {
+            return setInContraption(carrier, local, state);
+        } catch (RuntimeException | LinkageError failed) {
+            RCConfig.LOGGER.warn("[redstonecircuit] carrier {} structure write failed: {}",
+                    carrier.shortId(), failed.toString());
+            return false;
+        }
+    }
+
+    /**
+     * A contraption's own block, written into the contraption's block map - the only place it exists - <b>and the
+     * clients told about it</b>, both in Create's own single call. The captured block entity data is carried over
+     * unchanged: this changes a block's <em>state</em>, not which block it is.
+     *
+     * <p>{@code AbstractContraptionEntity#setBlock} is exactly "write one block of this contraption and publish it":
+     * it puts the {@code StructureBlockInfo} into {@code Contraption#getBlocks()} and then sends
+     * {@code ContraptionBlockChangedPacket(entityId, localPos, newState)} to the clients tracking that entity -
+     * verified against the Create 6.0.10 jar this module compiles against, whose body is {@code blocks.put(...)}
+     * followed by {@code CatnipServices.NETWORK.sendToClientsTrackingEntity(this, packet)}. Writing the {@code put}
+     * here and hand-rolling the packet would be the same two steps with a second copy of the ordering rule; by
+     * delegating, the packet cannot go out before the write, and nothing here has to name a packet type at all.
+     *
+     * <p>That call is made <b>only</b> on this path: {@link #setBlock} is reached only for a carrier whose storage is
+     * not the level, so a Sable sub-level never sends it. And the equality test above is the gate that keeps it to
+     * <b>one packet per real change</b>: a group pass that re-asserts the same {@code LIT} state sends nothing.
+     */
+    private boolean setInContraption(CarrierId carrier, BlockPos local, BlockState state) {
+        if (!PhysicsCompat.createLoaded()) {
+            return false;
+        }
+        AbstractContraptionEntity entity = resolver.contraptionEntityOf(carrier);
+        Contraption contraption = entity == null ? null : entity.getContraption();
+        Map<BlockPos, StructureBlockInfo> blocks = contraption == null ? null : contraption.getBlocks();
+        StructureBlockInfo info = blocks == null ? null : blocks.get(local);
+        if (info == null || info.state().equals(state)) {
+            return false;
+        }
+        entity.setBlock(local, new StructureBlockInfo(local, state, info.nbt()));
+        // "Whether it really changed" is asked of the map itself rather than assumed: Create's carriage override
+        // stands down when the carriage is not bound, and a claimed change nobody can see would wake the world for
+        // nothing.
+        StructureBlockInfo written = blocks.get(local);
+        return written != null && !written.state().equals(info.state());
     }
 
     /** Create's own view of a contraption's blocks, in the contraption's local coordinates. */

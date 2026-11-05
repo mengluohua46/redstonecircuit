@@ -29,8 +29,12 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 @PrefixGameTestTemplate(false)
 public final class ClockGameTest {
 
-    /** The period the ticking tests use: 0 秒 + 4 tick, so four ticks are one whole cycle. */
-    private static final ClockRule.Setting FAST = new ClockRule.Setting(0, 4, 10);
+    /** The period the ticking tests use: 0 秒 + 4 tick, so four ticks are one whole cycle. The 脉冲 is spelled out as
+     * the default 2 tick on purpose: <b>every clock this class drives is a default-width one</b> (nothing here sets 1
+     * tick), and the expected answer is compared against whatever pulse the setting itself carries, so these tests
+     * never assume a width the setting does not have. A 1 tick clock belongs in {@code ClockRuleTest}, where phases are
+     * pinned exactly. */
+    private static final ClockRule.Setting FAST = new ClockRule.Setting(0, 4, 10, ClockRule.DEFAULT_PULSE_TICKS);
 
     /** How many level ticks those tests watch it for: four whole cycles. */
     private static final int WATCHED_TICKS = 16;
@@ -39,7 +43,7 @@ public final class ClockGameTest {
         return helper.absolutePos(new BlockPos(x, y, z));
     }
 
-    /** Places a clock plate at (2,1,2) with its 正面 pointing {@code facing}, and sets its three numbers. */
+    /** Places a clock plate at (2,1,2) with its 正面 pointing {@code facing}, and sets its four numbers. */
     private static BlockPos placeClock(GameTestHelper helper, Direction facing, ClockRule.Setting setting) {
         helper.setBlock(new BlockPos(2, 1, 2), RCRegistry.CLOCK.get().defaultBlockState()
                 .setValue(ClockBlock.FACING, facing));
@@ -54,8 +58,8 @@ public final class ClockGameTest {
      */
     private static boolean agrees(int observed, ClockRule.Setting setting, long now) {
         boolean on = observed > 0;
-        return on == ClockRule.isOn(now, setting.period())
-                || on == ClockRule.isOn(now - 1, setting.period());
+        return on == ClockRule.isOn(now, setting.period(), setting.pulse())
+                || on == ClockRule.isOn(now - 1, setting.period(), setting.pulse());
     }
 
     /**
@@ -92,7 +96,8 @@ public final class ClockGameTest {
             helper.assertTrue(state.getSignal(level, plate, Direction.EAST) == 0
                             && state.getSignal(level, plate, Direction.WEST) == 0,
                     "两个侧面也不回答");
-            note(counters, now, state.getValue(ClockBlock.LIT), ClockRule.isOn(now, setting.period()));
+            note(counters, now, state.getValue(ClockBlock.LIT),
+                    ClockRule.isOn(now, setting.period(), setting.pulse()));
             if (!agrees(power, setting, now)) {
                 counters[2]++;
             }
@@ -126,23 +131,25 @@ public final class ClockGameTest {
         helper.succeed();
     }
 
-    /** The settings are not block state: two properties, eight states, and the three numbers read from beside the block. */
+    /** The settings are not block state: two properties, eight states, and the numbers read from beside the block. */
     @GameTest(template = "empty")
     public void theSettingsLiveBesideTheBlockAndNotInTheState(GameTestHelper helper) {
         int states = RCRegistry.CLOCK.get().getStateDefinition().getPossibleStates().size();
         helper.assertTrue(states == 8,
                 "朝向 4 × 亮 2 = 8 个状态。秒 0-3600 要是进了状态就是 430 万个，实际 " + states);
 
-        BlockPos plate = placeClock(helper, Direction.NORTH, new ClockRule.Setting(0, 7, 3));
+        BlockPos plate = placeClock(helper, Direction.NORTH,
+                new ClockRule.Setting(0, 7, 3, ClockRule.DEFAULT_PULSE_TICKS));
         ClockRule.Setting stored = ClockBlock.settingAt(helper.getLevel(), plate);
-        helper.assertTrue(stored.equals(new ClockRule.Setting(0, 7, 3)),
-                "三个数要在方块旁边那张表里，读到的是 " + stored);
+        helper.assertTrue(stored.equals(new ClockRule.Setting(0, 7, 3, ClockRule.DEFAULT_PULSE_TICKS)),
+                "四个数要在方块旁边那张表里，读到的是 " + stored);
 
         // And a caller that hands the block raw numbers gets them into range rather than written down as they are.
-        ClockBlock.applySettings(helper.getLevel(), plate, new ClockRule.Setting(99_999, 99, 99));
+        ClockBlock.applySettings(helper.getLevel(), plate,
+                new ClockRule.Setting(99_999, 99, 99, ClockRule.DEFAULT_PULSE_TICKS));
         ClockRule.Setting clamped = ClockBlock.settingAt(helper.getLevel(), plate);
         helper.assertTrue(clamped.equals(new ClockRule.Setting(ClockRule.MAX_SECONDS, ClockRule.MAX_TICKS,
-                        ClockRule.MAX_STRENGTH)),
+                        ClockRule.MAX_STRENGTH, ClockRule.DEFAULT_PULSE_TICKS)),
                 "越界的数字要夹进范围，实际 " + clamped);
         helper.succeed();
     }
@@ -150,7 +157,8 @@ public final class ClockGameTest {
     /** 0 秒 0 tick is off, and it comes back the moment a period is set. */
     @GameTest(template = "empty")
     public void zeroIsOffAndARealPeriodWakesItUp(GameTestHelper helper) {
-        BlockPos plate = placeClock(helper, Direction.NORTH, new ClockRule.Setting(0, 0, 15));
+        BlockPos plate = placeClock(helper, Direction.NORTH,
+                new ClockRule.Setting(0, 0, 15, ClockRule.DEFAULT_PULSE_TICKS));
         final int[] seen = new int[2];
         watchOff(helper, plate, 8, seen);
     }
@@ -166,8 +174,11 @@ public final class ClockGameTest {
             if (left <= 1) {
                 helper.assertTrue(seen[1] == 0, "0 秒 0 tick 就是关掉：一次也不该输出，实际 "
                         + seen[1] + " / " + seen[0] + " tick");
-                // Switch it on: a two-tick period is one continuous pulse, so a single tick later it must be emitting.
-                ClockBlock.applySettings(level, plate, new ClockRule.Setting(0, 2, 15));
+                // Switch it on: a two-tick period at the default two-tick 脉冲 is one continuous pulse, so a single tick
+                // later it must be emitting. (This assertion needs period <= pulse: at 1 tick the answer would depend
+                // on where the world clock happened to be.)
+                ClockBlock.applySettings(level, plate,
+                        new ClockRule.Setting(0, 2, 15, ClockRule.DEFAULT_PULSE_TICKS));
                 helper.runAfterDelay(1, () -> {
                     BlockState after = level.getBlockState(plate);
                     helper.assertTrue(after.getValue(ClockBlock.LIT)
@@ -188,16 +199,17 @@ public final class ClockGameTest {
      */
     @GameTest(template = "empty")
     public void theLitPropertyIsTheAnswer(GameTestHelper helper) {
-        BlockPos plate = placeClock(helper, Direction.NORTH, new ClockRule.Setting(0, 1, 6));
+        BlockPos plate = placeClock(helper, Direction.NORTH,
+                new ClockRule.Setting(0, 1, 6, ClockRule.DEFAULT_PULSE_TICKS));
         ServerLevel level = helper.getLevel();
 
         helper.assertTrue(level.getBlockState(plate).getValue(ClockBlock.LIT),
-                "周期 1 tick 比脉冲还短：它只能一直输出，所以亮着");
+                "周期 1 tick 比默认脉宽（2 tick）还短：它只能一直输出，所以亮着");
         helper.assertTrue(level.getBlockState(plate).getSignal(level, plate, Direction.NORTH) == 6,
                 "亮着就是答案：背面按设定强度回答，实际 "
                         + level.getBlockState(plate).getSignal(level, plate, Direction.NORTH));
 
-        ClockBlock.applySettings(level, plate, new ClockRule.Setting(0, 0, 6));
+        ClockBlock.applySettings(level, plate, new ClockRule.Setting(0, 0, 6, ClockRule.DEFAULT_PULSE_TICKS));
         helper.assertFalse(level.getBlockState(plate).getValue(ClockBlock.LIT), "关掉就不亮");
         helper.assertTrue(level.getBlockState(plate).getSignal(level, plate, Direction.NORTH) == 0,
                 "而背面回答 0");
@@ -245,7 +257,7 @@ public final class ClockGameTest {
             }
             helper.assertTrue(level.getSignal(host, Direction.WEST) == 0,
                     "不往正面回灌 - 和世界里的薄板一样");
-            note(counters, now, power > 0, ClockRule.isOn(now, setting.period()));
+            note(counters, now, power > 0, ClockRule.isOn(now, setting.period(), setting.pulse()));
             if (!agrees(power, setting, now)) {
                 counters[2]++;
             }
@@ -260,7 +272,7 @@ public final class ClockGameTest {
         });
     }
 
-    /** The screen's write for a stored clock: the three numbers land on the slot, and the tick picks them up. */
+    /** The screen's write for a stored clock: the four numbers land on the slot, and the tick picks them up. */
     @GameTest(template = "empty")
     public void theHostScreensWriteReachesTheStoredClock(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
@@ -274,10 +286,11 @@ public final class ClockGameTest {
         store.markDirty();
 
         helper.assertTrue(ClockBlock.applyHostSettings(level, host, store.slotAt(host),
-                        new ClockRule.Setting(2, 5, 4)),
+                        new ClockRule.Setting(2, 5, 4, ClockRule.DEFAULT_PULSE_TICKS)),
                 "界面的写入必须落到方块里那个元件上");
-        helper.assertTrue(store.slotAt(host).clock.equals(new ClockRule.Setting(2, 5, 4)),
-                "三个数要照着写进去，实际 " + store.slotAt(host).clock);
+        helper.assertTrue(store.slotAt(host).clock.equals(
+                        new ClockRule.Setting(2, 5, 4, ClockRule.DEFAULT_PULSE_TICKS)),
+                "四个数要照着写进去，实际 " + store.slotAt(host).clock);
         helper.assertFalse(ClockBlock.applyHostSettings(level, host, store.slotAt(host), null),
                 "没有设定就得拒绝，而不是把元件改成默认值");
 

@@ -12,6 +12,8 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
+import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +22,7 @@ import org.junit.jupiter.api.Test;
  *
  * <p>{@code ExtenderRuleTest} pins the rule as a function of time; {@code ExtenderGameTest} pins it in a level. What is
  * left is the plumbing a copy gets wrong: the two places a hold is advanced, the pass-through the solver has to do, the
- * tables every new device must be named in, and the art the author drew - seven frames of one marker.
+ * tables every new device must be named in, and the art that has to be there - seven frames of one marker.
  */
 class ExtenderWiringTest {
 
@@ -97,7 +99,10 @@ class ExtenderWiringTest {
                 + " Direction direction,");
         assertTrue(reads.contains("case EXTENDER:") && reads.contains("return direction == facing;"),
                 "只读正面：侧面的东西不是它的输入");
-        assertTrue(read("..", "data", "ComponentType.java").contains("|| this == EXTENDER;"),
+        // A behaviour assertion, not a line of the source: 有输入面 is a fact about the enum, and pinning the punctuation
+        // of one `|| this == EXTENDER;` line made a formatting change read as a broken rule - another device joined the
+        // same chain and this went red while nothing about 信号延长器 changed.
+        assertTrue(ComponentType.EXTENDER.hasInputSide(),
                 "而「有输入面」也是它：求解器才会重新推导它、路由锁才拿不走它的输入");
     }
 

@@ -83,7 +83,7 @@ public final class RCConfig {
         DEFAULTS.put("wrenchNeedsGoggles", true);
         DEFAULTS.put("wrenchClearOnSameBlock", true);
         DEFAULTS.put("rotationRodNeedsGoggles", true);
-        DEFAULTS.put("placerCreatesStructures", false);
+        DEFAULTS.put("placerCreatesStructures", true);
         DEFAULTS.put("traceSlotSync", false);
         DEFAULTS.put("slotSyncRange", 0.0);
         DEFAULTS.put("forceOverlayDraw", false);
@@ -119,6 +119,7 @@ public final class RCConfig {
         DEFAULTS.put("verboseRenderLog", false);
         DEFAULTS.put("solverSpinWarnPerTick", 8);
         DEFAULTS.put("solverCoalesceNotifications", true);
+        DEFAULTS.put("solverCascadeLimit", 8);
 
         // The structure block: capture limits, the preview that travels with a product, the manual
         // panel, the pocket that holds the blocks, and how a release is paced.
@@ -322,9 +323,15 @@ public final class RCConfig {
         return bool("forceOverlayDraw", false);
     }
 
-    /** Whether the block placer may make a standalone one-block structure while it is itself carried. */
+    /**
+     * Whether the block placer may make a standalone one-block structure while it is itself carried.
+     *
+     * <p>On by default. Turned off, the activation is refused, the item is not spent and nothing is written
+     * anywhere - which is the whole point of the switch on a loader whose physical half has the same storage
+     * question as Sable.
+     */
     public static boolean placerCreatesStructures() {
-        return bool("placerCreatesStructures", false);
+        return bool("placerCreatesStructures", true);
     }
 
     // ------------------------------------------------- components that travel --
@@ -466,9 +473,39 @@ public final class RCConfig {
         return intValue("solverSpinWarnPerTick", 8);
     }
 
+    /**
+     * DEBUG, off by default: one line per thing the 同步火把组 pass looked at.
+     *
+     * <p>The two self-locks left <b>not one line of a group-pass trace</b>
+     * behind, so "why did the answer stay at 15" had neither a face nor a reading to point at. Turned on,
+     * {@code SyncGroups.GroupTrace} writes the member list of every channel (world position / carrier + local
+     * position, embedded or world form), every member's mask, LIT and attaching faces, one line per face (what
+     * the drawn cell answers and what the machine's own copy answers, and whether {@code listensTo} skipped
+     * it), and finally every member's answer and whether the write-back changed anything.
+     *
+     * <p><b>Why a system property and not a config key</b> (every other {@code trace*} is one): every key the
+     * screen shows must have a name and a tooltip in both language files, and this round does not touch the
+     * language files. {@code -Dredstonecircuit.traceSyncGroup=true} on the command line is also the safer
+     * place for a line that repeats every tick: it cannot be left behind in a save's config.
+     */
+    public static boolean traceSyncGroup() {
+        return Boolean.getBoolean("redstonecircuit.traceSyncGroup");
+    }
+
     /** Coalesce the solver's neighbour notifications to the tick boundary. */
     public static boolean solverCoalesceNotifications() {
         return bool("solverCoalesceNotifications", true);
+    }
+
+    /**
+     * How many settle-and-flush passes one server tick may run, 1 to 32.
+     *
+     * <p>1 is "off": one settle pass and one end-of-tick flush, which is exactly the behaviour without the
+     * cascade. The adaptive backoff that halves a dimension's budget after a tick that did not converge is
+     * built in and is not a setting. See {@code InnerRedstoneNetwork#settleCascading}.
+     */
+    public static int solverCascadeLimit() {
+        return intValue("solverCascadeLimit", 8);
     }
 
     // ------------------------------------------------------------- the structure block --
@@ -671,6 +708,51 @@ public final class RCConfig {
 
     // --------------------------------------------------------------- helpers --
 
+    // ------------------------------------------------------------- the configuration screen --
+
+    /**
+     * Every key this build knows, in the order {@link #DEFAULTS} declares them.
+     *
+     * <p>The screen walks this rather than a list of its own: a setting added here shows up there without another
+     * file to keep in step, which is the same reason the language-file test reads the defaults table.
+     */
+    public static List<String> keys() {
+        return List.copyOf(DEFAULTS.keySet());
+    }
+
+    /** The value a key would have if the player never touched it. */
+    public static Object defaultValue(String key) {
+        return DEFAULTS.get(key);
+    }
+
+    /**
+     * One setting as the file currently holds it, of the same kind as its default: Boolean, Integer, Float or String.
+     * null for a key this build does not know, and for a list-valued option, which the screen does not draw.
+     */
+    public static Object current(String key) {
+        Object fallback = DEFAULTS.get(key);
+        if (fallback instanceof Boolean asBool) {
+            return CONFIG.getBoolean(key, asBool);
+        }
+        if (fallback instanceof Integer asInt) {
+            return CONFIG.getInt(key, asInt);
+        }
+        if (fallback instanceof Float asFloat) {
+            return CONFIG.getFloat(key, asFloat);
+        }
+        if (fallback instanceof String asText) {
+            return CONFIG.getString(key, asText);
+        }
+        return null;
+    }
+
+    /** Writes one setting and saves the file; the screen calls this after every change. */
+    public static void set(String key, Object value) {
+        if (!DEFAULTS.containsKey(key)) {
+            return;
+        }
+        CONFIG.put(key, value);
+    }
     private static boolean bool(String key, boolean fallback) {
         if (CONFIG == null) {
             return fallback;

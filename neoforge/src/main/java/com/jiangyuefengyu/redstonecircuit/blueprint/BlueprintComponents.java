@@ -47,7 +47,10 @@ public final class BlueprintComponents {
     static final String NODES = "nodes";
     static final String CLOCKS = "clocks";
     static final String EXTENDERS = "extenders";
+    static final String SYNC_TORCHES = "syncTorches";
     static final String POS = "p";
+    /** 同步火把's channel inside its own entry; it does not collide with an entry's own {@code p}. */
+    static final String CHANNEL = "channel";
     static final String COMPONENT = "component";
 
     /** One host block's component: {@code p} plus the shape {@link InnerRedstoneNode#save()} already writes. */
@@ -62,19 +65,46 @@ public final class BlueprintComponents {
     public record Extender(BlockPos pos, ExtenderRule.Setting setting) {
     }
 
+    /**
+     * One 同步火把 standing in the world: its position and the channel it answers to.
+     *
+     * <p>Its own little table rather than one of the two above, because a standing 同步火把 is neither of them: it keeps
+     * its channel beside the block ({@code InnerRedstoneStore#syncTorchChannelAt}), exactly as it does in the save. The
+     * inner form of the same device travels in {@code nodes} instead, on its slot, which is where a piston expects it.
+     */
+    public record SyncTorch(BlockPos pos, int channel) {
+    }
+
     /** A decoded section: the box it was taken from and everything stored inside it. */
-    public record Section(Vec3i size, List<Node> nodes, List<Clock> clocks, List<Extender> extenders) {
+    public record Section(Vec3i size, List<Node> nodes, List<Clock> clocks, List<Extender> extenders,
+                          List<SyncTorch> syncTorches) {
+
+        /**
+         * A section written before 同步火把 existed, or one read from a file that has none of them.
+         *
+         * <p>Kept as a constructor rather than as a default on the component, because a record's components are read
+         * out of the file: a caller holding four lists has said exactly as much as the older format could say.
+         */
+        public Section(Vec3i size, List<Node> nodes, List<Clock> clocks, List<Extender> extenders) {
+            this(size, nodes, clocks, extenders, List.of());
+        }
 
         public int entryCount() {
-            return nodes.size() + clocks.size() + extenders.size();
+            return nodes.size() + clocks.size() + extenders.size() + syncTorches.size();
         }
     }
 
     private BlueprintComponents() {
     }
 
-    /** Writes one section. Positions must already be relative to the box's minimum corner. */
+    /** Writes one section with no 同步火把 in it; see the overload below. */
     public static CompoundTag write(Vec3i size, List<Node> nodes, List<Clock> clocks, List<Extender> extenders) {
+        return write(size, nodes, clocks, extenders, List.of());
+    }
+
+    /** Writes one section. Positions must already be relative to the box's minimum corner. */
+    public static CompoundTag write(Vec3i size, List<Node> nodes, List<Clock> clocks, List<Extender> extenders,
+                                    List<SyncTorch> syncTorches) {
         CompoundTag section = new CompoundTag();
         section.putInt(VERSION_KEY, VERSION);
         section.putIntArray(SIZE, new int[] {size.getX(), size.getY(), size.getZ()});
@@ -105,6 +135,15 @@ public final class BlueprintComponents {
             extenderList.add(tag);
         }
         section.put(EXTENDERS, extenderList);
+
+        ListTag syncList = new ListTag();
+        for (SyncTorch entry : syncTorches) {
+            CompoundTag tag = new CompoundTag();
+            tag.putIntArray(POS, xyz(entry.pos()));
+            tag.putInt(CHANNEL, entry.channel());
+            syncList.add(tag);
+        }
+        section.put(SYNC_TORCHES, syncList);
         return section;
     }
 
@@ -174,7 +213,21 @@ public final class BlueprintComponents {
             }
             extenders.add(new Extender(positionOf(entry), ExtenderRule.Setting.load(entry)));
         }
-        return new Section(box, nodes, clocks, extenders);
+
+        // 同步火把's table is the one key a section may be missing, because a section written before this device existed
+        // has none - and unlike the three above, an absent table is not damaged data but simply "no torches", which is
+        // what the empty list says.
+        ListTag syncList = list(section, SYNC_TORCHES);
+        List<SyncTorch> syncTorches = syncList == null ? new ArrayList<>() : new ArrayList<>(syncList.size());
+        for (int i = 0; syncList != null && i < syncList.size(); i++) {
+            CompoundTag entry = entryAt(syncList, i, box);
+            if (entry == null || entry.getInt(CHANNEL) <= 0) {
+                // A torch with no channel could never be lit again; a damaged entry is refused rather than kept.
+                return null;
+            }
+            syncTorches.add(new SyncTorch(positionOf(entry), entry.getInt(CHANNEL)));
+        }
+        return new Section(box, nodes, clocks, extenders, syncTorches);
     }
 
     /** Reads the section out of a whole blueprint, checking it against that file's own {@code size}. */

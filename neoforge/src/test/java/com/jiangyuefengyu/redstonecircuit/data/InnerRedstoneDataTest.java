@@ -226,4 +226,31 @@ class InnerRedstoneDataTest {
                 "all four are repeaters, so all four are locked by a repeater behind them");
         assertFalse(ComponentType.COMPARATOR.isRepeater(), "a comparator is not one");
     }
+
+    /**
+     * 同步火把's channel rides on the component, so it rides on the save: 一个搬过活塞、重新上过线的元件必须还是同一组
+     * 的成员, 否则组里就会多出一个"看起来是、其实不是"的成员。
+     */
+    @Test
+    @DisplayName("同步火把的频道跟着元件存档往返")
+    void syncGroupRoundTrip() {
+        InnerRedstoneNode node = InnerRedstoneNode.of(ComponentType.SYNC_TORCH);
+        node.slot().syncGroup = 7;
+        node.slot().facing = Direction.UP;
+
+        Slot reloaded = InnerRedstoneNode.load(node.save()).slot();
+        assertNotNull(reloaded);
+        assertEquals(7, reloaded.syncGroup, "频道必须原样回来");
+        assertEquals(Direction.UP, reloaded.facing, "吸附面也要回来, 它决定了从哪一面读信号");
+
+        // 没有这个键的存档是"这个元件出现之前写的", 读成未绑定 - 而不是频道 0 或者别的什么。
+        CompoundTag older = node.save();
+        older.remove("syncGroup");
+        assertEquals(com.jiangyuefengyu.redstonecircuit.logic.SyncTorchRule.UNBOUND,
+                Slot.load(older).syncGroup, "旧存档读成未绑定");
+
+        // 复制也要带上: 广播给客户端的是副本, 少一个字段, 玩家看到的就是另一个频道。
+        node.slot().syncGroup = 12;
+        assertEquals(12, node.slot().copy().syncGroup);
+    }
 }

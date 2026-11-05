@@ -8,9 +8,19 @@
     "江月风雨"
   ],
   "contact": {
-    "sources": "https://github.com/jiangyuefengyu/redstonecircuit"
+    "homepage": "https://www.curseforge.com/minecraft/mc-mods/redstone-circuit",
+    "sources": "https://github.com/jiangyuefengyu/redstonecircuit",
+    "issues": "https://github.com/jiangyuefengyu/redstonecircuit/issues"
   },
-  "license": "MIT",
+  "custom": {
+    "modmenu": {
+      "links": {
+        "modmenu.modrinth": "https://modrinth.com/mod/redstone-circuit",
+        "modmenu.curseforge": "https://www.curseforge.com/minecraft/mc-mods/redstone-circuit"
+      }
+    }
+  },
+  "icon": "assets/redstonecircuit/icon.png",
   "environment": "*",
   "entrypoints": {
     "main": [
@@ -27,13 +37,16 @@
       "com.jiangyuefengyu.redstonecircuit.CarrierHostRuleGameTest",
       "com.jiangyuefengyu.redstonecircuit.ClockGameTest",
       "com.jiangyuefengyu.redstonecircuit.ControllerGameTest",
+      "com.jiangyuefengyu.redstonecircuit.CrossBoundaryLatencyGameTest",
       "com.jiangyuefengyu.redstonecircuit.ExtenderGameTest",
       "com.jiangyuefengyu.redstonecircuit.GoggleFittingGameTest",
       "com.jiangyuefengyu.redstonecircuit.HandBreakableBlocksGameTest",
+      "com.jiangyuefengyu.redstonecircuit.HoneyPistonGameTest",
       "com.jiangyuefengyu.redstonecircuit.HostComponentRoundTripGameTest",
       "com.jiangyuefengyu.redstonecircuit.HostRulesGameTest",
       "com.jiangyuefengyu.redstonecircuit.InnerRedstoneGameTest",
       "com.jiangyuefengyu.redstonecircuit.LogicIntegratorGameTest",
+      "com.jiangyuefengyu.redstonecircuit.PistonHostTransferGameTest",
       "com.jiangyuefengyu.redstonecircuit.PocketPistonGameTest",
       "com.jiangyuefengyu.redstonecircuit.PocketPlotPersistenceGameTest",
       "com.jiangyuefengyu.redstonecircuit.PocketTickingGameTest",
@@ -53,15 +66,21 @@
       "com.jiangyuefengyu.redstonecircuit.StructureSoundBridgeGameTest",
       "com.jiangyuefengyu.redstonecircuit.StructureSpaceGameTest",
       "com.jiangyuefengyu.redstonecircuit.StructureTwoStageGameTest",
+      "com.jiangyuefengyu.redstonecircuit.SyncTorchGameTest",
       "com.jiangyuefengyu.redstonecircuit.TransformerGameTest",
       "com.jiangyuefengyu.redstonecircuit.TransmissionGateGameTest",
+      "com.jiangyuefengyu.redstonecircuit.TriggerGameTest",
       "com.jiangyuefengyu.redstonecircuit.WireStaircaseGameTest",
       "com.jiangyuefengyu.redstonecircuit.network.StructureEditPathGameTest"
+    ],
+    "modmenu": [
+      "com.jiangyuefengyu.redstonecircuit.client.RedstoneCircuitModMenu"
     ]
   },
   "mixins": [
     "redstonecircuit.mixins.json",
-    "redstonecircuit.sodium.mixins.json"
+    "redstonecircuit.sodium.mixins.json",
+    "redstonecircuit.client.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.11",
@@ -69,6 +88,7 @@
     "java": ">=21",
     "fabric-api": "*"
   },
+  "license": "MIT",
   "suggests": {
     "jade": "*"
   }

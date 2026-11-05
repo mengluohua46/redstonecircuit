@@ -1,6 +1,8 @@
 package com.jiangyuefengyu.redstonecircuit.client;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import org.jetbrains.annotations.Nullable;
@@ -10,6 +12,7 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierDrawCheck;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierHostCheck;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierTrace;
 
+import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -92,8 +95,28 @@ public final class CarrierRenderTrace {
     private static boolean drawCheckEverWritten;
     private static boolean matrixProbeEverWritten;
 
+    /**
+     * How long the "client holds more carriers than the server" mismatch must PERSIST before it is worth a warning, in
+     * wall-clock milliseconds.
+     *
+     * <p><b>Why there is a threshold at all (为什么需要阈值).</b> The two counts are separate readings taken on separate
+     * threads, so they disagree for a frame or two on the most ordinary event in the mod: a structure destroyed in the
+     * very tick the client notices it (同一 tick 内被破坏的结构). Two seconds is longer than a round trip - the removal
+     * packet that heals a mismatch arrived 5 ms later - and shorter than the pose-staleness sweep that
+     * would eventually hide the evidence, so a removal that was never announced is still caught while the extra
+     * carrier is still there to be named.
+     */
+    static final long MISMATCH_PERSIST_MILLIS = 2000L;
+
     /** Dimensions whose "client holds more carriers than the server" warning has already been written. */
     private static final Set<ResourceKey<Level>> WARNED_MISMATCH = new HashSet<>();
+
+    /**
+     * When each dimension's carrier mismatch was first seen, in wall-clock milliseconds; see {@link MismatchAge}.
+     * An entry exists only while a mismatch is pending, so "the counts agree again" is a removal from this map and a
+     * later genuine mismatch cannot inherit an age it has not earned.
+     */
+    private static final Map<ResourceKey<Level>, Long> MISMATCH_FIRST_SEEN = new HashMap<>();
 
     /** Dimensions whose "a carried host points at a carrier with no pose" warning has been written. */
     private static final Set<ResourceKey<Level>> WARNED_ORPHAN = new HashSet<>();
@@ -562,22 +585,98 @@ public final class CarrierRenderTrace {
     /**
      * The two "the client and the server disagree" shapes, each warned about once per dimension: both describe a state
      * rather than an event, and a warning that repeats is a warning that gets filtered out of the log.
+     *
+     * <p><b>The carrier mismatch is timed, because on its own it cries wolf (载波计数不一致不能只看一帧).</b> The two
+     * numbers are readings taken a moment apart on two threads, so they disagree on the most ordinary event there is: a
+     * structure destroyed in the very tick the client notices it, whose removal packet is already on its way. The
+     * log line shows exactly that - one warning, and the "removal announced to the client" line 5 ms later - so
+     * a warning on the first disagreeing frame reports the race, not a defect. The shape is a state, so only a state
+     * that <em>persists</em> is a finding: the first sighting is stamped, and the line is written only once the mismatch
+     * has lasted {@link #MISMATCH_PERSIST_MILLIS}, on top of the once-per-dimension gate above it. The clock is
+     * {@link Util#getMillis()} rather than game time, because this runs on the render thread and has no guaranteed level
+     * to read a tick count from (渲染线程没有可靠的游戏时间).
      */
     private static void checkConsistency(ResourceKey<Level> dimension) {
         CarrierTrace.Render render = CarrierTrace.render(dimension);
         int server = render.serverCarriers();
         int client = ClientHostCache.carrierCount();
-        if (server > 0 && client > server && WARNED_MISMATCH.add(dimension)) {
+        // The mismatch, as a state: the client holds a carrier the server's last count does not explain. A server that
+        // reported nothing at all is not this shape - that is "the client was never told", which the frame summary says.
+        boolean mismatched = server > 0 && client > server;
+        long nowMs = Util.getMillis();
+        Long stamped = MISMATCH_FIRST_SEEN.get(dimension);
+        long firstSeenMs = MismatchAge.firstSeen(stamped == null ? MismatchAge.NEVER : stamped, mismatched, nowMs);
+        if (firstSeenMs == MismatchAge.NEVER) {
+            // The counts agree again (or the client is at or below the server): the state is gone, so the stamp goes with
+            // it and a later genuine mismatch starts its own clock instead of inheriting an age it has not earned.
+            MISMATCH_FIRST_SEEN.remove(dimension);
+        } else {
+            MISMATCH_FIRST_SEEN.put(dimension, firstSeenMs);
+        }
+        if (MismatchAge.mismatchReportable(nowMs, firstSeenMs, MISMATCH_PERSIST_MILLIS,
+                WARNED_MISMATCH.contains(dimension))) {
+            WARNED_MISMATCH.add(dimension);
             RCConfig.LOGGER.warn("[redstonecircuit] client holds {} carrier(s) but the server last "
-                            + "reported {} - a removal was not announced; the pose-staleness sweep "
-                            + "will let the extra one(s) go within {} tick(s). Carriers: {}",
-                    client, server, ClientHostCache.staleTicks(), describeCarriers());
+                            + "reported {} - no removal was announced within {} ms, so this is not "
+                            + "one frame's lag; the pose-staleness sweep will let the extra one(s) "
+                            + "go within {} tick(s). Carriers: {}",
+                    client, server, MISMATCH_PERSIST_MILLIS, ClientHostCache.staleTicks(),
+                    describeCarriers());
         }
         int orphans = ClientHostCache.hostsWithoutPose();
         if (orphans > 0 && WARNED_ORPHAN.add(dimension)) {
             RCConfig.LOGGER.warn("[redstonecircuit] {} carried host(s) point at a carrier the client "
                             + "has no pose for: they cannot be drawn inside a structure and are "
                             + "skipped for want of a pose. Carriers: {}", orphans, describeCarriers());
+        }
+    }
+
+    /**
+     * The carrier mismatch's clock and its report decision, as pure functions over wall-clock milliseconds: the memory
+     * stays in {@link #MISMATCH_FIRST_SEEN} and {@link #WARNED_MISMATCH}, so the rule can be pinned offline without a
+     * client, a level or a log - the same idiom as {@code CarrierSpace.worldPairRead} and {@code CarrierSightThrottle}.
+     *
+     * <p>{@link #NEVER} is the "no mismatch is pending" stamp. It is a sentinel rather than a nullable {@code Long}
+     * because the map's absence and the sentinel must then mean the same thing, and neither can be misread as "stamped
+     * at time zero" (移除未广播的计时起点).
+     */
+    static final class MismatchAge {
+
+        /** No mismatch pending: the client and the server agree, so the next mismatch starts its own clock. */
+        static final long NEVER = Long.MIN_VALUE;
+
+        private MismatchAge() {
+        }
+
+        /**
+         * The stamp to store now: the first moment this mismatch was seen, remembered unchanged across frames, or
+         * {@link #NEVER} on the first frame the counts agree again. A state, not an event - the same mismatch keeps the
+         * age it has earned, which is what makes "persisted for two seconds" mean two seconds.
+         */
+        static long firstSeen(long previousFirstSeenMs, boolean mismatchedNow, long nowMs) {
+            if (!mismatchedNow) {
+                return NEVER;
+            }
+            return previousFirstSeenMs == NEVER ? nowMs : previousFirstSeenMs;
+        }
+
+        /**
+         * Whether a mismatch first seen at {@code firstSeenMs} has now persisted for {@code thresholdMs}: one
+         * millisecond before the threshold is still silence, at and after it the state is a finding. A negative
+         * "first seen" is {@link #NEVER} and never persists, so a missing stamp cannot read as an ancient one.
+         */
+        static boolean mismatchPersists(long nowMs, long firstSeenMs, long thresholdMs) {
+            return firstSeenMs != NEVER && nowMs - firstSeenMs >= thresholdMs;
+        }
+
+        /**
+         * The whole report decision: the mismatch has persisted for the threshold AND this dimension has not already
+         * been told. The second half is the once-per-dimension gate, kept on top of the timing rather than replaced by
+         * it - a genuine unannounced removal is reported once, not on every frame that follows.
+         */
+        static boolean mismatchReportable(long nowMs, long firstSeenMs, long thresholdMs,
+                                          boolean alreadyWarned) {
+            return !alreadyWarned && mismatchPersists(nowMs, firstSeenMs, thresholdMs);
         }
     }
 
@@ -596,6 +695,8 @@ public final class CarrierRenderTrace {
         if (dimension != null) {
             WARNED_MISMATCH.remove(dimension);
             WARNED_ORPHAN.remove(dimension);
+            // The stamp goes too: a level that unloads and comes back must not inherit an age from its previous life.
+            MISMATCH_FIRST_SEEN.remove(dimension);
         }
     }
 
@@ -608,6 +709,7 @@ public final class CarrierRenderTrace {
         lastCarrierSweep = null;
         WARNED_MISMATCH.clear();
         WARNED_ORPHAN.clear();
+        MISMATCH_FIRST_SEEN.clear();
     }
 
     /**

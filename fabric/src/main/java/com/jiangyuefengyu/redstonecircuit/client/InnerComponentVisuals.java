@@ -9,6 +9,7 @@ import org.joml.Matrix4f;
 import com.jiangyuefengyu.redstonecircuit.RCRegistry;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.logic.PowerEnvironment;
 import com.jiangyuefengyu.redstonecircuit.logic.PowerSolver;
 
 import net.minecraft.core.Direction;
@@ -94,6 +95,10 @@ final class InnerComponentVisuals {
         CLOCK,
         /** 信号延长器: our own plate once more; its lit model is the display running. */
         EXTENDER,
+        /** 同步火把: our own torch, so the component inside a block wears the very texture the standing one does. */
+        SYNC_TORCH,
+        /** 触发器: our own block, and this mod's two textures are exactly its two states - powered and not. */
+        TRIGGER,
         /** No vanilla model fits; the caller falls back to the box shapes. */
         NONE
     }
@@ -120,6 +125,47 @@ final class InnerComponentVisuals {
     /** A vanilla model, where to put it inside the host, and the tint to draw it with. */
     record Visual(BlockState state, Matrix4f transform, float red, float green, float blue) {
     }
+
+    /**
+     * The neighbours of the host being drawn, with the component itself rather than only its presence.
+     *
+     * <p>A boolean is not enough for the one decision that needs more: a repeater held still by a diode beside
+     * it draws vanilla's lock bars, and telling a diode from a piece of wire at the same strength needs the
+     * neighbour's own component. It is a {@link InnerComponentModel.Neighbours} as well - {@code holdsComponent}
+     * defaults to "there is one" - so the drawing is still handed ONE object for both halves, and the wire model
+     * and the lock marker cannot disagree about what is around the block.
+     */
+    @FunctionalInterface
+    interface NeighbourSlots extends InnerComponentModel.Neighbours {
+
+        /** The component on that side, or {@code null} when it holds none. */
+        @Nullable
+        Slot slotOn(Direction direction);
+
+        /**
+         * The vanilla diode standing in the world on that side, or {@code null} when there is none.
+         *
+         * <p>Separate from {@link #slotOn} because the two sources are stored in different places: a
+         * neighbour inside a host block was sent to this client and sits in its host index, while a repeater
+         * set in the ground is a block only the client's own world knows. A host block records nothing
+         * about the vanilla diode beside it, so asking the index alone is how a lock taken from outside the
+         * block came to be felt inside it and drawn nowhere.
+         *
+         * <p>Defaults to "none", which is the honest answer for a caller with no world to look at.
+         */
+        @Nullable
+        default PowerEnvironment.VanillaDiode vanillaDiodeOn(Direction direction) {
+            return null;
+        }
+
+        @Override
+        default boolean holdsComponent(Direction direction) {
+            return slotOn(direction) != null;
+        }
+    }
+
+    /** No neighbour components in hand: nothing can be seen to hold anything. */
+    private static final NeighbourSlots NO_SLOTS = direction -> null;
 
     /** Identity, shared: a {@link Visual} is only ever read, never mutated. */
     private static final Matrix4f NO_TILT = new Matrix4f();
@@ -155,9 +201,13 @@ final class InnerComponentVisuals {
      *
      * <p>Pure: no registries, no client state, no world. {@code Direction}, {@link AttachFace} and
      * {@link RedstoneSide} are the only vanilla types involved, and all three are plain enums.
+     *
+     * <p>{@code neighbours} may name the neighbour components ({@link NeighbourSlots}); without them nothing is
+     * seen to hold anything, which is the honest answer for a caller that has only the six booleans.
      */
     @Nullable
     static Placement placementFor(Slot slot, InnerComponentModel.Neighbours neighbours) {
+        NeighbourSlots slots = neighbours instanceof NeighbourSlots named ? named : NO_SLOTS;
         switch (slot.type) {
             case DUST, SUPERCONDUCTOR -> {
                 // Vanilla draws a wire out of one flat "dot" quad plus one line quad per side it
@@ -175,23 +225,23 @@ final class InnerComponentVisuals {
                         sides);
             }
             case REPEATER -> {
-                return diode(slot, Model.REPEATER, clampDelay(slot.delay), false);
+                return diode(slot, Model.REPEATER, clampDelay(slot.delay), false, slots);
             }
             case RETAINING_REPEATER -> {
                 // Same four settings as a repeater, and the same look: what it does differently is the
                 // strength it hands on, which no block model can show.
-                return diode(slot, Model.RETAINING_REPEATER, clampDelay(slot.delay), false);
+                return diode(slot, Model.RETAINING_REPEATER, clampDelay(slot.delay), false, slots);
             }
             case DOUBLE_REPEATER -> {
-                return diode(slot, Model.DOUBLE_REPEATER, clampDelay(slot.delay), false);
+                return diode(slot, Model.DOUBLE_REPEATER, clampDelay(slot.delay), false, slots);
             }
             case DOUBLE_RETAINING_REPEATER -> {
-                return diode(slot, Model.DOUBLE_RETAINING_REPEATER, clampDelay(slot.delay), false);
+                return diode(slot, Model.DOUBLE_RETAINING_REPEATER, clampDelay(slot.delay), false, slots);
             }
             case COMPARATOR -> {
                 boolean subtract =
                         slot.mode == com.jiangyuefengyu.redstonecircuit.data.ComparatorMode.SUBTRACT;
-                return diode(slot, Model.COMPARATOR, 1, subtract);
+                return diode(slot, Model.COMPARATOR, 1, subtract, slots);
             }
             case TORCH -> {
                 return torch(slot);
@@ -244,6 +294,27 @@ final class InnerComponentVisuals {
                 return new Placement(Model.EXTENDER, slot.facing, null, 0F, slot.power > 0, false, 1,
                         false, Set.of());
             }
+            case SYNC_TORCH -> {
+                // Our own torch, drawn from its own block: the two states of this mod's model carry this mod's
+                // two textures, so the component inside a block looks exactly like the one standing in the world,
+                // and "lit" is one property rather than a colour somebody had to invent.
+                return new Placement(Model.SYNC_TORCH, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
+            case TRIGGER -> {
+                // Our own block once more, and the same two textures: 触发器's 正面 is the face it reads, which is what
+                // Slot#facing means here, so a horizontal input maps straight onto the model's own FACING. An input
+                // from above or below has no variant of its own - the block only ever lies on the floor or hangs from
+                // the ceiling - so the southern model is turned a quarter about X as the controller and clock are,
+                // and that turn is what says which way the reading face points.
+                if (slot.facing.getAxis() == Direction.Axis.Y) {
+                    float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
+                    return new Placement(Model.TRIGGER, Direction.SOUTH, null, tilt, slot.power > 0, false, 1, false,
+                            Set.of());
+                }
+                return new Placement(Model.TRIGGER, slot.facing, null, 0F, slot.power > 0, false, 1, false,
+                        Set.of());
+            }
             default -> {
                 // Pressure plates are not placeable yet, and no vanilla plate shape would be honest.
                 return null;
@@ -265,17 +336,43 @@ final class InnerComponentVisuals {
      * instead, turned a quarter turn about X: south becomes down for a component reading from below,
      * and up for one reading from above.
      */
-    private static Placement diode(Slot slot, Model model, int delay, boolean subtract) {
+    private static Placement diode(Slot slot, Model model, int delay, boolean subtract,
+                                   NeighbourSlots slots) {
         boolean lit = slot.power > 0;
         // Vanilla's comparator has no locked property at all - only the repeaters do - so a comparator
         // never asks for that look even when the wrench has pinned one of its sides.
-        boolean locked = model != Model.COMPARATOR && slot.isRoutingLocked();
+        boolean locked = model != Model.COMPARATOR && (slot.isRoutingLocked() || heldBySide(slot, slots));
         if (slot.facing.getAxis() == Direction.Axis.Y) {
             float tilt = slot.facing == Direction.DOWN ? 90F : -90F;
             return new Placement(model, Direction.SOUTH, null, tilt, lit, locked, delay, subtract,
                     Set.of());
         }
         return new Placement(model, slot.facing, null, 0F, lit, locked, delay, subtract, Set.of());
+    }
+
+    /**
+     * Whether a diode on one of the two sides across this one's axis is holding it, so it draws vanilla's own
+     * lock bars exactly as a locked vanilla repeater does.
+     *
+     * <p>The same rule the solver applies ({@code PowerSolver#lockSides} and {@code #holdsToward}), fed from the
+     * client's host index instead of from a solve - nothing is stored and nothing is synced, so a component that
+     * was carried, saved or reloaded cannot show a stale lock.
+     *
+     * <p>Both halves of the answer are asked: the host index for a diode inside another host block, and the
+     * client's own world for a vanilla repeater standing in the ground - which has no component anywhere, so
+     * the index cannot answer for it and the solver used to be the only one that knew.
+     */
+    private static boolean heldBySide(Slot slot, NeighbourSlots slots) {
+        if (!slot.type.isRepeater()) {
+            return false;
+        }
+        for (Direction side : PowerSolver.lockSides(slot.facing)) {
+            if (PowerSolver.holdsToward(slots.slotOn(side), side)
+                    || PowerSolver.holdsToward(slots.vanillaDiodeOn(side), side)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -421,6 +518,23 @@ final class InnerComponentVisuals {
                                 placement.facing())
                         .setValue(com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock.LIT,
                                 placement.lit());
+            }
+            case SYNC_TORCH -> {
+                // 同步火把 draws itself: the same two models the standing block uses, so its FACING (the face it hangs
+                // on) and its LIT are the whole picture - including the two textures this mod draws.
+                return RCRegistry.SYNC_TORCH.defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock.FACING, placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock.LIT, placement.lit());
+            }
+            case TRIGGER -> {
+                // And 触发器 draws itself too: trigger / trigger_on are this mod's two textures, so POWERED is the
+                // whole picture. FACE stays on the floor - a vertical input is the renderer's tilt, not a variant the
+                // block can hold - and INPUT is the block's edge memory, which shows nothing, so it is written false.
+                return RCRegistry.TRIGGER.defaultBlockState()
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TriggerBlock.FACE, AttachFace.FLOOR)
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TriggerBlock.FACING, placement.facing())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TriggerBlock.POWERED, placement.lit())
+                        .setValue(com.jiangyuefengyu.redstonecircuit.block.TriggerBlock.INPUT, false);
             }
             default -> {
                 return null;

@@ -52,6 +52,16 @@ public final class StructureBlockEntityRenderer implements BlockEntityRenderer<S
         StructurePreviewGeometry.draw(pose, buffers, cells, preview, this.dispatcher,
                 StructureLiveViews.movesAt(product.getBlockPos()), level.getGameTime(), partialTick, product.size(),
                 product.getBlockPos(), "placed", StructurePreviewGeometry.Detail.FULL);
+        // 戴眼镜才画: 与世界里那一趟组线同一个门槛 (HostRenderPass 问的也是这一句), 于是"戴上看组"在一处成立。
+        net.minecraft.client.player.LocalPlayer player =
+                net.minecraft.client.Minecraft.getInstance().player;
+        if (player != null
+                && com.jiangyuefengyu.redstonecircuit.RCRegistry.isWearingGoggles(player)
+                && level instanceof net.minecraft.client.multiplayer.ClientLevel seen
+                && SyncGroupLines.seesBlock(seen, product.getBlockPos())) {
+            StructurePreviewGeometry.drawGroupLines(pose, buffers, preview, product.size(),
+                    product.groupTorches());
+        }
         StructureRenderLog.drew(preview, cells.size(), "inside the placed block");
     }
 }

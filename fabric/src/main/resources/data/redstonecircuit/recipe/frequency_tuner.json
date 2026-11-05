@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "C": { "item": "minecraft:copper_ingot" },
+    "E": { "item": "minecraft:echo_shard" },
+    "Q": { "item": "minecraft:quartz" }
+  },
+  "pattern": [ "CEC", "QCQ", "QQQ" ],
+  "result": { "count": 1, "id": "redstonecircuit:frequency_tuner" }
+}

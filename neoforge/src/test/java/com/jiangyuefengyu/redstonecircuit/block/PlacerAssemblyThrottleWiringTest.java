@@ -27,10 +27,14 @@ import org.junit.jupiter.api.Test;
  *   <li>the source cell is read back <b>before</b> the assembly - the block Sable moves into the new plot is the
  *       block that is really standing in the world cell, so a cell that reads as air must not be assembled at
  *       all;</li>
+ *   <li>the cell is weighed <b>before</b> it is assembled: a block with no collision shape is exactly zero mass to
+ *       Sable, so a structure made of one would be the massless body this whole list exists to keep out of the
+ *       physics step, and the machine leaves it an ordinary block instead;</li>
  *   <li>a structure that was assembled is judged on the <b>next</b> carrier walk - not in the call that made it,
  *       where the plot's box has not been recomputed yet and a sound structure would read as empty - and a
- *       structure with no mass, no centre of mass, an empty plot or an unreadable pose switches assembly off for
- *       the rest of the run.</li>
+ *       structure that is still there with no mass, no centre of mass, an empty plot or an unreadable pose switches
+ *       assembly off for the rest of the run; one that is gone before it can be read back is only a line, because
+ *       its body went with it.</li>
  * </ul>
  *
  * <p>None of this changes what the machine places: a deferred placement still places its one block and spends its
@@ -75,9 +79,63 @@ class PlacerAssemblyThrottleWiringTest {
                 "the read has to come before the assembly, or it cannot stop it");
         assertTrue(placement.indexOf("PlacerAssemblyWatch.watch(") > placement.indexOf("assembleBlocks("),
                 "only a structure that Sable really made is registered for the read-back");
+        assertTrue(placement.contains("PlacerAssemblyGate.weighsNothing("),
+                "and the cell is weighed before anything is made of it: a block with no collision shape is zero mass "
+                        + "to Sable, so the structure would be exactly the body the rules keep out of the physics step "
+                        + "- and the item is still spent, because the player did get a block where they pointed");
+        assertTrue(placement.indexOf("PlacerAssemblyGate.weighsNothing(") < placement.indexOf("assembleBlocks("),
+                "asked before the assembly, which is the only moment the answer costs nothing");
         assertFalse(placement.contains("getMassTracker"),
                 "and its body is deliberately not judged here: the plot's box is recomputed after the assembly "
                         + "returns, so judging in this call would report a sound structure as empty");
+    }
+
+    @Test
+    @DisplayName("回退写进已有结构的 plot：在 assembleBlocks 之前，成功之后不再组装第二个结构")
+    void theFallbackIntoAnExistingStructureAssemblesNothing() throws IOException {
+        String placement = placement();
+
+        String fallbackCall = "return placeIntoSupportStructure(level, drawnTarget, out, stack);";
+        assertTrue(offsetOf(placement, fallbackCall) < offsetOf(placement, "assembleBlocks("),
+                "the fallback is the refusal branch's own answer and it returns, so it is reached before the "
+                        + "assembly below it: a block that went into an existing structure must not also become a "
+                        + "structure of its own, or the same block would stand in the world twice");
+
+        String fallback = placement.substring(
+                offsetOf(placement, "private static boolean placeIntoSupportStructure("));
+        assertFalse(fallback.contains("assembleBlocks("),
+                "and the fallback itself assembles nothing at all - there is no second structure to make, because "
+                        + "the support this block stands on already belongs to one");
+        assertFalse(fallback.contains("PlacerAssemblyWatch.watch("),
+                "nor registers a structure for the body read-back: a watch entry for a structure nobody made would "
+                        + "be judged as a structure whose plot has no mass, which switches assembly off for the run");
+        assertTrue(fallback.contains("BlockPlacerBlock.placeInto(level, plotCell, out, stack)"),
+                "the plot cell is written through the plot path's own placement, so a turned structure gets the same "
+                        + "orientation, waterlogging and replaceability rules the world path gets");
+        assertTrue(offsetOf(fallback, "CarrierProjection.localBlockOf(")
+                        < offsetOf(fallback, "BlockPlacerBlock.placeInto(level, plotCell"),
+                "with the coordinate named before anything is written into it");
+        assertTrue(fallback.contains("if (!inPlot.consumesAction()) {"),
+                "and a plot that refuses the block too answers false, so the activation spends nothing - exactly the "
+                        + "answer it gave before this fallback existed");
+        assertTrue(offsetOf(fallback, "if (!inPlot.consumesAction()) {") < offsetOf(fallback, "return true;"),
+                "so only a placement that really went down spends the one item the activation holds");
+
+        assertTrue(offsetOf(placement, "try {") < offsetOf(placement, fallbackCall),
+                "and the fallback is reached through a try, because writing into a plot is Sable's own storage and a "
+                        + "structure that throws there must not take the tick down");
+        assertTrue(offsetOf(placement, fallbackCall) < offsetOf(placement, "catch (RuntimeException | LinkageError"),
+                "with a catch of the same two kinds the assembly already catches immediately behind it - it is the "
+                        + "first catch in the file, i.e. the one that belongs to this call");
+        assertTrue(folded(placement).contains("could not be written into the structure drawing its support ({}); "
+                        + "nothing was placed and nothing was spent\", stack.getHoverName(), "
+                        + "drawnTarget.toShortString(), failed.toString()); return false; }"),
+                "and that catch says the item was not spent - the world refused the block and the plot never "
+                        + "received it - and answers false, so the activation looks exactly like the one that had "
+                        + "nowhere to put its block. Asserted on the message as the compiler builds it out of its "
+                        + "three literals, and together with its own arguments and its own return, because "
+                        + "\"nothing was placed and nothing was spent\" is also the sentence the switched-off branch "
+                        + "logs and would otherwise be found there instead");
     }
 
     @Test
@@ -98,7 +156,7 @@ class PlacerAssemblyThrottleWiringTest {
 
         String watch = watch();
         assertTrue(watch.contains("getMassTracker()"),
-                "the authoritative question is the body's own mass data: Sable weighs a structure from its plot, "
+                "the deciding question is the body's own mass data: Sable weighs a structure from its plot, "
                         + "and a plot with nothing in it has no centre of mass to upload");
         assertTrue(watch.contains("getCenterOfMass()"),
                 "so mass and centre of mass are read together, as one verdict");
@@ -109,9 +167,15 @@ class PlacerAssemblyThrottleWiringTest {
                         + "same thing here as there");
         assertTrue(watch.contains("PlacerAssemblyGate.bodyProblem("),
                 "one verdict, built in one place, so the log and the switch-off cannot disagree");
-        assertTrue(watch.contains("if (PlacerAssemblyGate.switchOff("),
-                "switching off is latched: the first structure that has no body is the one that says why, and only "
-                        + "that one writes the line");
+        assertTrue(watch.contains("if (!PlacerAssemblyGate.switchOff(problem)) {"),
+                "switching off is latched: the first structure that has no usable body is the one that says why, and "
+                        + "only that one writes the line");
+        assertTrue(watch.indexOf("PlacerAssemblyGate.switchOff(")
+                        > watch.indexOf("String problem = PlacerAssemblyGate.bodyProblem("),
+                "and the one switch-off is the verdict's: a structure that was gone before it could be read back took "
+                        + "its body with it, so there is nothing left in the physics step to choke on. Reading that as "
+                        + "proof the physics step is unusable is what turned one crop - or one hatched egg - into a "
+                        + "machine that never makes another structure until the server restarts");
         assertTrue(watch.contains("entry.uuid()") && watch.contains("entry.worldTarget()"),
                 "the line carries the sub-level and the world cell the machine was pointing at, or it cannot be "
                         + "matched against anything");
@@ -146,6 +210,28 @@ class PlacerAssemblyThrottleWiringTest {
     private static String gate() throws IOException {
         return read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "compat", "physics",
                 "PlacerAssemblyGate.java");
+    }
+
+    /**
+     * The offset of {@code anchor} in {@code source}, failing the guard when the source no longer holds it.
+     *
+     * <p>Every offset in these guards is used in a comparison, and an {@code indexOf} that answers {@code -1} makes
+     * such a comparison pass for free - so a misspelt anchor would not fail, it would quietly stop guarding. Every
+     * anchor is resolved here, and nowhere else.
+     */
+    private static int offsetOf(String source, String anchor) {
+        int offset = source.indexOf(anchor);
+        assertTrue(offset >= 0, "the guard's anchor \"" + anchor + "\" is not in the source any more, so the "
+                + "comparison built on it would pass for free instead of failing");
+        return offset;
+    }
+
+    /**
+     * The source with its line breaks and indentations folded away and its string-literal concatenations joined, so a
+     * message written across several literals can be asserted as the one string the compiler builds from them.
+     */
+    private static String folded(String source) {
+        return source.replaceAll("\\s+", " ").replace("\" + \"", "");
     }
 
     private static String read(String... parts) throws IOException {

@@ -31,28 +31,30 @@ class ClockWiringTest {
         assertTrue(rule.contains("public static int period(int seconds, int ticks)")
                         && rule.contains("clampSeconds(seconds) * TICKS_PER_SECOND + clampTicks(ticks)"),
                 "周期是两个单位相加：秒 × 20 + tick");
-        assertTrue(rule.contains("public static final int PULSE_TICKS = 2"),
-                "脉宽是 2 tick：一个 tick 的脉冲会被结构那条路稀释掉");
+        assertTrue(rule.contains("public static final int MIN_PULSE_TICKS = 1")
+                        && rule.contains("public static final int MAX_PULSE_TICKS = 2")
+                        && rule.contains("public static final int DEFAULT_PULSE_TICKS = 2"),
+                "脉宽是设定（1 或 2 tick）而不是常量，默认 2 tick：一个 tick 的脉冲会被结构那条路稀释掉");
         assertTrue(rule.contains("public static final int MAX_SECONDS = 3600")
                         && rule.contains("public static final int MAX_TICKS = 19"),
                 "范围：秒 0-3600、tick 0-19（20 tick 就是一秒，所以 tick 差一档不重复拼法）");
 
         String block = read("block", "ClockBlock.java");
-        assertTrue(block.contains("ClockRule.isOn(level.getGameTime(), setting.period())"),
-                "方块自己也是按世界时钟算这一 tick 该不该输出");
-        assertTrue(block.contains("ClockRule.ticksToEdge(level.getGameTime(), setting.period())"),
-                "界面那一行「距下一次变化」用的是同一条纯函数（客户端自己也算得出来，所以它每帧都能动）");
+        assertTrue(block.contains("ClockRule.isOn(level.getGameTime(), setting.period(), setting.pulse())"),
+                "方块自己也是按世界时钟算这一 tick 该不该输出，脉宽取它自己的设定");
+        assertTrue(block.contains("ClockRule.ticksToEdge(level.getGameTime(), setting.period(), setting.pulse())"),
+                "界面那一行「距下一次变化」用的是同一条纯函数和同一个 pulse（客户端自己也算得出来，所以它每帧都能动）");
     }
 
     @Test
-    @DisplayName("设置不在方块状态里：只有 朝向 × 亮 = 8 个状态，三个数在方块旁边那张表里")
+    @DisplayName("设置不在方块状态里：只有 朝向 × 亮 = 8 个状态，四个数在方块旁边那张表里")
     void theSettingsLiveBesideTheBlock() throws IOException {
         String block = read("block", "ClockBlock.java");
         assertTrue(block.contains("builder.add(LIT)"), "状态里只加一个亮");
         assertFalse(block.contains("IntegerProperty"),
                 "秒 0-3600 要是进了状态，单品就是 430 万个状态，所以它不能是方块状态属性");
         assertTrue(block.contains("store.clockAt(pos)") && block.contains("store.putClock(pos, wanted)"),
-                "三个数读写的是 InnerRedstoneStore 那张按坐标的表");
+                "四个数读写的是 InnerRedstoneStore 那张按坐标的表");
         assertTrue(block.contains("private static void keepASetting") && block.contains("store.putClock(pos, ClockRule.Setting.DEFAULT)"),
                 "放下就写一份默认设定：捕获读的就是这张表，没有条目就带不走");
 
@@ -67,7 +69,7 @@ class ClockWiringTest {
 
         String settings = read("logic", "ClockRule.java");
         assertTrue(settings.contains("clock.save(clockTag)") || settings.contains("public void save(CompoundTag tag)"),
-                "设定自己会存档（秒 / tick / 强度三个键）");
+                "设定自己会存档（秒 / tick / 强度 / 脉宽四个键）");
     }
 
     @Test
@@ -131,7 +133,7 @@ class ClockWiringTest {
         assertTrue(payload.contains("SettingEntry.CODEC.listOf().optionalFieldOf(\"setting_data\", List.of())"),
                 "老文件没有这个键就是空表，不需要动格式版本号");
         assertTrue(payload.contains("public record SettingEntry(BlockPos localPos, CompoundTag setting)"),
-                "一格一条：坐标 + 三个数的 tag");
+                "一格一条：坐标 + 那份设定的 tag（时钟是四个数，延长器是两个）");
         assertTrue(payload.contains("sortedByPosition(this.settingData, StructurePayload.SettingEntry::localPos)"),
                 "渲染缓存键也要把它算进去（位置顺序无所谓，所以先排序）");
         assertTrue(payload.contains("for (SettingEntry entry : this.settingData)"),
@@ -158,9 +160,9 @@ class ClockWiringTest {
 
         String block = read("block", "ClockBlock.java");
         assertTrue(block.contains("DeviceKind.CLOCK.ordinal(), readout.setting().seconds(), readout.setting().ticks(),")
-                        && block.contains("readout.setting().strength(), 0, readout.power(), readout.ticksToEdge()));"),
-                "世界里的薄板：三个数用前三位，第四个留着；后面那两个是「现在输出了多少」和「距下一次变化还有几 tick」，"
-                        + "由服务器算好一起发过来");
+                        && block.contains("readout.setting().strength(), readout.setting().pulse(), readout.power(),"),
+                "世界里的薄板：四个数各占一位，第四位是脉宽（这个包本来就有四个数，网络格式不用改）；"
+                        + "后面那两个是「现在输出了多少」和「距下一次变化还有几 tick」，由服务器算好一起发过来");
         assertTrue(block.contains("public static void sendHostView") && block.contains("hostSlot(level, host, ComponentType.CLOCK)"),
                 "方块内那一个：同一张屏幕，按点击到达的坐标找元件");
         assertTrue(block.contains("announceHostSettings(level, host, slot)"),
@@ -175,7 +177,7 @@ class ClockWiringTest {
                 "屏幕只管把玩家填的数字发回去、并按节奏问一次；所有数值都是服务器给的");
         assertTrue(screen.contains("ClockRule.isStrength(value)") && screen.contains("ClockRule.isTicks(value)"),
                 "填错标红、不发 - 和另外两件同一条规矩");
-        assertTrue(screen.contains("ClockRule.answer(now, this.seconds, this.ticks, this.strength)"),
+        assertTrue(screen.contains("ClockRule.answer(now, this.seconds, this.ticks, this.strength, this.pulse)"),
                 "而「现在输出了没有」它自己就能算：相位是世界时钟的纯函数，两边算出来的是同一个答案");
 
         String network = read("..", "network", "RCNetwork.java");
@@ -257,7 +259,7 @@ class ClockWiringTest {
                     "block.redstonecircuit.clock.tip.detail", "redstonecircuit.clock.title",
                     "redstonecircuit.clock.rule", "redstonecircuit.clock.period", "redstonecircuit.clock.emitting",
                     "redstonecircuit.clock.silent", "redstonecircuit.clock.next", "redstonecircuit.device.seconds",
-                    "redstonecircuit.device.ticks", "jade.redstonecircuit.inner.clock")) {
+                    "redstonecircuit.device.ticks", "redstonecircuit.device.pulse", "jade.redstonecircuit.inner.clock")) {
                 assertTrue(file.contains("\"" + key + "\""), lang + " 少了 " + key);
             }
         }
@@ -286,6 +288,65 @@ class ClockWiringTest {
         assertTrue(read("..", "carrier", "CarrierInteraction.java")
                         .contains("HostSync.publishWorldEntry(level, hit.worldPos())"),
                 "扳手 / 旋转棒那几条路用的是同一个方法");
+    }
+
+    @Test
+    @DisplayName("脉宽跟着 Setting 走：save 写新键、load 缺键当 2、payload 第四个数、applyHostEdit 真的读它")
+    void thePulseIsSavedLoadedAndWired() throws IOException {
+        String rule = read("logic", "ClockRule.java");
+        assertTrue(rule.contains("tag.putInt(\"pulse\", pulse);"),
+                "save 要写一个新键：老存档里没有它，所以不能借 strength 或 tick 的键");
+        assertTrue(rule.contains("tag.contains(\"pulse\") ? clampPulse(tag.getInt(\"pulse\")) : DEFAULT_PULSE_TICKS"),
+                "load 里缺这个键就当 2 tick —— 老存档、老蓝图、老结构因此都还是原来的行为");
+        assertTrue(rule.contains("if (!tag.contains(\"strength\")) {"),
+                "哨兵仍然是 strength：这次没有动「空 tag = 老数据」那条语义");
+        assertTrue(rule.contains("public static Setting load(CompoundTag tag)"),
+                "方块内 / 蓝图 / 结构搬运都读这一处，所以脉宽不用另写一套就跟着走");
+
+        String network = read("..", "network", "RCNetwork.java");
+        assertTrue(network.contains("public record DeviceEditPayload(BlockPos pos, Verb verb, int kind, int a, int b, int c, int d)")
+                        && network.contains("public record DeviceViewPayload(BlockPos pos, boolean open, int kind, int a, int b, int c, int d, int power,"),
+                "两个通用包本来就带四个数，脉宽放进第四个数，网络格式一个字都不用改");
+
+        String block = read("block", "ClockBlock.java");
+        assertTrue(block.contains("wanted(payload.a(), payload.b(), payload.c(), payload.d())"),
+                "世界里和方块内两处都真的读了第四个数");
+        assertTrue(block.contains("public static ClockRule.Setting wanted(int seconds, int ticks, int strength, int pulse)")
+                        && block.contains("|| !ClockRule.isPulse(pulse))"),
+                "而 1-2 之外的脉宽被拒绝，不是悄悄夹一下");
+        assertTrue(block.contains("readout.setting().strength(), readout.setting().pulse(), readout.power()"),
+                "回给界面的 view 也把脉宽放在第四位，屏幕才画得出当前值");
+        assertTrue(block.contains("ClockRule.isOn(level.getGameTime(), setting.period(), setting.pulse())")
+                        && block.contains("ClockRule.ticksToEdge(level.getGameTime(), setting.period(), setting.pulse())"),
+                "亮不亮和下一个边沿用同一个 pulse：两处读的不是两个数");
+        assertTrue(block.contains("ClockRule.Setting.of(setting.seconds(), setting.ticks(), setting.strength(),\n"
+                        + "                setting.pulse())"),
+                "写回设定时脉宽也要过 Setting.of 的夹取");
+    }
+
+    @Test
+    @DisplayName("界面第四列是一个 2t ⇄ 1t 的循环按钮，不是输入框")
+    void theFourthColumnIsACycleButton() throws IOException {
+        String screen = read("client", "ClockScreen.java");
+        assertTrue(screen.contains("private static final int COLUMN_PULSE = 220;"),
+                "第四列在三个输入框右边（第三列 148 + 64 + 8）");
+        assertTrue(screen.contains("this.pulseButton = addRenderableWidget(Button.builder(pulseLabel(), button -> cyclePulse())"),
+                "第四个控件是按钮而不是输入框：1 和 2 两个值，能点的就不该能填");
+        assertFalse(screen.contains("pulseField"), "它没有对应的 EditBox");
+        assertTrue(screen.contains("this.pulse = this.pulse == ClockRule.MIN_PULSE_TICKS ? ClockRule.MAX_PULSE_TICKS"
+                        + " : ClockRule.MIN_PULSE_TICKS;"),
+                "点一下在 1 和 2 之间切换");
+        assertTrue(screen.contains("Component.translatable(\"redstonecircuit.device.pulse\", this.pulse)"),
+                "按钮上写的就是当前值（脉冲 2t ⇄ 脉冲 1t）");
+        assertTrue(screen.contains("seconds, ticks, strength, this.pulse)"),
+                "send() 把脉宽放进第四个数，和 SET payload 的 a/b/c/d 对齐");
+        assertTrue(screen.contains("this.pulse = message.d();"),
+                "而界面上的当前值来自服务端回的 view payload");
+
+        for (String lang : List.of("zh_cn", "en_us")) {
+            String file = read("resources", "assets", "redstonecircuit", "lang", lang + ".json");
+            assertTrue(file.contains("\"redstonecircuit.device.pulse\""), lang + " 少了脉宽按钮上的字");
+        }
     }
 
     // ------------------------------------------------------------- helpers --
@@ -317,7 +378,9 @@ class ClockWiringTest {
         if (!Files.isRegularFile(file)) {
             throw new IOException("could not find " + file + " from " + Path.of("").toAbsolutePath());
         }
-        return Files.readString(file, StandardCharsets.UTF_8);
+        // Line endings are normalised, because an assertion that spans two lines must mean the same thing
+        // whether the file on disk happens to be stored with CRLF or LF.
+        return Files.readString(file, StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 
     private static Path path(String... parts) {

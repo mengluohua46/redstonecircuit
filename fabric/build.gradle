@@ -112,6 +112,11 @@ repositories {
 }
 
 dependencies {
+    // Optional: ModMenu turns our own configuration screen into the mod list's "Config" button. The two jars are
+    // referenced as files rather than from a Maven repository because this build machine has no network; both are
+    // compile-time only, so a player who never installs ModMenu is unaffected and the jar carries none of it.
+    modCompileOnly files("libs/modmenu-11.0.5.jar")
+    modCompileOnly files("libs/placeholder-api-2.4.2+1.21.jar")
     minecraft "com.mojang:minecraft:${minecraft_version}"
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader}"

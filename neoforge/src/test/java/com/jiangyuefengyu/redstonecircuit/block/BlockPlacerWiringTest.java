@@ -1,7 +1,9 @@
 package com.jiangyuefengyu.redstonecircuit.block;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -147,6 +149,71 @@ class BlockPlacerWiringTest {
     }
 
     @Test
+    @DisplayName("世界拒绝之后才回退到支撑结构的 plot，坐标只从 localBlockOf 来，探察方向有界")
+    void aRefusedWorldPlacementIsOfferedToTheSupportStructuresPlot() throws IOException {
+        String placement = read("src", "compat", "java", "com", "jiangyuefengyu", "redstonecircuit", "compat",
+                "physics", "SablePlacerPlacement.java");
+
+        assertTrue(placement.contains("if (!placed.consumesAction()) {"),
+                "the fallback is offered to the world placement's own answer: consumesAction() is the one thing "
+                        + "vanilla says for \"the block went down\", so a placement that succeeded never reaches it");
+        assertTrue(offsetOf(placement, "if (!placed.consumesAction())")
+                        < offsetOf(placement, "return placeIntoSupportStructure(level, drawnTarget, out, stack);"),
+                "and the call sits INSIDE that refusal, so the world path's behaviour - assembling one structure, or "
+                        + "leaving an ordinary block behind - is untouched for every placement that does go down");
+        assertEquals(2, placement.split("placeIntoSupportStructure\\(", -1).length - 1,
+                "with exactly one call and one declaration, so no other path can write into a structure's plot behind "
+                        + "the world placement's back");
+
+        assertTrue(placement.contains("BlockPos supportCell = CarrierProjection.localBlockOf(pose, probeCell);"),
+                "the probe cell is converted back by this mod's one world-cell-to-structure-cell answer, so no second "
+                        + "rounding is written here");
+        assertTrue(placement.contains("if (supportCell == null || level.getBlockState(supportCell).isAir()) {"),
+                "and the probe is believed only when the structure's OWN storage holds a block there: carrierAt "
+                        + "answers from a world bounding box, and a turned structure's box overhangs the blocks it "
+                        + "holds, so without this proof a probe writes into a structure that is not actually there - "
+                        + "into whatever plot coordinate the inverse happens to land on");
+        assertTrue(offsetOf(placement, "level.getBlockState(supportCell)")
+                        < offsetOf(placement, "BlockPlacerBlock.placeInto(level, plotCell"),
+                "asked before anything is written into a plot, or it cannot stop that write");
+        assertTrue(placement.contains("BlockPos plotCell = CarrierProjection.localBlockOf(pose, drawnTarget);"),
+                "while the cell that receives the block is the TARGET cell, not the probe's: the probe cell's own "
+                        + "coordinate would write the block into the floor it stands on");
+        assertFalse(placement.contains("transformPositionInverse(")
+                        || placement.contains("blockCentre(")
+                        || placement.contains("Math.floor("),
+                "and no second rounding is written here: a pose transforms block corners, so a hand-rolled floor of "
+                        + "the inverted point picks the cell beside the one the player acted on as soon as the "
+                        + "structure is turned");
+        assertTrue(placement.contains("BlockPos probeCell = drawnTarget.relative(probe);")
+                        && placement.contains("source.carrierAt(level, probeCell)"),
+                "the probe cell is named once and asked of the carrier layer, which is the only place that knows what "
+                        + "a Sable sub-level's world bounds are - and it is that same cell the structure's plot then has "
+                        + "to prove it really holds");
+
+        assertTrue(placement.contains("Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.EAST, "
+                        + "Direction.WEST, Direction.UP,"),
+                "the probe order is a literal: down first (that is the cell a sapling, a seed or a torch asks "
+                        + "vanilla about), then the four sides, then up - and it must be the same order on every "
+                        + "activation, or the same machine would keep choosing a different structure");
+        assertTrue(placement.contains("for (Direction probe : SUPPORT_PROBES) {"),
+                "walked once, so one activation may look at six cells and write at most one plot");
+        assertFalse(placement.contains("Direction.values()"),
+                "and never over every direction: an unbounded probe would write into whichever structure happened to "
+                        + "be listed first rather than into the one holding the support");
+
+        String loop = bodyOf(placement, "for (Direction probe : SUPPORT_PROBES) {");
+        assertFalse(loop.contains("return false;"),
+                "and a direction that is not the answer must not end the search: the six probes ARE the search, so a "
+                        + "false inside the loop would abandon the cell that really does hold the support");
+        assertTrue(loop.contains("continue;"),
+                "each rejected direction skips to the next one instead, and the only false is the summary after all "
+                        + "six were tried");
+        assertTrue(loop.contains("return true;"),
+                "with the one return that spends the item being a placement that actually went down");
+    }
+
+    @Test
     @DisplayName("物理那半（门面）：没有 Sable 的时候答案必须是 false，而不是去加载一个 Sable 类型")
     void theFacadeAnswersFalseWithoutSable() throws IOException {
         String gate = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "compat", "physics",
@@ -273,12 +340,11 @@ class BlockPlacerWiringTest {
     }
 
     @Test
-    @DisplayName("子维度创建默认关闭，而且必须在分配之前判")
-    void creatingAStructureIsOffByDefault() throws IOException {
-        assertFalse(RCConfig.placerCreatesStructures(),
-                "making a structure and immediately taking it back is the only thing this mod does that touches Sable's "
-                        + "saved sub-level bookkeeping, and a damaged saved sub-level is what a failed load reports. "
-                        + "So the feature ships switched off");
+    @DisplayName("子维度创建默认开启，而且开关必须在分配之前判")
+    void creatingAStructureIsOnByDefault() throws IOException {
+        assertTrue(RCConfig.placerCreatesStructures(),
+                "the machine assembles a structure for what it places unless the player turns that off; the switch is "
+                        + "what keeps a world with a damaged saved sub-level from being written to at all");
 
         String placement = read("src", "compat", "java", "com", "jiangyuefengyu", "redstonecircuit", "compat", "physics",
                 "SablePlacerPlacement.java");
@@ -296,6 +362,47 @@ class BlockPlacerWiringTest {
 
     private static String entity() throws IOException {
         return read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "block", ENTITY);
+    }
+
+    /**
+     * The offset of {@code anchor} in {@code source}, failing the guard when the source no longer holds it.
+     *
+     * <p>Every offset in these guards is used in a comparison, and an {@code indexOf} that answers {@code -1} makes
+     * such a comparison pass for free - so a misspelt anchor would not fail, it would quietly stop guarding. Every
+     * anchor is resolved here, and nowhere else.
+     */
+    private static int offsetOf(String source, String anchor) {
+        int offset = source.indexOf(anchor);
+        assertTrue(offset >= 0, "the guard's anchor \"" + anchor + "\" is not in the source any more, so the "
+                + "comparison built on it would pass for free instead of failing");
+        return offset;
+    }
+
+    /**
+     * The body of the block that opens with {@code opening}, its braces matched and its string literals skipped.
+     *
+     * <p>Some of these guards are about what a region does NOT contain - "no early return inside this loop" - and
+     * that cannot be asked with {@code indexOf}. Braces inside a log format string are why the literals are skipped.
+     */
+    private static String bodyOf(String text, String opening) {
+        int start = text.indexOf(opening);
+        assertTrue(start >= 0, "the guard could not find " + opening + ", so it must fail rather than pass silently");
+        int depth = 0;
+        boolean quoted = false;
+        for (int i = start; i < text.length(); i++) {
+            char current = text.charAt(i);
+            if (quoted) {
+                quoted = current != '"';
+            } else if (current == '"') {
+                quoted = true;
+            } else if (current == '{') {
+                depth++;
+            } else if (current == '}' && --depth == 0) {
+                return text.substring(start, i);
+            }
+        }
+        fail("the block opening with " + opening + " is never closed in this file");
+        return "";
     }
 
     /**

@@ -16,11 +16,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 
 /**
- * 时钟源's screen: three numbers, and a clock you can watch running.
+ * 时钟源's screen: four numbers, and a clock you can watch running.
  *
- * <p>There are three fields - 秒, tick and 强度 - and the screen's job is to keep them honest: the period is shown as the
- * sum it is (tick and 秒 added together), and no field is sent while any of the three holds something the device cannot
- * have.
+ * <p>There are three fields - 秒, tick and 强度 - and one button. The fourth number, 脉冲, is a button rather than a field
+ * because it has exactly two values (1 or 2 tick) and a field could hold a number the device has no meaning for; a click
+ * walks 2t ⇄ 1t. The screen's job is to keep the fields honest: the period is shown as the sum it is (tick and 秒 added
+ * together), and no field is sent while any of the three holds something the device cannot have.
  *
  * <p>One live number is computed here rather than waited for: the clock <b>follows the world clock</b> rather than a
  * countdown it keeps (see {@link ClockRule}), so the screen can say what the device is doing <em>right now</em> and how
@@ -28,14 +29,15 @@ import net.minecraft.network.chat.Component;
  * clock, so the two cannot disagree by more than a tick. Without a level (a screen restored before the world arrived) it
  * falls back to the numbers the server last sent.
  *
- * <p>The pulse is two ticks wide, so the "正在输出" line is a flash rather than a state. The screen decides nothing: every
- * setting came from the server and every change goes back as an edit ({@link RCNetwork.DeviceEditPayload}), leaving the
- * screen with only what the player is typing and how often to ask.
+ * <p>The pulse is one or two ticks wide - whichever the player picked - so the "正在输出" line is a flash rather than a
+ * state. The screen decides nothing: every setting came from the server and every change goes back as an edit
+ * ({@link RCNetwork.DeviceEditPayload}), leaving the screen with only what the player is typing or clicking and how often
+ * to ask.
  */
 @Environment(EnvType.CLIENT)
 public final class ClockScreen extends Screen {
 
-    private static final int WIDTH = 220;
+    private static final int WIDTH = 288;
     private static final int HEIGHT = 156;
     private static final int BUTTON_HEIGHT = 18;
     private static final int FIELD_WIDTH = 64;
@@ -43,10 +45,11 @@ public final class ClockScreen extends Screen {
     private static final int LABEL_TOP = 28;
     private static final int FIELD_TOP = 40;
 
-    /** The three columns the fields stand in: 秒, tick, 强度. */
+    /** The four columns the controls stand in: 秒, tick, 强度, 脉冲 - the field width plus the gap between two of them. */
     private static final int COLUMN_SECONDS = 4;
     private static final int COLUMN_TICKS = 76;
     private static final int COLUMN_STRENGTH = 148;
+    private static final int COLUMN_PULSE = 220;
 
     /** How often the screen asks the server what the device is set to now. */
     private static final int REFRESH_TICKS = 10;
@@ -58,13 +61,15 @@ public final class ClockScreen extends Screen {
     private EditBox secondsField;
     private EditBox ticksField;
     private EditBox strengthField;
+    private Button pulseButton;
     private int left;
     private int top;
 
-    /** The server's answer, field for field: the three settings and the two numbers that go with them. */
+    /** The server's answer, control for control: the four settings and the two numbers that go with them. */
     private int seconds = ClockRule.DEFAULT_SECONDS;
     private int ticks = ClockRule.DEFAULT_TICKS;
     private int strength = ClockRule.DEFAULT_STRENGTH;
+    private int pulse = ClockRule.DEFAULT_PULSE_TICKS;
     private int power;
     private int serverTicksToEdge;
 
@@ -91,6 +96,10 @@ public final class ClockScreen extends Screen {
     /** The server answered again: everything on this screen is that answer. */
     public void accept(RCNetwork.DeviceViewPayload message) {
         store(message);
+        if (this.pulseButton != null) {
+            // The button carries the current width in its own caption, so it is filled in the same way a field is.
+            this.pulseButton.setMessage(pulseLabel());
+        }
         if (this.secondsField != null) {
             // A focused field keeps what is being typed into it: the answer to the "1" of a half-typed "15" must not
             // replace the "15" the player is on their way to writing.
@@ -116,6 +125,7 @@ public final class ClockScreen extends Screen {
         this.seconds = message.a();
         this.ticks = message.b();
         this.strength = message.c();
+        this.pulse = message.d();
         this.power = message.power();
         this.serverTicksToEdge = message.reading();
     }
@@ -134,6 +144,10 @@ public final class ClockScreen extends Screen {
             this.filling = false;
         }
 
+        // The fourth control: 脉冲 is 1 or 2 tick and nothing else, so one click walks the two rather than an input box.
+        this.pulseButton = addRenderableWidget(Button.builder(pulseLabel(), button -> cyclePulse())
+                .bounds(this.left + COLUMN_PULSE, this.top + FIELD_TOP, FIELD_WIDTH, FIELD_HEIGHT).build());
+
         addRenderableWidget(Button.builder(Component.translatable("redstonecircuit.device.close"),
                         button -> this.onClose())
                 .bounds(this.left + WIDTH / 2 - 30, this.top + HEIGHT - 24, 60, BUTTON_HEIGHT).build());
@@ -147,6 +161,19 @@ public final class ClockScreen extends Screen {
         box.setValue(Integer.toString(value));
         box.setResponder(typed -> edited());
         return box;
+    }
+
+    /** 脉冲 2t ⇄ 脉冲 1t: the caption is the current width, so the button is both the label and the value. */
+    private Component pulseLabel() {
+        return Component.translatable("redstonecircuit.device.pulse", this.pulse);
+    }
+
+    /** The button: 1 and 2 are the only widths this device has, so one click is one step and there is nothing to type. */
+    private void cyclePulse() {
+        this.pulse = this.pulse == ClockRule.MIN_PULSE_TICKS ? ClockRule.MAX_PULSE_TICKS : ClockRule.MIN_PULSE_TICKS;
+        this.pulseButton.setMessage(pulseLabel());
+        // A click is a finished choice rather than a keystroke on its way in, so it goes out now and not after the delay.
+        send();
     }
 
     /** A field changed under the player's fingers: sent once they stop, so a multi-digit number is one edit. */
@@ -180,8 +207,9 @@ public final class ClockScreen extends Screen {
             colourFields();
             return;
         }
+        // a/b/c/d in the setting's own order: 秒, tick, 强度, 脉冲 - the pulse rides in the fourth slot the payload has.
         ClientPlayNetworking.send(RCNetwork.DeviceEditPayload.settings(this.pos, DeviceKind.CLOCK,
-                seconds, ticks, strength, 0));
+                seconds, ticks, strength, this.pulse));
     }
 
     /**
@@ -273,13 +301,13 @@ public final class ClockScreen extends Screen {
 
     private Integer localPower() {
         long now = gameTime();
-        return now < 0 ? null : ClockRule.answer(now, this.seconds, this.ticks, this.strength);
+        return now < 0 ? null : ClockRule.answer(now, this.seconds, this.ticks, this.strength, this.pulse);
     }
 
     private Integer localCountdown() {
         long now = gameTime();
         int period = ClockRule.period(this.seconds, this.ticks);
-        return now < 0 || period <= 0 ? null : ClockRule.ticksToEdge(now, period);
+        return now < 0 || period <= 0 ? null : ClockRule.ticksToEdge(now, period, this.pulse);
     }
 
     @Override

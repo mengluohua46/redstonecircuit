@@ -14,8 +14,11 @@ import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import com.jiangyuefengyu.redstonecircuit.logic.CarriedInsert;
 import com.jiangyuefengyu.redstonecircuit.logic.CarriedSwitch;
 import com.jiangyuefengyu.redstonecircuit.logic.CarriedTool;
+import com.jiangyuefengyu.redstonecircuit.item.FrequencyTunerItem;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
+import com.jiangyuefengyu.redstonecircuit.logic.SyncGroups;
+import com.jiangyuefengyu.redstonecircuit.logic.TunerRule;
 import com.jiangyuefengyu.redstonecircuit.logic.WrenchLinks;
 import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
@@ -23,6 +26,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -172,6 +176,15 @@ public final class CarrierInteraction {
             if (CarrierGesture.suppressedByTheOtherHand(player, event.getHand())) {
                 event.setCanceled(true);
             }
+            return;
+        }
+        if (gesture == CarrierGesture.Kind.TUNER) {
+            // 调频器 IS NOT THIS ENTRY'S GESTURE, on purpose. A Sable sub-level's blocks are the level's own
+            // blocks at their own coordinates, so the world path resolves a carried 同步火把 there perfectly
+            // well and already runs the item's own action ({@code InnerRedstoneInteraction} calls
+            // {@code FrequencyTunerItem#use} for exactly this click, and its carried resolution comes first).
+            // Acting here as well would bind the same torch twice - and `TUNER` is not `NONE`, so without
+            // this line the click would fall through to the host resolution below and be reported as a MISS.
             return;
         }
         BlockPos pos = event.getPos();
@@ -349,6 +362,14 @@ public final class CarrierInteraction {
         // packet rather than a block click, so "the packet never arrived" and "the rule dropped it" would
         // be the same silence here too. See #noteGesture.
         noteGesture(player, hand, localPos, localFace, gesture, "CONTRAPTION_PACKET");
+        if (gesture == CarrierGesture.Kind.TUNER) {
+            // 调频器, DISPATCHED BEFORE THE GATE BELOW. That gate is the "not a 同步火把, so not ours" answer,
+            // and a tuner click is decided one target at a time by the item's own table - it must reach that
+            // decision, and hand the click straight back for anything that is not a torch. Placing this
+            // branch after the gate is the defect this line exists to prevent: the packet would be dropped
+            // as NONE and the tuner would be invisible on every contraption.
+            return handleTunerClick(level, player, hand, entityUuid, localPos);
+        }
         if (gesture == CarrierGesture.Kind.NONE) {
             // The other hand's gesture owns this click: consumed, nothing run, exactly like the world
             // side's own second-hand guard. A plain block in the other hand owns nothing of ours, so this
@@ -397,6 +418,104 @@ public final class CarrierInteraction {
     }
 
     /**
+     * <b>调频器 on a contraption block: the channel of the one 同步火把 this cell holds.</b>
+     *
+     * <p>Reached only for {@link CarrierGesture.Kind#TUNER}, i.e. the tuner in the dispatched hand, and it
+     * answers {@code false} - Create's "not handled" - for <b>every target that is not a 同步火把</b>, so a
+     * placement, a chest or a machine's own mechanism keeps whatever click it had. That is the same covenant
+     * {@code InnerRedstoneInteraction} keeps on the world side, at the same place in the flow: the item looks
+     * at its target first and only then decides whether the click was ever anybody's.
+     *
+     * <p><b>No second table.</b> {@link TunerRule#decide} is the whole semantics of the item (six actions),
+     * and it is asked here exactly as {@code FrequencyTunerItem#use} asks it, from the same four facts; what
+     * differs between the two call sites is only <b>which stored answer</b> the action is written to - the
+     * world store's row there, and {@code SyncGroups#joinCarried}/{@code leaveCarried} here, which write the
+     * slot for an embedded torch and the carrier-scoped row for a standing one.
+     *
+     * <p><b>Both carried forms are reachable from a contraption</b>, which is why the target is resolved by
+     * {@link SyncGroups#carriedTarget} rather than by a host lookup: a standing 同步火把 riding a contraption
+     * has no slot and therefore no host record at all (see {@code MovementHostHook#claimSyncTorch}), so
+     * {@code CarrierStore#hitInStructure} would answer "nothing here" for the one block this gesture is about.
+     *
+     * <p><b>Why no second-delivery guard.</b> The action table is idempotent on the same target: bind twice is
+     * the same bind ({@code writeChannel} answers "unchanged"), unbind twice is the same unbind, and copy
+     * twice writes the same number into the item. So a packet that arrives twice cannot turn one gesture into
+     * two - which is the property {@code ClickOnce} would otherwise have to supply.
+     */
+    private static boolean handleTunerClick(ServerLevel level, ServerPlayer player, InteractionHand hand,
+                                            UUID entityUuid, BlockPos localPos) {
+        // 没有物理后端时一个字节都不动: the row this gesture writes lives in the carrier layer, and asking
+        // for it without one is the one thing that would cost a lookup in a world that has no carriers.
+        CarriedHostIndex index = CarrierStore.isActive() ? CarrierStore.indexOf(level) : null;
+        CarrierId carrier = index == null ? null : index.carrierForUuid(entityUuid);
+        SyncGroups.CarriedTarget target = carrier == null ? null
+                : SyncGroups.carriedTarget(level, carrier, localPos);
+        if (target == null) {
+            // 不是同步火把就返回 false: the click is handed straight back to Create and to vanilla, untouched.
+            // Reported as a refusal rather than as a miss, because the coordinate was named by the packet and
+            // the answer is about what stands there, not about where it is.
+            trace("CONTRAPTION_PACKET", player, hand, localPos, null, null,
+                    CarrierEntryTrace.Outcome.REFUSED,
+                    "refused: this contraption cell holds no 同步火把 (neither an embedded nor a carried "
+                            + "standing one), so a 调频器 click is handed back to Create");
+            return false;
+        }
+        ItemStack stack = player.getItemInHand(hand);
+        TunerRule.Channel held = FrequencyTunerItem.channelOf(stack);
+        boolean handHasChannel = held != null && held.isBound();
+        String here = level.dimension().location().toString();
+        boolean foreign = handHasChannel && !held.inDimension(here);
+        boolean sneaking = player.isSecondaryUseActive();
+        TunerRule.Action action = TunerRule.decide(handHasChannel, foreign, target.hasChannel(),
+                handHasChannel && target.channel() == held.number(), sneaking);
+        int joined = handHasChannel ? held.number() : 0;
+        switch (action) {
+            case BIND, MOVE -> {
+                if (!handHasChannel) {
+                    // The number a player reads back has to be the one that got bound, so a fresh channel is
+                    // written into the item and the torch from the same value.
+                    joined = SyncGroups.newChannel(level);
+                    FrequencyTunerItem.setChannel(stack, new TunerRule.Channel(joined, here));
+                }
+                SyncGroups.joinCarried(level, carrier, localPos, joined);
+                // The group gained a member: its answer has to follow this tick rather than the next one, and
+                // the pass is idempotent, so it is run here exactly as the world path runs it.
+                SyncGroups.tick(level);
+            }
+            case COPY -> FrequencyTunerItem.setChannel(stack, new TunerRule.Channel(target.channel(), here));
+            case UNBIND -> {
+                SyncGroups.leaveCarried(level, carrier, localPos);
+                SyncGroups.tick(level);
+            }
+            case NONE, OTHER_DIMENSION -> {
+                // Nothing is written: an unbound torch has nothing to unbind, and a channel from another
+                // dimension would leave both sides unreadable.
+            }
+        }
+        TunerRule.Message said = action.message();
+        if (said != null) {
+            tunerMessage(player, said, action == TunerRule.Action.COPY ? target.channel() : joined);
+        }
+        trace("CONTRAPTION_PACKET", player, hand, localPos, null, null, CarrierEntryTrace.Outcome.MATCH,
+                "tuner " + action + " form=" + target.form() + " channel="
+                        + (action == TunerRule.Action.COPY ? target.channel() : joined));
+        return true;
+    }
+
+    /**
+     * The item's own line to the player, in the item's own words.
+     *
+     * <p>The keys and the "does it name a channel" bit live on {@link TunerRule.Message}, so the two call
+     * sites of this table cannot describe the same action differently: one translation key, two entrances.
+     */
+    private static void tunerMessage(ServerPlayer player, TunerRule.Message message, int channel) {
+        MutableComponent text = message.namesChannel()
+                ? Component.translatable(message.key(), channel)
+                : Component.translatable(message.key());
+        player.displayClientMessage(text.withStyle(ChatFormatting.YELLOW), true);
+    }
+
+    /**
      * The whole carrier half of one click, once the host has been identified.
      *
      * <p>Every early return here is a click the world keeps: the gesture's switch is off, the carrier
@@ -424,6 +543,10 @@ public final class CarrierInteraction {
             // Its own rule lives in CarriedSwitch. Reachable only for a hand that really is empty - see
             // CarrierGesture.
             case SWITCH -> handleSwitchClick(level, player, hand, hit, face, entry);
+            // 调频器 is dispatched by {@link #handleContraptionClick} before a host is resolved: its target
+            // is a carried 同步火把, which has no host record at all (no slot). Kept here so this switch stays
+            // total - it must never be read as "a tuner turn reached a carried host".
+            case TUNER -> false;
             // Filtered before the coordinate was even resolved; kept total so a future gesture cannot
             // silently fall through to "handled".
             case NONE -> false;
@@ -513,7 +636,7 @@ public final class CarrierInteraction {
                     "screen: opened the transformer's own control screen");
             return true;
         }
-        // 时钟源's gesture is 秒 / tick / 强度 on the same screen, at the same addressing - the plot coordinate
+        // 时钟源's gesture is 秒 / tick / 强度 / 脉宽 on the same screen, at the same addressing - the plot coordinate
         // the click arrived at.
         if (before != null && before.type == ComponentType.CLOCK) {
             com.jiangyuefengyu.redstonecircuit.block.ClockBlock.sendHostView(player, level, hit.localPos(), true);
@@ -2302,7 +2425,7 @@ public final class CarrierInteraction {
         }
     }
 
-    /** What one hand holds, as four plain words - the whole input of the rule, on the line. */
+    /** What one hand holds, as plain words - the whole input of the rule, on the line. */
     private static String describeHold(CarrierGesture.Hold hold) {
         if (hold == null) {
             return "?";
@@ -2317,10 +2440,13 @@ public final class CarrierInteraction {
         if (hold.rod()) {
             sb.append(sb.length() > 0 ? "+rod" : "rod");
         }
+        if (hold.tuner()) {
+            sb.append(sb.length() > 0 ? "+tuner" : "tuner");
+        }
         if (hold.component()) {
             sb.append(sb.length() > 0 ? "+component" : "component");
         }
-        if (hold.wrench() || hold.rod() || hold.component()) {
+        if (hold.wrench() || hold.rod() || hold.component() || hold.tuner()) {
             // A component's own name is worth more than the word "component": `held=` says what would go in.
             return sb.toString();
         }
@@ -2338,6 +2464,10 @@ public final class CarrierInteraction {
     private static String gestureNote(CarrierGesture.Kind gesture, CarrierGesture.Hold mine,
                                       CarrierGesture.Hold theirs, @Nullable InteractionHand hand,
                                       boolean sneaking) {
+        if (gesture == CarrierGesture.Kind.TUNER) {
+            return "调频器 in this hand: it decides its own click one target at a time, and hands it back "
+                    + "for anything that is not a 同步火把";
+        }
         if (gesture != CarrierGesture.Kind.NONE) {
             return "this click belongs to the carrier layer";
         }

@@ -163,7 +163,7 @@ final class CarrierDiagnostics {
                 ? "none sent yet (a release with no pose left will put the hosts back where they came "
                         + "from)"
                 : last.describe()));
-        // THE QUESTION THE AUTHOR'S REPORT NEEDED ANSWERED. A client drawing a four-second-old angle
+        // THE QUESTION A STALE ANGLE ASKS. A client drawing a four-second-old angle
         // looks exactly like a client drawing a parked machine, and this is the line that separates
         // them: how long ago the last pose actually went out, and whether it was a change or a
         // heartbeat. See CarrierStore#describePoseSync.

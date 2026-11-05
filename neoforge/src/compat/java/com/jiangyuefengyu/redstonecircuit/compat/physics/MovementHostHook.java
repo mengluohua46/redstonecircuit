@@ -7,7 +7,9 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarriedHostIndex;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarriedSyncTorches;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierIdentity;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierKind;
@@ -16,6 +18,7 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierTrace;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
@@ -150,6 +153,15 @@ final class MovementHostHook {
             // Answered before anything else, because it is the answer for almost every block: the hook
             // is per block *type*, so a machine full of stone calls in here once per stone.
             BlockPos worldPos = statePos(context);
+            // A STANDING 同步火把 IS ITS OWN DEVICE, NOT A HOST, and it is asked FIRST because the store
+            // lookup below is the wrong question for it: its channel lives in the world store's own table
+            // and it holds no slot, so this cell answers "no component inside" and the hook would stand
+            // down - which is exactly the defect this branch exists for (nothing claimed it, so its channel
+            // expired with the lifted row twenty ticks after the block left the world).
+            if (isSyncTorch(context)) {
+                claimSyncTorch(level, context, entity, worldPos);
+                return;
+            }
             InnerRedstoneNode node = level == null || worldPos == null
                     ? null
                     : InnerRedstoneStore.get(level).get(worldPos);
@@ -252,6 +264,18 @@ final class MovementHostHook {
                 // rather than falling through to the provisional one.
                 CarrierStore.reconcile(level, provisional, entityUuid,
                         CarrierIdentity.Phase.PROVISIONAL);
+                // ... and the same rename has to reach the 同步火把 rows, which are keyed by the carrier too:
+                // the put-down asks under the entity's name, and a row still filed under the provisional one
+                // is a row nobody will ever hand back.
+                CarriedSyncTorches.rekey(provisional, CarrierId.contraption(entityUuid));
+            }
+            // THE PUT-DOWN OF A STANDING 同步火把. It has no host record (no slot), so nothing below would
+            // hand its channel back: the ordinary release is per host, and a torch is not one. This is where
+            // its row goes home - row first, block state second, exactly as CarriedSyncTorches#handBack
+            // documents, so the block's own onPlace finds the number instead of starting a new unbound row.
+            if (isSyncTorch(context)) {
+                handBackSyncTorch(level, context, entity, entityUuid, provisional);
+                return;
             }
 
             // DEFERRED, NOT IMMEDIATE. A put-down is not the only thing this callback means: a direction
@@ -324,6 +348,118 @@ final class MovementHostHook {
         return true;
     }
 
+    // ------------------------------------------------ one standing 同步火把 --
+
+    /**
+     * Whether the block this contraption cell moved is a 同步火把 - the one block type that is <b>its own
+     * device</b> rather than a host of one. Read off the {@code MovementContext}'s state, which is the block
+     * Create captured, so a machine that merely <em>passes over</em> a torch is not this branch: only a torch
+     * that travelled has a {@code MovementContext} of its own.
+     */
+    private static boolean isSyncTorch(MovementContext context) {
+        BlockState state = context.state;
+        return state != null && state.getBlock() instanceof SyncTorchBlock;
+    }
+
+    /**
+     * <b>One standing 同步火把 taken into a contraption: its channel and this instant's reading go on riding
+     * with the machine.</b>
+     *
+     * <p>The counterpart of {@code SableCarrierClaim#claimSyncTorch}, for the same reason: a torch standing in
+     * the world has its channel in the world store keyed by a <em>world</em> coordinate, and it has no slot at
+     * all - so nothing in the carrier index can hold it, and the one table that can is
+     * {@link CarriedSyncTorches}, keyed by (machine, coordinate inside the machine).
+     *
+     * <p>It is deliberately <b>not</b> claimed into the carrier index: every record there stands for a host
+     * block with a slot, and the release writes those slots at the landing position. This form has no slot,
+     * so the one place it comes home is {@link CarriedSyncTorches#handBack} - see {@link #handBackSyncTorch}.
+     *
+     * <p>The channel is read in the order the Sable claim reads it, and for the same reason: the lifted row
+     * first ({@code SyncTorchBlock#onRemove} hands the number to the carrier layer when the block leaves the
+     * world, and removes the world row), then the world row itself for the case where the block left without
+     * that hook, and "unbound" when neither exists - a torch this feature never saw leave still rides.
+     */
+    private static void claimSyncTorch(@Nullable ServerLevel level, MovementContext context,
+                                       @Nullable AbstractContraptionEntity entity,
+                                       @Nullable BlockPos worldPos) {
+        // The cross guard, asked before the claim and not after it: a physics-assembled structure is a Sable
+        // sub-level *and* a contraption entity under one UUID, and two claims for one torch is precisely the
+        // state this guard exists to keep out of. See #defersToSable.
+        if (defersToSable("startMoving", context, entity)) {
+            return;
+        }
+        if (level == null || context.contraption == null || context.localPos == null || worldPos == null) {
+            diag("startMoving", context, "a 同步火把 is riding but this callback cannot name its two "
+                    + "coordinates (level=" + (level != null) + " contraption="
+                    + (context.contraption != null) + " localPos=" + (context.localPos != null)
+                    + " statePos=" + (worldPos != null) + ")");
+            return;
+        }
+        CarrierId carrier = entity != null ? CarrierId.contraption(entity.getUUID())
+                : CarrierResolver.provisionalFor(context.contraption);
+        if (carrier == null) {
+            diag("startMoving", context, "a 同步火把 is riding but no carrier identity can be had for it");
+            return;
+        }
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        CarriedSyncTorches.Capture lifted = CarriedSyncTorches.take(level, worldPos);
+        int channel;
+        byte inputs;
+        if (lifted != null) {
+            channel = lifted.channel();
+            inputs = lifted.inputs();
+        } else if (store.hasSyncTorch(worldPos)) {
+            channel = store.syncTorchChannelAt(worldPos);
+            inputs = store.syncTorchInputsAt(worldPos);
+        } else {
+            channel = 0;
+            inputs = 0;
+        }
+        boolean lit = context.state != null && context.state.getBlock() instanceof SyncTorchBlock
+                && context.state.getValue(SyncTorchBlock.LIT);
+        CarriedSyncTorches.capture(carrier, context.localPos, worldPos, channel, inputs, lit);
+        // The world row is put away: this torch is not at that coordinate any more, and a row left behind
+        // would be read by the next torch placed there. Unlike the Sable claim there is no "the machine's own
+        // cell keeps a row" half to do - a contraption's local coordinate is anchor-relative, so it is not a
+        // level position and nothing may be written there.
+        store.removeSyncTorch(worldPos);
+        HostSync.broadcastSyncGroups(level);
+        RCConfig.LOGGER.info("[redstonecircuit] carrier pickup contraption local={} statePos={} "
+                        + "channel={} - a STANDING 同步火把 is riding (no slot, so its number is filed in "
+                        + "the carrier layer under {})",
+                context.localPos.toShortString(), worldPos.toShortString(), channel, carrier.shortId());
+    }
+
+    /**
+     * <b>... and put down again: its channel written back where the machine really left it.</b>
+     *
+     * <p>A put-down of a torch cell has no host to release, so the ordinary per-host release below would do
+     * nothing for it and the number would stay in the carrier layer forever - the torch landing as an unbound
+     * one. {@link CarriedSyncTorches#handBack} is the one place that writes it, and it is the same call the
+     * release path makes; the landing comes from the pose, exactly as a host's does, so a torch carried two
+     * blocks does not come home to the field the machine was built in.
+     */
+    private static void handBackSyncTorch(ServerLevel level, MovementContext context,
+                                          @Nullable AbstractContraptionEntity entity,
+                                          @Nullable UUID entityUuid, @Nullable CarrierId provisional) {
+        CarrierId carrier = entityUuid != null ? CarrierId.contraption(entityUuid) : provisional;
+        if (carrier == null) {
+            diag("stopMoving", context, "a 同步火把 came down with no identity to hand it back under");
+            return;
+        }
+        CarrierPose pose = entity == null ? null : CarrierResolver.poseOf(entity);
+        int handed = CarriedSyncTorches.handBack(level, carrier, CarrierStore.landingFor(pose));
+        if (provisional != null) {
+            // The put-down has happened, so nothing is waiting on the fallback name any more.
+            CarrierResolver.forgetProvisional(provisional);
+        }
+        RCConfig.LOGGER.info("[redstonecircuit] carrier landing contraption local={} statePos={} "
+                        + "syncTorches={} (channel written back at the landing position, {} )",
+                context.localPos == null ? "?" : context.localPos.toShortString(),
+                statePos(context) == null ? "?" : statePos(context).toShortString(), handed,
+                carrier.shortId());
+    }
+
     // -------------------------------------------------------------- helpers --
 
     /**
@@ -361,6 +497,10 @@ final class MovementHostHook {
                     CarrierId provisional = CarrierResolver.provisionalFor(contraption);
                     CarrierStore.reconcile(level, provisional, entity.getUUID(),
                             CarrierIdentity.Phase.PROVISIONAL);
+                    // The 同步火把 rows are keyed by the carrier as well; leaving them on the provisional
+                    // name would make them invisible to every released-under-the-entity lookup, and to the
+                    // group pass that matches a row against the cell it rides.
+                    CarriedSyncTorches.rekey(provisional, CarrierId.contraption(entity.getUUID()));
                 }
                 carrier = CarrierId.contraption(entity.getUUID());
             } else {

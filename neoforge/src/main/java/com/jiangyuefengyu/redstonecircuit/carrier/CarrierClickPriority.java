@@ -359,6 +359,12 @@ public final class CarrierClickPriority {
             case WRENCH -> carriedWrench && wrench;
             case ROD -> rod;
             case SWITCH -> carriedSwitches && empty && cellHoldsComponent;
+            // 调频器 is never this question's subject: the world side exempts it from the stand-down gate
+            // before this rule is asked (see InnerRedstoneInteraction: a tuner click is let through and then
+            // decided by the item itself), so "not ours" is the answer that keeps a coordinate nobody else
+            // claimed behaving exactly as it did. Kept as an arm rather than a default so the next gesture
+            // cannot be added without somebody having to answer this question again.
+            case TUNER -> false;
             case NONE -> false;
         };
     }

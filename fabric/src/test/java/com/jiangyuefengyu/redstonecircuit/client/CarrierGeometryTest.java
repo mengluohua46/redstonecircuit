@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
  *
  * <p>{@code drew} 数的是<em>被收集到</em>的 host: 每个 quad 都因颜色为 0、光影包规则或
  * {@code showInnerComponents} 被拒的 host，和占满屏幕的 host 计数完全一样，日志里没有数字能分开它们 - 因为计数与
- * 绘制曾经是两段代码。现在两者共用一个实现 {@link CarrierGeometry#shellQuadArgb}，每道拦住几何体的闸门都必须在文字
+ * 绘制本来就是两段代码。现在两者共用一个实现 {@link CarrierGeometry#shellQuadArgb}，每道拦住几何体的闸门都必须在文字
  * 上说清原因，因为读日志的人要的是那句话而不是数字。
  */
 class CarrierGeometryTest {

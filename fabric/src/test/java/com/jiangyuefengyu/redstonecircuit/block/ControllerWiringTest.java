@@ -380,14 +380,54 @@ class ControllerWiringTest {
 
         String cache = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "client",
                 "ClientHostCache.java");
-        assertTrue(cache.contains("ghost probe: host entry for air at {}"),
-                "an entry applied for a cell the world has"
-                        + " no block in is the ghost's fingerprint, and this names it");
+        assertTrue(cache.contains("world host in air at {} (slot={}): a record with no block"),
+                "an entry applied for a cell the world has no block in is a SUPPORTED state now - a record can "
+                        + "outlive its block, and a carried host is announced where it is drawn - so the line says "
+                        + "that, and the renderer draws it (HostPathOwnership#drawsHere)");
+        assertFalse(cache.contains("ghost probe: host entry for air at"),
+                "that name must not come back: 122 of them in one session were one record re-announced on every "
+                        + "edge of a clock, and every one of them was the supported state");
+        assertTrue(cache.contains("private static void noteAirborneEntries(List<HostEntry> entries)")
+                        && cache.contains("if (alreadySpoke) {"),
+                "and it is windowed: the first such entry of a window speaks, the rest only add to its counts - a "
+                        + "population count, not an event");
         assertTrue(cache.contains("private static void forgetLandedRemovals(List<HostEntry> entries)")
                         && cache.contains("if (entry.slot() == null) {")
                         && cache.contains("landed.forgetAt(entry.pos());"),
                 "而 landed 表里也留着它的记录：清除消息必须连 landed 记录一起丢掉，"
                         + "否则\"世界那格还没有方块就自己画\"这条规则会让它在空气里永远挂着");
+    }
+
+    @Test
+    @DisplayName("世界 store 里有记录而那一格是空气：世界路径自己画，载体正在画的那一格让给它")
+    void aRecordWithNoBlockIsDrawnByTheWorldPath() throws IOException {
+        String rule = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "carrier",
+                "HostPathOwnership.java");
+        assertTrue(rule.contains("drawsHere(boolean worldHost, boolean blockPresent, boolean carriedDrawsHere,")
+                        && rule.contains("return worldHost && !carriedDrawsHere;"),
+                "the third state has one rule and one home: the ordinary two facts first, and a record with no "
+                        + "block drawn by the world path only where the carried path draws nothing - that is what "
+                        + "keeps one component on exactly one path");
+        String cache = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "client",
+                "ClientHostCache.java");
+        assertTrue(cache.contains("return HostPathOwnership.drawsHere(worldHost, blockPresent, "
+                        + "carriedDrawsHere, loaded);"),
+                "and the gate the renderer reads (ClientHostCache#worldPathDraws, called from "
+                        + "HostRenderPass#collect and from the carried path's own yield) is where it is asked, so "
+                        + "both paths read one decision");
+        assertTrue(cache.contains("static boolean carriedPathDrawsHere(ResourceKey<Level> dimension, "
+                        + "BlockPos pos)")
+                        && cache.contains("BlockPos local = CarrierProjection.localBlockOf(pose, pos);"),
+                "the refusal is the carrier index's own answer, asked through the inverse projection, so a carried "
+                        + "host's drawn cell is never drawn a second time by the world path");
+        String sync = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "network",
+                "HostSync.java");
+        assertTrue(sync.contains("if (CarrierStore.isProjectedAt(level, entry.pos())) {"),
+                "the server-side diagnostic is converged the same way: a position a live structure projects a host "
+                        + "onto is refused before it is counted, so the line only speaks for a shape nothing owns");
+        assertFalse(sync.contains("world ADD where no host stands"),
+                "and its wording no longer claims a host block must be standing somewhere - a projection IS a host "
+                        + "with air under it");
     }
 
     private static Path path(String... parts) {

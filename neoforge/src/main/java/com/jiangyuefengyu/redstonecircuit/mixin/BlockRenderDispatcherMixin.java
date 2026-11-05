@@ -38,7 +38,10 @@ public abstract class BlockRenderDispatcherMixin {
                                                PoseStack poseStack, VertexConsumer consumer,
                                                boolean checkSides, RandomSource random, ModelData data,
                                                RenderType renderType, CallbackInfo callback) {
-        if (ShaderCompat.hidesHostCube(pos)) {
+        // No second position on this path: the mesher hands in world coordinates and nothing else.
+        if (ShaderCompat.skipsBlock(pos, null)) {
+            ShaderCompat.noteHookUsed("vanilla");
+            ShaderCompat.noteMeshSkip("vanilla", pos);
             callback.cancel();
         }
     }

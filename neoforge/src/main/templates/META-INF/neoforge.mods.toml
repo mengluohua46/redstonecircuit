@@ -27,19 +27,26 @@ modId="${mod_id}" #mandatory
 version="${mod_version}" #mandatory
 
 # A display name for the mod
-displayName="${mod_name}" #mandatory
+# Written out rather than expanded from ${mod_name}, because FML hands IModInfo#getDisplayName to the mod list
+# as a *literal* - ModListWidget.ModEntry#render wraps it in Component#literal and ModListScreen:402 adds it to
+# the info panel as a plain string - and neither goes through the language file. A name in the toml therefore
+# cannot follow the game language, so it is written in English, the game's own fallback language.
+displayName="Redstone Circuit" #mandatory
 
 # A URL to query for updates for this mod. See the JSON update specification https://docs.neoforged.net/docs/misc/updatechecker/
 #updateJSONURL="https://change.me.example.invalid/updates.json" #optional
 
 # A URL for the "homepage" for this mod, displayed in the mod UI
-#displayURL="https://change.me.to.your.mods.homepage.example.invalid/" #optional
+# The "Visit website" link in the mod list. FML carries exactly ONE of these per mod, so the two store pages
+# cannot both live here: the author picked CurseForge for this loader (2026-11-04), and the Modrinth page is
+# the Fabric build's homepage plus a line in README.md and in 上架材料.
+displayURL="https://www.curseforge.com/minecraft/mc-mods/redstone-circuit" #optional
 
 # A file name (in the root of the mod JAR) containing a logo for display
 logoFile="logo.png" #optional
 
 # A text field displayed in the mod UI
-credits="Built with the NeoForged MDK. English and Chinese descriptions are both shipped; item and block names are translated in both languages." #optional
+credits="Built with the NeoForged MDK. English and Chinese descriptions are both shipped; item and block names are translated in both languages. Also on Modrinth: https://modrinth.com/mod/redstone-circuit" #optional
 
 # The authors of the mod, displayed in the mod UI (optional)
 authors="${mod_authors}"
@@ -66,6 +73,13 @@ config="${mod_id}.sodium.mixins.json"
 # is named as a string, so this mod neither compiles against Create nor requires it.
 [[mixins]]
 config="${mod_id}.create.mixins.json"
+
+# 蜂蜜活塞's piston animation needs one hook on the client's moving-piston renderer, and a client hook that misses
+# (a recompiled vanilla, a renderer that moved) must cost nothing but vanilla's own texture - so this config is
+# "required": false with defaultRequire 0, against every other config here. Kept apart from the main one for the
+# same reason: the game test server never loads these classes, so an unmatched injection could not fail a build.
+[[mixins]]
+config="${mod_id}.client.mixins.json"
 
 # The [[accessTransformers]] block allows you to declare where your AT file is.
 # If this block is omitted, a fallback attempt will be made to load an AT from META-INF/accesstransformer.cfg

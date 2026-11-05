@@ -140,17 +140,22 @@ public class RedstoneCircuitClient implements ClientModInitializer {
         // The preview borders. One message carries a whole dimension's list, so the cache is replaced
         // rather than edited - see StructurePreviewClient. A receiver is easy to leave out here, which is
         // why ClientReceiversWiringTest checks every client-bound payload against this file.
+        ClientPlayNetworking.registerGlobalReceiver(RCNetwork.SyncGroupPayload.TYPE,
+                (payload, context) -> SyncGroupView.accept(payload));
         ClientPlayNetworking.registerGlobalReceiver(RCNetwork.PreviewSnapshotPayload.TYPE,
                 (payload, context) -> StructurePreviewClient.accept(payload.dimension(), payload.entries()));
 
         // A new world starts with nothing cached; the server's snapshot will fill it in. The live views and
         // the screens' remembered pages go with it: both describe blocks of the world that has just been
         // left, and a stale live view from a previous world would keep drawing.
+        // The channel registry goes with them. Left behind, it would name positions from the world that
+        // has just been left, and a channel colour would be drawn on whatever now occupies that cell.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientHostCache.clear();
             WrenchClientState.clear();
             StructureLiveViews.clear();
             StructureScreenMemory.clear();
+            SyncGroupView.clear();
         });
     }
 }

@@ -269,6 +269,9 @@ class CarrierClickYieldTest {
             case ROD -> true;
             case PLACEMENT -> insert && sneaking && (hand.component() || (hand.empty() && cellHoldsComponent));
             case SWITCH -> switches && hand.empty() && cellHoldsComponent;
+            // 调频器 decides its own click against what it points at, and that decision is not the "do we
+            // stand the world down" one; production never asks this rule about it (see CarrierClickPriority).
+            case TUNER -> false;
             case NONE -> false;
         };
     }

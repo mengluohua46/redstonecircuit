@@ -105,6 +105,11 @@ public final class CarrierMessages {
             case TRANSFORMER -> "block.redstonecircuit.transformer";
             case CLOCK -> "block.redstonecircuit.clock";
             case EXTENDER -> "block.redstonecircuit.extender";
+            // 占位: 同步火把的名字键。真正的方块注册与 lang 条目是后续工作块的事, 这里只保证"要名字时有一个键"。
+            case SYNC_TORCH -> "block.redstonecircuit.sync_torch";
+            // 红石触发器 names the same key as its block: inside a host it is the same device, and one name for the two
+            // forms is what keeps a message about either one readable.
+            case TRIGGER -> "block.redstonecircuit.trigger";
         };
     }
 

@@ -186,6 +186,29 @@ class StructurePayloadCodecTest {
         assertEquals("open", reloaded.manual().get(0).label());
     }
 
+
+    @Test
+    @DisplayName("立在世界里的同步火把的频道号跟着载荷走, 而老文件读成空表")
+    void aStandingSyncTorchsChannelTravels() throws Exception {
+        // 内嵌形态的频道号是槽位的一个字段, 跟着 slot_data 走; 立在世界里的那一支没有槽位, 号码在 store 的
+        // 位置表上, 所以必须有自己的一张表. 少了它, 一个被捕获的结构放回来就是"无频道", 那支火把不属于任何组.
+        PayloadHeader header = sample().header();
+        StructurePayload original = StructurePayload.of(header, Map.of(), List.of(), List.of(),
+                samplePalette(), sampleIndices(), List.of(), List.of(), List.of(),
+                List.of(new StructurePayload.SyncTorchEntry(new BlockPos(1, 1, 2), 7)), List.of());
+
+        StructurePayload reloaded = StructurePayload.fromBytes(original.toBytes(), PayloadLimits.DEFAULT);
+
+        assertEquals(1, reloaded.syncTorchData().size(),
+                "the channel of a standing torch is not in any block state, so it must travel in its own list");
+        assertEquals(new BlockPos(1, 1, 2), reloaded.syncTorchData().get(0).localPos(),
+                "and it has to name the cell the torch stood in");
+        assertEquals(7, reloaded.syncTorchData().get(0).channel(), "with the number the group knew it by");
+        assertEquals(original, reloaded, "the whole payload still compares equal");
+        assertEquals(List.of(), sample().syncTorchData(),
+                "a payload with no such entries - every structure saved before this table existed - reads as "
+                        + "no standing torches rather than as damage");
+    }
     @Test
     @DisplayName("the payload goes to a file and comes back")
     void roundTripsThroughAFile(@TempDir Path dir) throws Exception {

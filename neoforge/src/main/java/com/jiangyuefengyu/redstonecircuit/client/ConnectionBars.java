@@ -15,13 +15,17 @@ import net.minecraft.core.Direction;
  *
  * <p>Two pieces of inner wire look identical however they are routed, so the three wrench states are drawn
  * apart: connected - a line of wire reaching the block's face; pinned - a green marker at that face and no
- * line; cut - nothing at all. The pin sits at the block's face, clear of the model, and which sides are
- * drawn comes from {@link PowerSolver} rather than from a second set of rules.
+ * line; cut - the same marker in red, and no line. A side the lock merely left out keeps no mark at all: the
+ * red one is for a side the player cut by hand, which is the only cut that is a decision. The marker sits at
+ * the block's face, clear of the model, and which sides are drawn comes from {@link PowerSolver} rather than
+ * from a second set of rules.
  */
 final class ConnectionBars {
 
     /** The marker on a side the wrench pinned. */
-    private static final int PIN_COLOR = 0xFF35E05A;
+    static final int PIN_COLOR = 0xFF35E05A;
+    /** The same marker on a side the wrench cut by hand: red where the pin is green. */
+    static final int CUT_COLOR = 0xFFE0392B;
     /** The side a driven component reads from. */
     private static final int INPUT_COLOR = 0xFFD8D8D8;
 
@@ -51,7 +55,12 @@ final class ConnectionBars {
     static void bars(Slot slot, Neighbours neighbours, List<Box> out) {
         for (Direction direction : Direction.values()) {
             if (slot.isClosed(direction)) {
-                // A cut side draws nothing: no line is what "not connected" looks like, for a cut and for a locked-out side.
+                // A hand-cut side gets the pin's own mark in red. A side the lock merely left out keeps no mark:
+                // that distinction is the whole point of drawing a cut at all, and a lock would otherwise paint
+                // five marks nobody asked for.
+                if (slot.isExplicitlyCut(direction)) {
+                    out.add(mark(slot, direction, CUT_COLOR));
+                }
                 continue;
             }
             if (slot.isOpen(direction)) {

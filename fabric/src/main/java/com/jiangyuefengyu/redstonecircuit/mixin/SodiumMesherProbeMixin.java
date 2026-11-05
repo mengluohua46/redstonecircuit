@@ -40,9 +40,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * <h2>Why it does not cancel, and why {@code require = 0}</h2>
  * Nothing about it may change what is drawn, and nothing about a diagnosis may crash a player: an
  * unresolvable probe should cost a log line, not a startup. Nothing in the build catches this class of
- * mistake, and that is a measured fact rather than a worry: release 1.1.1 was compiled and packaged -
- * {@code BUILD SUCCESSFUL}, with the {@code CallbackInfo} parameter this file used to declare - and the
- * error surfaced only on a real machine, when Mixin applied the mixin at startup:
+ * mistake, and that is a measured fact rather than a worry: a release once compiled and packaged -
+ * with a {@code CallbackInfo} parameter declared here - and the
+ * error surfaced only when Mixin applied the mixin at startup:
  * {@code InvalidInjectionException ... CallbackInfoReturnable is required!}. So the compiler does not
  * hold a callback parameter against the method it is injected into, and
  * {@code SodiumMesherProbeInjectionTest} is the guard that does.

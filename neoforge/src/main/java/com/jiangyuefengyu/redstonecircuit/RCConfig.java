@@ -6,7 +6,9 @@ import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
 
+import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.common.ModConfigSpec;
+import net.neoforged.neoforge.common.TranslatableEnum;
 
 /** Common (server-authoritative) configuration. */
 public final class RCConfig {
@@ -32,18 +34,18 @@ public final class RCConfig {
             .define("allowReplace", false);
 
     /**
-     * Whether 方块放置器 may create a standalone structure - OFF by default, because of Sable's side of the fence.
+     * Whether 方块放置器 may create a standalone structure.
      *
-     * <p>That machine's physical half makes a new Sable sub-level for the block it places, and a <em>saved</em>
-     * sub-level whose global storage entry cannot be read is reported on every world load. Allocating a structure and
-     * removing it again - which is what a refused placement does - is the only thing this mod does that touches that
-     * bookkeeping, so until Sable's storage semantics are understood the machines create nothing at all: the
+     * <p>The machine's physical half makes a new Sable sub-level for the block it places, and a <em>saved</em>
+     * sub-level whose global storage entry cannot be read is reported on every world load. Allocating a structure
+     * and removing it again - which is what a refused placement does - is the only thing this mod does that touches
+     * that bookkeeping, and that is what this switch is for: turned off, the machine creates nothing at all - the
      * activation is refused, the item is not spent and nothing is written anywhere.
      */
     public static final ModConfigSpec.BooleanValue PLACER_CREATES_STRUCTURES = BUILDER
             .comment("Let the block placer create a standalone one-block structure when it is itself physical.",
-                    "Off by default.")
-            .define("placerCreatesStructures", false);
+                    "On by default; turned off, the placement is refused and nothing is spent.")
+            .define("placerCreatesStructures", true);
 
     // -------------------------------------------------------- host appearance --
     // These only affect what a client draws; they are read locally and never sent anywhere, so
@@ -55,10 +57,22 @@ public final class RCConfig {
             .defineEnum("hostOverlayMode", OverlayMode.GOGGLES);
 
     /** When a host block is drawn specially. */
-    public enum OverlayMode {
+    public enum OverlayMode implements TranslatableEnum {
         GOGGLES,
         ALWAYS,
-        OFF
+        OFF;
+
+        /**
+         * The label the configuration screen cycles through.
+         *
+         * <p>NeoForge's screen has no key convention of its own for an enum constant: it draws
+         * {@code displayvalue.name()} unless the value implements {@link TranslatableEnum}, so these three
+         * names cannot be reached from the language files any other way.
+         */
+        @Override
+        public Component getTranslatedName() {
+            return Component.translatable("redstonecircuit.configuration.hostOverlayMode." + name());
+        }
     }
 
     public static final ModConfigSpec.IntValue HOST_OVERLAY_ALPHA = BUILDER
@@ -339,6 +353,11 @@ public final class RCConfig {
                     "On by default, so the solver cannot re-feed itself inside one tick. Off sends one notification per change.")
             .define("solverCoalesceNotifications", true);
 
+    public static final ModConfigSpec.IntValue SOLVER_CASCADE_LIMIT = BUILDER
+            .comment("How many settle-and-flush passes one tick may run when the world answers the solver's own notifications with more work.",
+                    "1 turns the cascade off, which is exactly the behaviour without it. The adaptive backoff is built in and not configurable: a dimension whose previous tick did not converge gets half its budget, so an oscillating clock costs what it costs today, while a converging machine keeps the whole budget.")
+            .defineInRange("solverCascadeLimit", 8, 1, 32);
+
     public static final ModConfigSpec.BooleanValue CARRIED_JADE = BUILDER
             .comment("Let Jade show the component hidden inside a block a moving structure is CARRYING, as it does for a world block.",
                     "On by default; the lines Jade shows for ordinary world blocks are unaffected.")
@@ -614,9 +633,9 @@ public final class RCConfig {
         return boolOr(VALIDATE_HOSTS, true);
     }
 
-    /** See {@link #PLACER_CREATES_STRUCTURES}: off by default while Sable's storage question is open. */
+    /** See {@link #PLACER_CREATES_STRUCTURES}: the switch that keeps the machine from writing anything. */
     public static boolean placerCreatesStructures() {
-        return boolOr(PLACER_CREATES_STRUCTURES, false);
+        return boolOr(PLACER_CREATES_STRUCTURES, true);
     }
 
     /**
@@ -729,6 +748,28 @@ public final class RCConfig {
 
     public static boolean traceSlotSync() {
         return boolOr(TRACE_SLOT_SYNC, false);
+    }
+
+    /**
+     * <b>同步火把组 pass 的诊断, 默认关闭: 打开时一条一条写出这一趟看到的东西。</b>
+     *
+     * <p>为什么要这一个: 两次自锁 (结构里的火把移走后地上那支闪动、方块内那支和地上那支互相喂着不熄)
+     * 在日志里<b>一条组 pass 的 trace 都没有</b>, 于是"答案为什么留在 15"既看不见落在哪一面, 也看不见是哪一份读数把
+     * 15 读回来的。开关打开后 {@code SyncGroups.GroupTrace} 每趟写出: 每个频道一行成员名单 (世界坐标 / 载体 + 局部
+     * 坐标, 内嵌还是世界形态)、每个成员一行掩码与 LIT 与吸附面、六面各一行 (画出来的那一格与机器自己那一份各答多少、
+     * 有没有被 {@code listensTo} 跳过), 以及每个成员一行答案与写回改没改。
+     *
+     * <p><b>为什么不是一个 {@code ModConfigSpec} 选项</b> (其余 {@code trace*} 都是): 配置屏上的每个键都必须在两份
+     * {@code lang} 文件里各有一条名字与一条 tooltip ({@code ConfigurationLangTest} 把这钉成回归), 而只加一个 config 选项就不必动 lang。
+     * 于是走 {@link #debugLog()} 已经在用的那条路 - <b>一个系统属性问"这一次运行要不要"</b>:
+     * {@code -Dredstonecircuit.traceSyncGroup=true} 加在启动参数里。这也更安全: 一条每 tick 刷屏的线不该能被留在存档的
+     * 配置里。
+     *
+     * <p>默认 {@code false}, 于是关着时组 pass 每趟只花一次 {@code Boolean.getBoolean}: 一个字符串都不拼, 一行日志
+     * 都不写。
+     */
+    public static boolean traceSyncGroup() {
+        return Boolean.getBoolean("redstonecircuit.traceSyncGroup");
     }
 
     /** Whether components travel with the moving structure that picked their block up. */
@@ -920,6 +961,17 @@ public final class RCConfig {
      */
     public static boolean solverCoalesceNotifications() {
         return boolOr(SOLVER_COALESCE_NOTIFICATIONS, true);
+    }
+
+    /**
+     * How many settle-and-flush passes one server tick may run, 1 to 32.
+     *
+     * <p>See {@link #SOLVER_CASCADE_LIMIT}. {@code 1} is "off": one settle pass and one end-of-tick flush,
+     * which is exactly the behaviour without the cascade. The adaptive backoff that halves a dimension's
+     * budget after a tick that did not converge is built in and is not a setting.
+     */
+    public static int solverCascadeLimit() {
+        return intOr(SOLVER_CASCADE_LIMIT, 8);
     }
 
     /**

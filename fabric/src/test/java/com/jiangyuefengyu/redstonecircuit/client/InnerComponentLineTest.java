@@ -185,6 +185,20 @@ class InnerComponentLineTest {
     }
 
     @Test
+    @DisplayName("a sync torch is a kind of its own: the whole channel's answer, in its own words")
+    void aSyncTorchHasItsOwnLine() {
+        Slot torch = slot(ComponentType.SYNC_TORCH);
+        torch.syncGroup = 4;
+        assertEquals(InnerComponentLine.StateKind.SYNC_TORCH, InnerComponentLine.of(torch).kind(),
+                "borrowing a redstone torch's kind is what made the overlay report a torch's own input for a "
+                        + "component that lights with its whole channel");
+        assertEquals("SYNC_TORCH dark", InnerComponentLine.of(torch).describe());
+        torch.power = 15;
+        assertTrue(InnerComponentLine.of(torch).hasOutput(), "lit is 'carrying anything', as for a torch");
+        assertEquals("SYNC_TORCH lit", InnerComponentLine.of(torch).describe());
+    }
+
+    @Test
     @DisplayName("the world overlay and the carried overlay print the same fields for the same component")
     void bothOverlaysAgreeFieldForField() {
         // The two readers reach the component through two different stores. What they must not do is

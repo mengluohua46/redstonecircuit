@@ -276,7 +276,7 @@ class SolverNotificationsTest {
                 "a solve whose notifications are delivered while it runs must be re-fed: rounds=" + rounds);
         assertEquals(0, world.host.power,
                 "and it walks the pair all the way down to the no-source fixpoint in one tick");
-        assertEquals(0, world.wire, "which is exactly the churn the author's log shows");
+        assertEquals(0, world.wire, "which is exactly the churn the log shows");
     }
 
     /**
@@ -460,6 +460,119 @@ class SolverNotificationsTest {
                 "and what the re-entry offered is left for the next solve rather than sent now");
     }
 
+    // ------------------------------------------------- the keeping-open flush --
+
+    /**
+     * The cascade's primitive: send what the session holds <b>without</b> closing it. Everything the cascade does
+     * rests on the two halves of this - the flush sends, and the session stays registered so the world's answer
+     * is collected again rather than delivered now.
+     */
+    @Test
+    @DisplayName("a keeping-open flush sends what is pending, says how much, and leaves the session open")
+    void aKeepingOpenFlushSendsWhatIsPending() {
+        List<BlockPos> sent = new ArrayList<>();
+        SolverNotifications.Session session = SolverNotifications.open(TEST_DIMENSION, sent::add);
+        assertNotNull(session, "the coalescing switch is on");
+        BlockPos second = HOST.relative(Direction.UP);
+
+        session.notify(HOST);
+        session.notify(second);
+        session.notify(HOST);
+        assertTrue(sent.isEmpty(), "nothing goes out while the pass is still running");
+        assertEquals(2, session.pendingCount(), "two positions, however often they are offered");
+
+        assertEquals(2, SolverNotifications.flushKeepingOpen(TEST_DIMENSION),
+                "the call sends them, and its answer is how many");
+        assertEquals(List.of(HOST, second), sent, "in the order the solve found them");
+        assertEquals(0, session.pendingCount(), "and the set it walked is empty");
+        assertFalse(session.ended(), "the session is still open - that is the whole difference from end()");
+        assertEquals(0, SolverNotifications.pendingCount(TEST_DIMENSION),
+                "and the dimension reports nothing left either");
+
+        // The ends still own the last flush, and the evidence line still counts every notification the solve
+        // sent rather than only the ones the final flush sent.
+        session.note(1, 1);
+        SolverNotifications.end(TEST_DIMENSION, 1L);
+        assertEquals(2, SolverNotifications.lastStats(TEST_DIMENSION).flushed(),
+                "two sent by the keeping-open flush, none left for the end to send");
+    }
+
+    /**
+     * The reason the session must stay in the open map while its flush runs: the notification re-enters the
+     * solver synchronously, so the position it produces is <b>the next pass's work</b>. Delivered inline it would
+     * be this pass's - which is the re-entrancy coalescing exists to stop.
+     */
+    @Test
+    @DisplayName("an offer made during a keeping-open flush waits for the next flush, which is what a cascade is")
+    void anOfferDuringTheKeepingOpenFlushWaitsForTheNextOne() {
+        List<BlockPos> sent = new ArrayList<>();
+        BlockPos reaction = HOST.relative(Direction.NORTH);
+        SolverNotifications.Session[] holder = new SolverNotifications.Session[1];
+        SolverNotifications.Session session = SolverNotifications.open(TEST_DIMENSION, pos -> {
+            sent.add(pos);
+            // The world answering on this stack, exactly as Level#updateNeighborsAt does - once, for the first
+            // position only, so the second flush is not fed again.
+            if (pos.equals(HOST)) {
+                holder[0].notify(reaction);
+            }
+        });
+        holder[0] = session;
+        session.notify(HOST);
+
+        assertEquals(1, SolverNotifications.flushKeepingOpen(TEST_DIMENSION), "this pass sends one");
+        assertEquals(List.of(HOST), sent);
+        assertEquals(1, session.pendingCount(),
+                "what it caused is pending rather than sent: the next pass is what sends it");
+
+        assertEquals(1, SolverNotifications.flushKeepingOpen(TEST_DIMENSION), "the next pass sends it");
+        assertEquals(List.of(HOST, reaction), sent);
+        assertEquals(0, session.pendingCount(), "and nothing is left after that");
+        assertFalse(session.ended(), "the session was open throughout");
+    }
+
+    /**
+     * {@link SolverNotifications#end} keeps its own rule - it removes the session <b>before</b> flushing, so a
+     * flush can never extend itself - and the keeping-open flush must not resurrect a session it closed.
+     */
+    @Test
+    @DisplayName("after end, a keeping-open flush sends nothing at all")
+    void aKeepingOpenFlushAfterEndSendsNothing() {
+        List<BlockPos> sent = new ArrayList<>();
+        SolverNotifications.Session session = SolverNotifications.open(TEST_DIMENSION, sent::add);
+        session.notify(HOST);
+        session.note(1, 1);
+        assertEquals(1, SolverNotifications.end(TEST_DIMENSION, 1L), "end flushes and closes");
+        assertTrue(session.ended(), "the session knows it is over");
+
+        assertEquals(0, SolverNotifications.flushKeepingOpen(TEST_DIMENSION),
+                "there is no open session any more, so there is nothing to flush");
+        assertEquals(List.of(HOST), sent, "and nothing was sent a second time");
+        assertEquals(0, SolverNotifications.flushKeepingOpen(
+                        (net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>) null),
+                "a null dimension is no dimension");
+    }
+
+    /** No position is ever sent twice, however many keeping-open flushes a cascade runs. */
+    @Test
+    @DisplayName("a position offered between two keeping-open flushes is sent once, by the flush after it")
+    void aPositionOfferedBetweenFlushesIsSentOnce() {
+        List<BlockPos> sent = new ArrayList<>();
+        SolverNotifications.Session session = SolverNotifications.open(TEST_DIMENSION, sent::add);
+        BlockPos next = HOST.relative(Direction.EAST);
+
+        session.notify(HOST);
+        assertEquals(1, SolverNotifications.flushKeepingOpen(TEST_DIMENSION));
+        assertEquals(0, SolverNotifications.flushKeepingOpen(TEST_DIMENSION),
+                "a pass whose pending set is empty sends nothing - a settled machine costs one flush, not two");
+        assertEquals(List.of(HOST), sent, "and the position already sent was not repeated");
+
+        session.notify(next);
+        assertEquals(1, SolverNotifications.flushKeepingOpen(TEST_DIMENSION));
+        assertEquals(List.of(HOST, next), sent, "the new position alone, once");
+        assertEquals(0, SolverNotifications.flushKeepingOpen(TEST_DIMENSION));
+        assertEquals(List.of(HOST, next), sent);
+    }
+
     @Test
     @DisplayName("a session reports what the solve did, once, in the window's figures")
     void statsRecordWhatTheSolveDid() {
@@ -579,7 +692,7 @@ class SolverNotificationsTest {
     @DisplayName("the one-hop rule the model relies on is the production rule")
     void theHopRuleIsTheProductionRule() {
         assertEquals(13, InnerRedstoneNetwork.neighbourSignal(14, true),
-                "a vanilla wire neighbour costs one hop - the author's 'externalSignal=13 from a wire'");
+                "a vanilla wire neighbour costs one hop - the 'externalSignal=13 from a wire'");
         assertEquals(15, InnerRedstoneNetwork.neighbourSignal(15, false),
                 "and anything else passes through");
         assertEquals(0, InnerRedstoneNetwork.neighbourSignal(0, true));
@@ -729,4 +842,33 @@ class SolverNotificationsTest {
         assertTrue(com.jiangyuefengyu.redstonecircuit.RCConfig.solverCoalesceNotifications(),
                 "and it rides the coalescing switch, which is on by default too");
     }
+
+    // ------------------------------------------------ the budget's own report --
+
+    @Test
+    @DisplayName("a solve whose cascade ran out of budget says so, and one that converged does not")
+    void theBudgetEndingATickIsReported() {
+        SolverNotifications.Session capped = SolverNotifications.open(TEST_DIMENSION, pos -> { });
+        assertNotNull(capped, "the coalescing switch is on");
+        capped.notify(HOST);
+        capped.noteCascade();
+        capped.noteCascadeCapped();
+        capped.note(1, 3);
+        SolverNotifications.end(TEST_DIMENSION, 1L);
+
+        SolverNotifications.TickStats ranOut = SolverNotifications.lastStats(TEST_DIMENSION);
+        assertTrue(ranOut.capped(), "work was left queued, so the limit - not the circuit - ended the tick");
+        assertEquals(1, ranOut.cascades(), "and it still says how many passes it ran");
+
+        SolverNotifications.Session calm = SolverNotifications.open(TEST_DIMENSION, pos -> { });
+        assertNotNull(calm, "a second solve");
+        calm.noteCascade();
+        calm.note(1, 2);
+        SolverNotifications.end(TEST_DIMENSION, 2L);
+
+        SolverNotifications.TickStats settled = SolverNotifications.lastStats(TEST_DIMENSION);
+        assertFalse(settled.capped(), "a solve that reached its fixed point never reports a spent budget");
+        assertEquals(1, settled.cascades());
+    }
+
 }

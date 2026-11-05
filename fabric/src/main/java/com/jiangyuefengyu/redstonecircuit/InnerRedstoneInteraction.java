@@ -13,6 +13,7 @@ import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
 import com.jiangyuefengyu.redstonecircuit.data.Slot;
+import com.jiangyuefengyu.redstonecircuit.item.FrequencyTunerItem;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerAccess;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneNetwork;
 import com.jiangyuefengyu.redstonecircuit.logic.InnerSwitches;
@@ -355,6 +356,10 @@ public final class InnerRedstoneInteraction {
             return InteractionResult.PASS;
         }
         ItemStack stack = player.getItemInHand(hand);
+        // 调频器 is not a block item and owns no carrier gesture: it is a tool that looks at the target and decides for
+        // itself whether the click is its own (see the tuner branch below). Read here because the ownership gate needs
+        // it: a 同步火把 a structure is carrying sits at a coordinate the carrier side owns.
+        boolean tuner = stack.getItem() instanceof FrequencyTunerItem;
 
         // ---------------------------------------------------------------- the one exception --
         //
@@ -382,7 +387,12 @@ public final class InnerRedstoneInteraction {
         // own item use would put the carried block down at the structure's own coordinate. The decision is
         // therefore acted on below, and every click that is not the carrier layer's is left untouched.
         CarrierGesture.Kind carrierGesture = CarrierGesture.of(player, hand);
-        CarrierClickPriority.Owned carrierOwns = CarrierClickPriority.owner(serverLevel, pos);
+        // 调频器 IS EXEMPT FROM THIS GATE, and has to be: standing the click down here returns before the item is even
+        // looked at, which would delete the one click that can change the channel of a torch a machine is carrying -
+        // the coordinate is a structure's, and the torch's home record is the machine's. Nothing is widened by the
+        // exemption: the tuner branch below answers false - leaving the click exactly as it arrived - for every target
+        // that is not a 同步火把, and its own carried resolution is behind CarrierStore#isActive().
+        CarrierClickPriority.Owned carrierOwns = tuner ? null : CarrierClickPriority.owner(serverLevel, pos);
         if (carrierOwns != null) {
             // The clicked cell's own rule is part of the click: this side copies the carrier path's answer
             // for that cell (whether it may hold a component at all), so the two halves agree and vanilla
@@ -419,8 +429,10 @@ public final class InnerRedstoneInteraction {
         // The rotation rod is the same kind of tool and is let through the same way.
         boolean wrench = RCRegistry.isWrench(stack);
         boolean rod = RCRegistry.isRotationRod(stack);
-        Slot existing = wrench || rod ? null : WrenchLinks.slotAt(serverLevel, pos);
-        if (!wrench && !rod && !HostRules.claimsClick(serverLevel.getBlockState(pos), existing, stack,
+        // 调频器 is the third tool of that kind: also not a block item, so nothing is ever predicted for it. It is let
+        // through here so that it can look at the target, and it decides for itself whether the click is its own.
+        Slot existing = wrench || rod || tuner ? null : WrenchLinks.slotAt(serverLevel, pos);
+        if (!wrench && !rod && !tuner && !HostRules.claimsClick(serverLevel.getBlockState(pos), existing, stack,
                 player.isSecondaryUseActive())) {
             return InteractionResult.PASS;
         }
@@ -449,6 +461,14 @@ public final class InnerRedstoneInteraction {
         // The rotation rod does too: one click, one turn.
         if (rod) {
             return useRotationRod(serverLevel, player, pos)
+                    ? InteractionResult.SUCCESS : InteractionResult.PASS;
+        }
+
+        // 调频器: 只有"目标位置真有同步火把" (哪一种形态都算) 才动手。别的目标一律不消费, 于是放置、开箱子、
+        // 扳手、拉杆都照原样走 - 这就是"不拦原版交互"在代码里的样子: 动作在 FrequencyTunerItem#use 里,
+        // 它返回 false 的路径一个字节都没有写世界, 这里也就一个字节都没有消费。
+        if (tuner) {
+            return FrequencyTunerItem.use(serverLevel, player, hand, pos)
                     ? InteractionResult.SUCCESS : InteractionResult.PASS;
         }
 
@@ -577,7 +597,7 @@ public final class InnerRedstoneInteraction {
                 com.jiangyuefengyu.redstonecircuit.block.TransformerBlock.sendHostView(player, level, pos, true);
                 return true;
             }
-            // 时钟源's is 秒 / tick / 强度 on the same screen, and the same open-not-step shape.
+            // 时钟源's is 秒 / tick / 强度 / 脉宽 on the same screen, and the same open-not-step shape.
             if (slot.type == ComponentType.CLOCK) {
                 com.jiangyuefengyu.redstonecircuit.block.ClockBlock.sendHostView(player, level, pos, true);
                 return true;
@@ -674,6 +694,14 @@ public final class InnerRedstoneInteraction {
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
         notifyNeighbours(level, pos);
         HostSync.broadcast(level, pos, null);
+        // 内嵌形态的同步火把走了, 组的名单就少了一个人 - 这是哪个槽位都装不下的事实, 所以客户端那一份只能整份换掉。
+        // 不再无条件重发: 上面那句删除广播自己会做 (HostSync#broadcast → broadcastSyncGroupsIfMemberLeft), 于是
+        // "世界里取出"、"被搬着的那一格取出元件"、"活塞搬走"三条路共用同一个入口, 而它只在真的少了一个人时发。
+        // 频道号本身<b>不</b>在这里清: 它跟着槽位走, 而这一趟可能是"取出"(物品拿走)、"活塞搬走"或"捕获进蓝图",
+        // 三种都靠 Slot#syncGroup 把号码带到新位置去。
+        if (node.type() == ComponentType.SYNC_TORCH) {
+            HostSync.broadcastSyncGroupsIfMemberLeft(level);
+        }
         // A block that no longer holds anything cannot be either half of a wrench link.
         WrenchSelection.clearIf(level, pos);
         return node;

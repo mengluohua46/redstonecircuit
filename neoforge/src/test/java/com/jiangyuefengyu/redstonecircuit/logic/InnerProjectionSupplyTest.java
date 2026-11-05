@@ -560,13 +560,29 @@ class InnerProjectionSupplyTest {
         String networks = flat("src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierNetworks.java");
         String space = flat("src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierSpace.java");
 
-        assertTrue(io.contains("InnerRedstoneNetwork.worldSignalAt(level, worldPos, worldDirection, reader)"),
-                "the bridge reads the world through the owner-aware merged read, naming its reader - not "
-                        + "through a bare readSignal, and not through an unfiltered CarrierWorldSignals");
+        assertTrue(io.contains("InnerRedstoneNetwork.worldSignalIntoOwnFrame( "
+                        + "level, worldPos, worldDirection, reader, mine)"),
+                "the bridge reads the world through the owner-aware read, naming its reader - now reached "
+                        + "through the seam-aware entry point, and never through a bare readSignal nor "
+                        + "through an unfiltered CarrierWorldSignals");
+        assertFalse(io.contains("InnerRedstoneNetwork.readSignal("),
+                "a bare readSignal names no reader at all, so that read could not refuse the asking "
+                        + "carrier's own host: the uncharged second copy of an inner neighbour would be back");
+        assertFalse(io.contains("worldSignalAt(level, worldPos, worldDirection, null)"),
+                "and passing null as the owner is the same defect spelled differently - every projection "
+                        + "answers, the reader's own included");
+        assertTrue(network.contains("return worldSupplyAt(level, worldPos, owner);"),
+                "the seam-aware entry point's lossless branch hands the owner on rather than starting a "
+                        + "read that refuses nothing");
+        assertTrue(network.contains("BlockPos neighbour = worldPos.relative(direction); best = "
+                        + "Math.max(best, worldSignalAt(level, neighbour, direction, owner));"),
+                "and the supply it asks for is read around the neighbour one cell at a time with the owner "
+                        + "refused at each - reading that one cell would make the pair quote itself");
         assertTrue(networks.contains("new CarrierWorldIo(pose, bridge.signals(), carrier, ctx.level())"),
                 "the reader is the carrier whose solve is running, injected where that carrier is in hand");
-        assertTrue(space.contains("io.signalIntoOwnFrame(queryPos, direction)"),
-                "and the solve asks the owner-aware form");
+        assertTrue(space.contains("bridge.signalIntoOwnFrame(queryPos, direction)"),
+                "and the solve asks the owner-aware form - from worldSignal, where the world half's answer is "
+                        + "made, so the reader is still named and its own projections still refused");
         assertTrue(network.contains("int projected = projectedSignalAt(level, worldPos, worldDirection,"
                         + " owner);"),
                 "the owner is what the owner-aware merged read hands to the projected half");

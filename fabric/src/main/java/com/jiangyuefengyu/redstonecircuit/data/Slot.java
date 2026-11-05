@@ -41,8 +41,8 @@ public final class Slot {
      */
     public int transformer = com.jiangyuefengyu.redstonecircuit.logic.TransformerRule.DEFAULT;
     /**
-     * 时钟源's three settings: 秒 0-3600, tick 0-19 and 强度 1-15 - see
-     * {@link com.jiangyuefengyu.redstonecircuit.logic.ClockRule}. One record rather than three fields because
+     * 时钟源's four settings: 秒 0-3600, tick 0-19, 强度 1-15 and 脉宽 1-2 tick - see
+     * {@link com.jiangyuefengyu.redstonecircuit.logic.ClockRule}. One record rather than four fields because
      * they always travel together: a save tag, a payload, a screen and a rule all want exactly this value.
      */
     public com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting clock =
@@ -54,6 +54,31 @@ public final class Slot {
      */
     public com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting extender =
             com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting.DEFAULT;
+    /**
+     * 同步火把的频道, or {@link com.jiangyuefengyu.redstonecircuit.logic.SyncTorchRule#UNBOUND} for one that belongs to no group.
+     *
+     * <p>存在槽位上而不是别处, 是因为频道是<b>元件自己的</b>: 活塞把方块连着里面的元件搬到另一个格子时
+     * ({@code PistonHostTransfer} 搬的是整个 {@code Stored}), 频道跟着一起走, 不需要谁去修那张位置表。世界里那个
+     * 立着的方块形态则只能把频道存在 store 的 {@code syncTorch} 表里 - 它没有槽位。
+     */
+    public int syncGroup = com.jiangyuefengyu.redstonecircuit.logic.SyncTorchRule.UNBOUND;
+    /**
+     * 同步火把: 哪几面此刻有输入, 一位一面.
+     *
+     * <p>不存档, 与 {@code extenderDeadline} 同一类东西: "此刻"的事实, 由拥有这个世界的 tick 每趟写一次。存下来只会在
+     * 重载后给出一个过期的答案, 而过期的输入掩码意味着某面明明有电却还在往外输出。
+     */
+    public byte syncInputs;
+    /**
+     * 红石触发器's edge memory: whether the face it reads ({@link #facing}) was powered the last time it looked, which is
+     * what tells a <b>rising edge</b> apart from a powered input that is merely still powered.
+     *
+     * <p>Saved, unlike the two "此刻" fields above: the switch state alone cannot answer "was that a rising edge or a
+     * hold", so the previous reading is a fact the component itself has to keep. Losing it across a reload would turn a
+     * hold into a fresh rising edge, and a trigger that was on would silently switch itself off on the first tick after
+     * the world loads - the one thing the edge memory exists to prevent.
+     */
+    public boolean triggerInput;
     /**
      * 信号延长器's hold: the tick its output stops on, or {@link com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule#NO_DEADLINE}.
      *
@@ -112,6 +137,10 @@ public final class Slot {
         copy.transformer = this.transformer;
         copy.clock = this.clock;
         copy.extender = this.extender;
+        copy.syncGroup = this.syncGroup;
+        // Copied because it is saved: a broadcast or a capture carries the component, and an edge memory that did not
+        // travel with it would make the copy read the next tick's input as a rising edge.
+        copy.triggerInput = this.triggerInput;
         // Copied although it is not saved: a broadcast carries a copy of the component, and the screen shows what is
         // left of the hold - a copy without the deadline would answer "nothing is holding" to its own player.
         copy.extenderDeadline = this.extenderDeadline;
@@ -192,7 +221,7 @@ public final class Slot {
         tag.put("controller", controllerTag);
         // The transformer's single strength, as a flat key: a missing key reads as the default (see Slot#load).
         tag.putInt("transformer", transformer);
-        // 时钟源's three numbers in their own compound, for the same reason (see ClockRule).
+        // 时钟源's four numbers in their own compound, for the same reason (see ClockRule).
         CompoundTag clockTag = new CompoundTag();
         clock.save(clockTag);
         tag.put("clock", clockTag);
@@ -200,6 +229,10 @@ public final class Slot {
         CompoundTag extenderTag = new CompoundTag();
         extender.save(extenderTag);
         tag.put("extender", extenderTag);
+        tag.putInt("syncGroup", syncGroup);
+        // 红石触发器's edge memory. A save written before this device existed has no such key and reads back as false,
+        // which is the honest "I have never seen this face powered" for a slot that is not a trigger anyway.
+        tag.putBoolean("triggerInput", triggerInput);
         tag.putIntArray("forcedOn", encode(forcedOn));
         tag.putIntArray("forcedOff", encode(forcedOff));
     }
@@ -221,6 +254,13 @@ public final class Slot {
         slot.clock = com.jiangyuefengyu.redstonecircuit.logic.ClockRule.Setting.load(tag.getCompound("clock"));
         slot.extender = com.jiangyuefengyu.redstonecircuit.logic.ExtenderRule.Setting
                 .load(tag.getCompound("extender"));
+        // A key that is not there at all is a save written before 同步火把 existed, which is exactly "no channel" -
+        // so no data version bump is needed for the field, and 0 is not a channel either (channels start at 1).
+        int syncGroup = tag.getInt("syncGroup");
+        slot.syncGroup = syncGroup > 0 ? syncGroup : com.jiangyuefengyu.redstonecircuit.logic.SyncTorchRule.UNBOUND;
+        // Read back with the switch state: the two together are what says "this is a hold, not a new edge" (see the
+        // field's own comment). Absent means false, which is exactly what a fresh trigger starts with.
+        slot.triggerInput = tag.getBoolean("triggerInput");
         decode(tag.getIntArray("forcedOn"), slot.forcedOn);
         decode(tag.getIntArray("forcedOff"), slot.forcedOff);
         return slot;
@@ -273,6 +313,16 @@ public final class Slot {
             // The extender's dump prints its setting and whether a hold is running: neither is visible anywhere else.
             sb.append(" hold ").append(extender.holdTicks()).append(" tick(s) = ").append(extender.seconds())
                     .append("s+").append(extender.ticks()).append("t");
+        }
+        if (type == ComponentType.SYNC_TORCH) {
+            // A 同步火把's dump prints its channel and the face it is stuck to: neither is visible anywhere else.
+            sb.append(" channel=").append(syncGroup <= 0 ? "unbound" : String.valueOf(syncGroup))
+                    .append(" on=").append(facing.getName());
+        }
+        if (type == ComponentType.TRIGGER) {
+            // A trigger's dump prints its switch and the reading it is stepping from: the second one is the edge memory,
+            // and it is the only thing that tells "open and holding" from "open and about to close".
+            sb.append(" trigger ").append(powered ? "on" : "off").append(" triggerInput=").append(triggerInput);
         }
         if (type == ComponentType.CLOCK) {
             // A clock's dump prints the period and the strength: neither is visible anywhere else.

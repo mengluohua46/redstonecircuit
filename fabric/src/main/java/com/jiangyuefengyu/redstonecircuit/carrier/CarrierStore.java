@@ -3,10 +3,13 @@ package com.jiangyuefengyu.redstonecircuit.carrier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.HostRules;
@@ -125,6 +128,23 @@ public final class CarrierStore {
         @Nullable
         default CarrierId plotOwnerAt(ServerLevel level, BlockPos levelPos) {
             return null;
+        }
+
+        /**
+         * <b>写一台载体的某一格方块.</b> The other half of {@link CarrierAccess#blockViewOf}, and the same
+         * isolation rule: putting a block into a structure needs {@code Contraption#getBlocks} or a
+         * sub-level's plot coordinate, so this is a <b>default method returning {@code false}</b> rather
+         * than a type the main source set could name.
+         *
+         * <p>{@code false} is the honest answer for the common case: a carrier whose storage <em>is</em>
+         * the level (a Sable sub-level, see {@link CarrierStore#storageInLevel}) is written by the carrier
+         * layer itself, so this is reached only for a carrier that keeps its blocks somewhere else. A
+         * source that cannot write reports so instead of pretending it wrote.
+         *
+         * @return whether the block really changed
+         */
+        default boolean setCarriedBlock(CarrierId carrier, BlockPos local, BlockState state) {
+            return false;
         }
     }
 
@@ -399,6 +419,23 @@ public final class CarrierStore {
      *
      * <p>The union of the world store and the carried index. Callers that need to know
      * <em>where</em> the data is ask {@link #isCarried}.
+     *
+     * <p><b>A riding record answers nothing at a world position that nothing draws it at.</b> Every record
+     * carries the position it answers at ({@code CarriedHost#at}) and that number is its {@code origin} - 它当初是
+     * 从哪里被搬起来的 - which is a fact about the past. A machine that has moved leaves its record answering at
+     * a position it has left, and a record filed at the position a structure merely <em>draws</em> a cell at
+     * ({@link #resolveForPlacement}) answers at a world position the structure stands on rather than in. Nothing
+     * about the world is true at that number: the world store holds nothing there (the claim moved the component
+     * out), no live structure projects a host onto it ({@link #isProjectedAt} is false), and the click path cannot
+     * reach the record either - every frame {@code hitAt} asks names a structure's own coordinates or a projection,
+     * never this reverse map. Answered anyway, the cell reads as a component the world holds: it supplies signal,
+     * the notified-neighbour loop counts it as a host, and no click can take it away again.
+     *
+     * <p>So the reverse map only answers where the record really is. Two answers are untouched, and both of them
+     * name a position the component is genuinely at: the world store's own component there (asked first, always)
+     * and a record the projection table <b>draws</b> there - the deliberate hand-off {@link #projectedHostAt} and
+     * {@code structureHostAt} make, which is the only way one physicalised structure reads another. A record that
+     * has been <b>put down</b> answers where it landed as it always did, because it is no longer carried.
      */
     @Nullable
     public static Slot slotAt(ServerLevel level, BlockPos worldPos) {
@@ -406,7 +443,44 @@ public final class CarrierStore {
         if (index == null || index.isEmpty()) {
             return null;
         }
-        return index.slotAt(worldPos, CarriedHosts.slots(level));
+        CarriedHostIndex.SlotWorld slots = CarriedHosts.slots(level);
+        Slot live = slots.get(worldPos);
+        if (live != null) {
+            // THE WORLD STORE FIRST, as {@code CarriedHostIndex#slotAt} does: a component the level really holds
+            // is the ordinary answer, and asking the projection about it would only cost a lookup.
+            return live;
+        }
+        return slotAt(index, slots, worldPos, isProjectedAt(level, worldPos));
+    }
+
+    /**
+     * The same question with the index, the world store and the one carrier fact supplied - so the rule above is
+     * pinned by an offline unit test that has no level and therefore no projection table.
+     *
+     * <p>Package-visible and level-free for the same reason {@link #hitAt} and {@link #ownedHostAt} have such a
+     * form: the decision is "the world store answered nothing, the index holds a record, and nothing draws it
+     * here", and all three are values a test can state.
+     *
+     * @param drawnHere whether a live structure's projection table holds a host at {@code worldPos} - the one
+     *     hand-off that keeps answering, see {@link #isProjectedAt}
+     */
+    @Nullable
+    static Slot slotAt(@Nullable CarriedHostIndex index, @Nullable CarriedHostIndex.SlotWorld slots,
+                       @Nullable BlockPos worldPos, boolean drawnHere) {
+        if (index == null || slots == null || worldPos == null) {
+            return null;
+        }
+        Slot live = slots.get(worldPos);
+        if (live != null) {
+            return live;
+        }
+        if (index.isCarried(worldPos) && !drawnHere) {
+            // 一条还骑在结构上的记录, 而这里没有任何活着的结构把它画在这一格: 它答"这里没有东西".
+            // The component is not lost - it is read at the position its structure draws it at, and by the
+            // structure's own coordinate; this is only "not here".
+            return null;
+        }
+        return index.slotAt(worldPos, slots);
     }
 
     /**
@@ -511,6 +585,99 @@ public final class CarrierStore {
     @Nullable
     public static CarrierProjection.ProjectedHost structureHostAt(ServerLevel level, BlockPos structurePos) {
         return frameHostAt(level, structurePos, true);
+    }
+
+    /**
+     * <b>Which structure's own block storage holds this level coordinate, or {@code null}.</b>
+     *
+     * <p>The read-only counterpart of the authority {@link #structureHostAt} already guards its answer
+     * with - the same {@code plotOwnerAt} - asked on its own, because a caller has to compare the
+     * <em>asker's</em> coordinate with the host's: a wire of a structure's own blocks beside a host of
+     * <b>the same</b> structure is one machine and cannot be two solves, while a host of another
+     * structure is the seam proper and must keep answering. Nothing is written, no world entry is
+     * created, and no state is cached.
+     *
+     * <p>{@code null} covers every negative: no carrier bridge ({@code active} false), no coordinate,
+     * a coordinate no structure's own storage contains, and a failing {@code plotOwnerAt} - which is the
+     * unguarded side, "nothing to refuse", exactly as {@link #plotOwnerOf} documents.
+     */
+    @Nullable
+    public static CarrierId structureOwnerAt(ServerLevel level, BlockPos structurePos) {
+        if (!active || level == null || structurePos == null) {
+            return null;
+        }
+        return plotOwnerOf(level, structurePos);
+    }
+
+    /**
+     * <b>Which live structure's world bounds cover this WORLD position, or {@code null}.</b>
+     *
+     * <p>The <b>other direction</b> of {@link #structureOwnerAt}, and the only thing that can name it: that one
+     * asks about a coordinate <em>inside</em> a structure (a 子层级的 plot 坐标, which is a level position), this one
+     * asks about a position in the world a structure is <em>drawn</em> in. The two frames are two questions about
+     * the same integer, and a world block change arrives in the world frame - so without this question a change
+     * under a machine can only be matched to the machine by walking every carrier and comparing poses, which is
+     * exactly what must not happen per block change.
+     *
+     * <p>One lookup, and the mapping itself: {@code CarrierSource#carrierAt} is the compat half's containment
+     * test against each live structure's <b>world</b> bounds - never a plot box, which is stated in the other frame
+     * and does not move with the machine - so a position no structure covers is answered {@code null} and a caller
+     * that offers every change of a level stops there. Nothing here walks the carriers on its own account, keeps
+     * no table, creates nothing and caches nothing; a live structure realises it covers a block without anybody
+     * having to remember it.
+     *
+     * <p>{@code null} covers every negative: no carrier bridge ({@code active} false), no position, a position no
+     * live structure's bounds contain, and a failing lookup - "I could not tell" is never a coordinate, exactly as
+     * {@link #plotOwnerOf} documents for the opposite direction.
+     */
+    @Nullable
+    public static CarrierId carrierAt(ServerLevel level, BlockPos worldPos) {
+        CarrierSource carrierSource = source;
+        if (!active || carrierSource == null || level == null || worldPos == null) {
+            return null;
+        }
+        try {
+            return carrierSource.carrierAt(level, worldPos);
+        } catch (RuntimeException | LinkageError unreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * <b>The host a structure's own coordinate holds, without the ownership comparison - the carrier half's own
+     * question.</b>
+     *
+     * <p>For a caller that has <b>already</b> established that the structure it is asking about <em>is</em> the one
+     * holding this coordinate, so the second guard {@link #structureHostAt} applies is not a question but a
+     * restatement of what that caller just said. Asking it anyway is what makes the two halves of one lossless pair
+     * disagree: the carrier half reads the wire beside it through its own structure's view
+     * ({@code CarrierStore#blockViewOf}) and names its own carrier twice, while the run half goes through
+     * {@link #structureHostAt} and then compares an owner - and a cell of a structure's own grid can lie
+     * <b>outside the plot containment box</b> (a wire built into a sub-level after it was physicalised), where
+     * {@code plotOwnerAt} answers {@code null} and the guarded lookup refuses a host the structure really holds.
+     * One direction then asks "what would you be without me" while the other copies the stored strength - a pair at
+     * gain exactly one, oscillating instead of settling.
+     *
+     * <p>Exactly the lookup, and nothing else: the same {@code PROJECTION.atStructure} the guarded version makes,
+     * with no {@code plotOwnerAt}, no {@code atStructureOwnedBy}, no block read and no pose arithmetic. Read-only
+     * like both of its neighbours - no world entry is created, nothing is cached, and no diagnostics are recorded
+     * (the one caller writes its own line about which branch answered).
+     *
+     * <p>{@code null} covers every negative: no carrier bridge ({@code active} false), no coordinate, a dimension
+     * whose table is absent or not bridged, a table that holds nothing at that coordinate, and a lookup that
+     * throws - which is the "nothing to answer" side, exactly as {@link #plotOwnerOf} documents.
+     */
+    @Nullable
+    public static CarrierProjection.ProjectedHost structureHostAtAnyOwner(ServerLevel level,
+                                                                        BlockPos structurePos) {
+        if (!active || level == null || structurePos == null) {
+            return null;
+        }
+        try {
+            return PROJECTION.atStructure(level.dimension(), structurePos);
+        } catch (RuntimeException | LinkageError unreadable) {
+            return null;
+        }
     }
 
     /**
@@ -703,6 +870,105 @@ public final class CarrierStore {
         boolean frozen = RCConfig.carrierFreezeWorldIo();
         return "carrierBridge=" + (frozen ? "frozen" : "on")
                 + " (carrierFreezeWorldIo=" + frozen + ")  " + PROJECTION.describe(level.dimension());
+    }
+
+    // -------------------------------- a piston moves blocks inside a structure --
+
+    /**
+     * <b>结构里的一台活塞把方块搬了一格: 这台机器按 (机器, 机器内坐标) 记的东西一起搬。</b>
+     *
+     * <p>为什么需要这一条: 活塞那一侧 ({@code logic/PistonHostTransfer}) 只搬世界 store 的行与被搬世界形态的频道行, 而
+     * 结构里的元件与频道<b>根本不在世界 store 里</b> —— 认领它们的那一句已经把世界那一行收走了 (见
+     * {@link CarrierSource#plotOwnerAt} 与 {@code SableCarrierClaim})。于是结构里那台活塞推/收一次之后, 索引里那条
+     * 记录仍停在旧机器内坐标上, 而按位置问记录的每一条路都跟着错:
+     *
+     * <ul>
+     *   <li>打掉<b>新位置</b>那块方块时 {@code hitAt} 只认键恰好等于那一格的记录 ⇒ 答 {@code null} ⇒
+     *       {@link #destroyedHostAt} 回 {@code null} ⇒ 连 {@code discard} 都不发生 ⇒ 名单闸门没机会问, 而客户端手里
+     *       那条眼镜线一直在;</li>
+     *   <li>组 pass 的 roster 从 {@link CarriedHostIndex#liveHostsOf} 收成员, 位置对不上时那一支的行为跟着错。</li>
+     * </ul>
+     *
+     * <p><b>判据只有一处。</b>「这一格属于哪台机器」只问一次, 问的是 {@link CarrierSource#plotOwnerAt} (经
+     * {@link #plotOwnerOf}) —— 与点击层、结构帧读取用的是同一句; 而「搬到哪里」由调用方一句话给出 (世界位置变了 =
+     * 机器内坐标变了, 因为子层级的机器内坐标就是 level 坐标)。
+     *
+     * <p><b>没有机器时零变化。</b>不在这一层 (装了半个兼容层但没有机器), 或者这一格不属于任何机器 (Create 的 contraption
+     * 里那台活塞不走这个方块钩子, 它的方块不在 level 里, 见 {@link CarrierSource#plotOwnerAt}), 这一句一条记录都不动 ——
+     * 它答的是 {@code null}, 而 {@code null} 在这里就是「不是我的格子」。
+     *
+     * @return 搬走了几条记录; 0 表示这一格里没有机器的东西
+     */
+    public static int blocksMovedInStructure(ServerLevel level, List<BlockPos> sources, Direction travel) {
+        if (level == null || travel == null || sources == null || sources.isEmpty() || !isActive()) {
+            return 0;
+        }
+        CarriedHostIndex index = indexOf(level);
+        if (index == null || (index.isEmpty() && !CarriedSyncTorches.any())) {
+            // 这个 level 里没有任何一台机器记着东西: 连「这一格属于谁」都不必问。
+            return 0;
+        }
+        int moved = moveWithinCarriers(index, sources, travel, pos -> plotOwnerOf(level, pos));
+        if (moved > 0) {
+            CarriedHosts holder = CarriedHosts.get(level);
+            if (holder != null) {
+                // 机器内坐标是随存档走的那一半 (记录按 local 存), 所以搬过就要写一次。
+                holder.setDirty();
+            }
+        }
+        return moved;
+    }
+
+    /**
+     * 上一条的纯值那一半: 「这一格属于哪台机器」由调用方给成一句话, 于是没有 level、没有 compat、也没有兜底读取,
+     * 判据本身照样能被离线测试钉住 (与 {@link #hitAt} 的包内重载同一个做法)。
+     *
+     * <p>一台机器一次: 同一个载体在同一趟里的所有格子合成一张 from→to 表, 于是两段式 ({@link CarriedHostIndex#moveLocals}
+     * 与 {@link CarriedSyncTorches#remap}) 看到的是<b>整趟</b>的搬动, 而不是一格一格的先来后到 —— 一排方块里一格既是
+     * 一个的落点又是另一个的起点, 分开搬会把一条记录写到还没离开的那一条上面。
+     *
+     * <p>一次询问失败 ("I could not tell") 只会让那一格不动: 答不出归属就不是我的格子, 与点击层的同一条规矩。
+     */
+    static int moveWithinCarriers(@Nullable CarriedHostIndex index, @Nullable List<BlockPos> sources,
+                                  @Nullable Direction travel,
+                                  @Nullable Function<BlockPos, CarrierId> ownerOf) {
+        if (sources == null || travel == null || ownerOf == null) {
+            return 0;
+        }
+        Map<CarrierId, Map<BlockPos, BlockPos>> perCarrier = new LinkedHashMap<>();
+        for (BlockPos from : sources) {
+            if (from == null) {
+                continue;
+            }
+            CarrierId owner;
+            try {
+                owner = ownerOf.apply(from);
+            } catch (RuntimeException | LinkageError unreadable) {
+                owner = null;
+            }
+            if (owner == null) {
+                continue;
+            }
+            perCarrier.computeIfAbsent(owner, ignored -> new LinkedHashMap<>())
+                    .put(from.immutable(), from.relative(travel));
+        }
+        int moved = 0;
+        for (Map.Entry<CarrierId, Map<BlockPos, BlockPos>> entry : perCarrier.entrySet()) {
+            CarriedHostIndex.LocalMoves records = index == null ? CarriedHostIndex.LocalMoves.NONE
+                    : index.moveLocals(entry.getKey(), entry.getValue());
+            CarriedHostIndex.LocalMoves rows = CarriedSyncTorches.remap(entry.getKey(), entry.getValue());
+            moved += records.moved();
+            if (RCConfig.debugLog() && (records.moved() > 0 || records.blocked() > 0
+                    || rows.moved() > 0 || rows.blocked() > 0)) {
+                // 撞上的那些就留在这里: 「这一格已经有东西了, 谁的都不覆盖」与搬运世界 store 那一句是同一句话。
+                RCConfig.LOGGER.info("[redstonecircuit] carrier {}: the piston moved blocks inside the structure - "
+                                + "records moved={} blocked={}, sync-torch rows moved={} blocked={}; {}",
+                        entry.getKey().shortId(), records.moved(), records.blocked(),
+                        rows.moved(), rows.blocked(),
+                        index == null ? "no index" : index.summary(entry.getKey()));
+            }
+        }
+        return moved;
     }
 
     // ------------------------------------------- a carried block is broken --
@@ -2000,6 +2266,266 @@ public final class CarrierStore {
         }
     }
 
+    // ------------------------------------------------------- 一台载体的某一格 --
+
+    /**
+     * <b>一台载体的某一格, 本 mod 眼里的样子</b>: 那里的方块, 以及这一格自己带着的同步读数.
+     *
+     * <p>为什么"一格方块"不够: 一支同步火把的答案有两部分 - 方块状态里的 {@code LIT}, 与 store 里那一位输入掩码 -
+     * 而两者各自存在哪一份存档上是<b>载体形态</b>的事 (见 {@link #storageInLevel})。于是"读一台载体的某一格"与
+     * "写一台载体的某一格"必须是一对, 且读数跟着一起过: 组 pass 才不会一边读到自己的输出、一边写到一个没人读的地方。
+     *
+     * @param state 那一格立着的方块; {@code null} 表示"读不到" (没有视图, 或那一格不在结构里)
+     * @param inputs 这一格的同步输入掩码, 一位一面; {@code 0} 是一面都没有
+     */
+    public record CarriedCell(@Nullable BlockState state, byte inputs) {
+    }
+
+    /**
+     * <b>一台载体的方块存储是不是 level 自己的方块网格。</b>
+     *
+     * <p>这是两种载体之间<b>唯一的判据</b>, 而且只在这里写一次: 一台 Sable 子层级的方块就躺在自己的 plot 坐标上,
+     * 于是 level 就是它的存储 (读它 = 那一格 level 方块, 读数存在世界 store 的那一格上); 一台 Create contraption 的
+     * 方块在一个 map 里, {@code local} 是<b>相对锚点</b>的坐标, 那里在 level 里根本不是它 - 读它要走 contraption 自己
+     * 的 world, 读数存在机器作用域的那一行上 ({@code CarriedSyncTorches})。
+     *
+     * <p>一句而不是每个调用点各问一次: 组 pass 读一格、写一格、写掩码三处必须给同一个答案, 否则同一支火把会有两份
+     * 互相矛盾的真。
+     */
+    public static boolean storageInLevel(@Nullable CarrierId carrier) {
+        return carrier != null && carrier.isSubLevel();
+    }
+
+    /**
+     * 一台载体自己的方块视图, <b>在它自己的坐标上</b>; 读不到时 {@code null}。
+     *
+     * <p>读那一格方块与"它旁边的邻居答多少"都走这里: 一台 contraption 的邻居在它自己的 world 里
+     * ({@code Contraption#getContraptionWorld}), 拿 local 坐标去问 level 只会问到别人的空气。同一句实现也回答了
+     * "这台机器的存储在哪" ({@link CarrierAccess#blockViewOf}), 于是这里不必再分岔。
+     */
+    @Nullable
+    public static BlockGetter blockViewOf(@Nullable CarrierId carrier) {
+        CarrierSource carrierSource = source;
+        CarrierAccess carrierAccess = carrierSource == null ? null : carrierSource.access();
+        if (!isActive() || carrier == null || carrierAccess == null) {
+            return null;
+        }
+        try {
+            return carrierAccess.blockViewOf(carrier);
+        } catch (RuntimeException | LinkageError unreadable) {
+            return null;
+        }
+    }
+
+    /**
+     * <b>一台载体的方块存储, 在它自己的 local 坐标上</b> - "机器里那一格"该问哪一份, 由这一句回答。
+     *
+     * <p>{@link #storageInLevel} 的第三个用处, 也是同一个判据: 一台 Sable 子层级的方块就躺在自己的 plot 坐标上,
+     * 于是交进来的 {@code level} <b>就是</b>它的存储 - 原样交回去, 读它等于读那一格 level 方块; 一台 Create
+     * contraption 的方块在它自己的 map 里, 只有 {@link #blockViewOf} 读得到。
+     *
+     * <p>参数是 {@link BlockGetter} 而不是 {@code ServerLevel}: 调用方只拿它问方块, 于是这两支 (<b>存储就是 level</b>
+     * / <b>存储不在 level</b>) 能在没有游戏的地方钉住, 而"哪一份"这个问题不在调用点各问一次 - 散在调用点的判据迟早
+     * 给出两个答案。
+     *
+     * <p>子层级那一支<b>不看有没有物理后端</b>: 它读的是 level 自己的方块网格, 与 Sable 装没装无关 (而没有后端时也
+     * 不会有子层级这个载体)。读不到时 {@code null}, 与 {@link #blockViewOf} 同一条规矩。
+     */
+    @Nullable
+    public static BlockGetter storageViewOf(@Nullable BlockGetter level, @Nullable CarrierId carrier) {
+        if (carrier == null) {
+            return null;
+        }
+        return storageInLevel(carrier) ? level : blockViewOf(carrier);
+    }
+
+    /**
+     * <b>读一台载体的某一格</b> - 与 {@link #setCarriedCell} 成对的那一半。
+     *
+     * <p>判据是 {@link #storageInLevel}, 而它在这一个方法里只问一次: 存储就是 level 的那一种 (子层级) 读的就是 level
+     * 那一格 - 与上一版逐字节相同; 存储不在 level 的那一种 (contraption) 读它自己的视图 ({@link #blockViewOf})。
+     * "这台载体没有视图"时这一句<b>绝不退回去读 level 的方块网格</b>: 那一格在世界里不是它。
+     *
+     * <p>没有物理后端时它是一次静态布尔读 (见 {@link #isActive()}), 与其余入口同一条规矩。
+     */
+    @Nullable
+    public static CarriedCell carriedCellAt(@Nullable ServerLevel level, @Nullable CarrierId carrier,
+                                            @Nullable BlockPos local) {
+        if (!isActive() || carrier == null || local == null) {
+            return null;
+        }
+        if (storageInLevel(carrier)) {
+            // 子层级: level 就是它的存储, 于是这一句与"直接读那一格"逐字节相同 (那一格就在 plot 里, 不问 isLoaded -
+            // 走遍每个 plot 格的遍历读的正是同一句)。
+            return level == null ? null : new CarriedCell(level.getBlockState(local), readingAt(level, carrier, local));
+        }
+        BlockGetter view = blockViewOf(carrier);
+        if (view == null) {
+            return null;
+        }
+        BlockState state;
+        try {
+            state = view.getBlockState(local);
+        } catch (RuntimeException | LinkageError unreadable) {
+            return null;
+        }
+        return new CarriedCell(state, readingAt(level, carrier, local));
+    }
+
+    /**
+     * <b>一台载体的某一格里是哪个元件</b> - 与 {@link #carriedCellAt} 同一份存储、同一个判据, 只是把"那一格里的槽位"
+     * 交出去而不是只交成分与读数。
+     *
+     * <p>为什么需要它: 一个宿主方块对邻居答的是<b>里面那个元件</b>的强度 (见 {@code BlockStateSignalMixin}), 于是"这一格
+     * 是一根线"在某些判据里只有槽位说得出来 - 拿方块状态问, 一根方块内的红石粉与一块被强充能的石头答的是同一个 15。
+     * 那条判据 (走线, 见 {@code SyncGroups.WireWalk}) 要问的正是组件类型, 于是这里把槽位原样交出去。
+     *
+     * <p>判据仍是 {@link #storageInLevel}: 一台 Sable 子层级的格子<b>就是</b> level 的格子, 于是活着的那一份是世界 store
+     * (索引里那一份是它被搬走时的快照, 可能已经旧了); 一台 Create contraption 的格子只在索引里, 于是问索引。读不到时
+     * {@code null}, 与 {@link #carriedCellAt} 同一条规矩。
+     */
+    @Nullable
+    public static Slot carriedSlotAt(@Nullable ServerLevel level, @Nullable CarrierId carrier,
+                                     @Nullable BlockPos local) {
+        if (!isActive() || carrier == null || local == null) {
+            return null;
+        }
+        if (storageInLevel(carrier)) {
+            InnerRedstoneStore store = level == null ? null : InnerRedstoneStore.get(level);
+            Slot live = store == null ? null : store.slotAt(local);
+            if (live != null) {
+                return live;
+            }
+        }
+        CarriedHostIndex index = level == null ? null : indexOf(level);
+        CarriedHost host = index == null ? null : index.at(carrier, local);
+        return host == null ? null : host.slot();
+    }
+
+    /**
+     * <b>写一台载体的某一格</b> - 与 {@link #carriedCellAt} 成对的另一半。
+     *
+     * <p>同一个判据, 两个分支: 子层级写 level 的那一格 (状态 + 邻居通知, 与旧路径同一条写); contraption 走
+     * {@link CarrierSource#setCarriedBlock}, 由 compat 那一侧写进它自己的方块表 - 主源集不出现任何一个 Create 类型。
+     * 读数那一半按 {@link #storageInLevel} 写进它自己那一份存档。{@code cell.state()} 为 {@code null} 表示"只写
+     * 读数": 组 pass 只改掩码时不必重写方块状态 (contraption 那一份读数由调用方的 noteAnswer 写, 这里不重复)。
+     *
+     * @return 真的改了没有 (调用方据此决定要不要叫醒世界)
+     */
+    public static boolean setCarriedCell(@Nullable ServerLevel level, @Nullable CarrierId carrier,
+                                         @Nullable BlockPos local, @Nullable CarriedCell cell) {
+        if (!isActive() || carrier == null || local == null || cell == null) {
+            return false;
+        }
+        boolean changed = false;
+        if (cell.state() != null) {
+            CarrierSource carrierSource = source;
+            if (storageInLevel(carrier)) {
+                // 子层级那一格就是 level 的一格: 与"站在那里的那一支"同一个写 (状态 + 邻居通知), 于是 plot 里的邻居
+                // 同 tick 读到的是新答案。
+                changed = level != null && writeInPlot(level, local, cell.state());
+            } else if (carrierSource != null) {
+                try {
+                    changed = carrierSource.setCarriedBlock(carrier, local, cell.state());
+                } catch (RuntimeException | LinkageError unwritable) {
+                    changed = false;
+                }
+            }
+        }
+        // 读数的那一份: 子层级在世界 store 的这一格上 (它的格子就是 level 的格子); contraption 在机器作用域的那一行
+        // 上, 那一份由组 pass 用 CarriedSyncTorches#noteAnswer 写 - 这里不重复写, 也绝不往世界 store 里写一个锚点相对
+        // 的坐标: 那个数属于世界上另一格, 写下去就是一支不相干的火把读到别人的掩码。
+        if (storageInLevel(carrier)) {
+            InnerRedstoneStore store = level == null ? null : InnerRedstoneStore.get(level);
+            if (store != null && store.syncTorchInputsAt(local) != cell.inputs()) {
+                store.putSyncTorchInputs(local, cell.inputs());
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /**
+     * 一台 Sable 子层级的那一格写成 {@code state}: level 的写 + 邻居通知。
+     *
+     * <p>与 {@code SyncTorchBlock#applyLit} 的写是同一条: 那一句现在是"把状态写上去并让邻居听见", 而"写到哪一格"
+     * 由调用方决定 - 组 pass 写的是载体里那一格, 于是这两件事分在了两层。
+     */
+    private static boolean writeInPlot(ServerLevel level, BlockPos local, BlockState state) {
+        if (level.getBlockState(local).equals(state)) {
+            return false;
+        }
+        level.setBlock(local, state, Block.UPDATE_CLIENTS);
+        level.updateNeighborsAt(local, state.getBlock());
+        return true;
+    }
+
+    /**
+     * <b>「这一格变了」 - 通知的是机器里<b>自己那一格</b>, 不是它被画出来的那一格。</b>
+     *
+     * <p>组 pass 写下答案之后该重新求值的是<b>挨着这一格的邻居</b>: 一根贴在火把侧面的红石粉因为听见了火把的 15 才亮
+     * 起来, 也必须在火把不再往那一面输出的那一刻听见"该重算了"。世界形态那条有 {@code SyncTorchBlock#applyLit} 的
+     * {@code updateNeighborsAt}; 被搬着的那一支的邻居在<b>机器自己那一格里</b> (Sable 子层级是那一格的 plot 坐标,
+     * contraption 是它自己的 world), 而世界那一侧的通知 ({@code SyncGroups#pokeDrawn}) 只叫醒"画出来那一格" - 于是
+     * 机器里那根粉从来没人叫过它。缺的正是这一句: 少了它, 粉保留上一次的 15, 组 pass 每趟把它读成输入, 自锁。
+     *
+     * <p>判据仍是 {@link #storageInLevel}, 与读一格、写一格同一条: 一台 Sable 子层级的 {@code local} <b>就是</b>
+     * level 坐标, 于是那一格叫得醒; 一台 Create contraption 的 {@code local} 相对锚点, 那里在 level 里是别人的一格
+     * (往那儿叫就是把别人的电路点着), 而它自己的 world 是一份只读的 {@code BlockGetter} - 没有邻居通知这条路。那一支
+     * 答 {@code false}: 叫不到就说叫不到, 而不是打向 level 的某个坐标。
+     *
+     * <p>调用点只说"这一格变了", 一次; 叫不叫、叫哪一格由这一句答。没有物理后端时是一次静态布尔读。
+     *
+     * @return 真的发出了一次邻居通知
+     */
+    public static boolean notifyCellChanged(@Nullable ServerLevel level, @Nullable CarrierId carrier,
+                                            @Nullable BlockPos local) {
+        if (!isActive() || level == null) {
+            return false;
+        }
+        return notifyCellChanged(carrier, local, pos -> InnerRedstoneNetwork.notifyOutputChanged(level, pos));
+    }
+
+    /**
+     * 同一个决定, 通知由调用方交进来 - 于是"叫不叫、叫哪一格、几次"能在没有游戏的地方钉住。
+     *
+     * <p>包内可见, 与 {@link #notifyStructureNow} 把决定与那一趟分开是同一个做法: 组 pass 只多说一句"这一格变了",
+     * 而这句话的落点在这里判。
+     */
+    static boolean notifyCellChanged(@Nullable CarrierId carrier, @Nullable BlockPos local,
+                                     Consumer<BlockPos> notify) {
+        BlockPos at = cellNoticeInLevel(carrier, local);
+        if (at == null || notify == null) {
+            return false;
+        }
+        notify.accept(at);
+        return true;
+    }
+
+    /**
+     * 这一格的通知落在 level 的哪一格 - {@link #storageInLevel} 的第四个用处, 判据仍然只有那一句。
+     *
+     * <p>子层级答 {@code local} 自己 (它的 local 就是 level 坐标, 与 {@code writeInPlot} 写的是同一格); contraption
+     * 答 {@code null} (那一格不在 level, 而在它自己的 world 里, 那里没有 {@code updateNeighborsAt})。
+     */
+    @Nullable
+    static BlockPos cellNoticeInLevel(@Nullable CarrierId carrier, @Nullable BlockPos local) {
+        if (carrier == null || local == null || !storageInLevel(carrier)) {
+            return null;
+        }
+        return local;
+    }
+
+    /** 这一格的同步读数存在哪一份 - {@link #storageInLevel} 的第二个用处。 */
+    private static byte readingAt(@Nullable ServerLevel level, CarrierId carrier, BlockPos local) {
+        if (storageInLevel(carrier)) {
+            InnerRedstoneStore store = level == null ? null : InnerRedstoneStore.get(level);
+            return store == null ? 0 : store.syncTorchInputsAt(local);
+        }
+        CarriedSyncTorches.Row row = CarriedSyncTorches.at(carrier, local);
+        return row == null ? 0 : row.inputs();
+    }
+
     /**
      * The same question asked from a <b>level</b> coordinate, for the one caller that has a position and
      * no carrier yet: the entry point's filing gate (see {@code CarrierInteraction#onRightClickBlock}).
@@ -2134,6 +2660,47 @@ public final class CarrierStore {
                         + "drop it, so it is neither drawn as a ghost nor kept as landed",
                 destroyed.carrier().shortId(), destroyed.localPos().toShortString(), why,
                 index.liveHostsOf(destroyed.carrier()).size());
+        // THE WORLD HALF OF THE SAME REMOVAL, AND THIS PATH USED TO SKIP IT. Putting a component into a
+        // carried block also announces it on the world path, at the position the host is *projected* onto
+        // (see CarrierInteraction#broadcastPlacementChange) - that announcement is what the client files as
+        // a world host where the block is DRAWN, and its neighbours' wire models are decided from it
+        // (HostRenderPass asks the client's world index "is there a component beside this block" with no
+        // block test of its own). The two removals above speak the carrier language only, keyed by the
+        // structure's own local coordinate, so the world-path record at the projected position was never
+        // told "nothing here any more": a retrieval says it, a break did not. What stays behind is a
+        // component's line still drawn at a block that is gone - and relogging clears it, because the
+        // server's own store never held a record there. That asymmetry IS the ghost.
+        //
+        // HostSync#publishWorldEntry is that one sentence, with the guard it needs: a position the world
+        // store really holds a component at belongs to the ordinary break path and is left alone, so this
+        // line cannot erase a world host the player has of their own, and it drops nothing (the drop above
+        // stays the only one).
+        HostSync.publishWorldEntry(level, destroyed.worldPos());
+        if (slot != null && slot.type.isGroupDriven()) {
+            // THE GROUP LIST IS A SECOND, SEPARATE FACT, AND THIS PATH USED TO LEAVE IT BEHIND. The block
+            // that has just been destroyed can have been a member of a sync torch's group, and "who is in
+            // that group" is one sentence no slot carries: the client can only ever have the list replaced
+            // whole (see HostSync#broadcastSyncGroupsIfMemberLeft). It draws a carried member from the
+            // STRUCTURE'S POSE, so while the structure is still there and that list still names the member,
+            // the line from the torch on the ground to a block that no longer exists stays on screen - and
+            // it stays until the whole structure goes away, because a carrier removal (a message with no
+            // pose) is the only other thing that can stop a carried member being drawn.
+            // InnerRedstoneInteraction#forget asks this same gate - under the same group-driven guard - for
+            // the world-side twin of this removal; the carrier-side one never did, so "a member left" was
+            // only ever computed for the world store.
+            //
+            // THE GUARD IS THE ROSTER'S OWN ADMISSION RULE (`slot.type.isGroupDriven`, which the roster
+            // below reads as the same thing - see SyncGroups#roster): a destroyed dust or repeater host
+            // cannot have been a member, and asking the gate there would be one whole roster scan per
+            // destroyed component, on the self-healing sweep's tick.
+            //
+            // AFTER THE DISCARD AND AFTER THE CARRIER MESSAGE, in that order and not the other way round:
+            // the roster the gate reads is built from this index, so the record has to be gone before the
+            // question is put; and the client has to hear "that coordinate is not a host any more" before
+            // it hears "it is not a member any more" - the reverse order paints one frame of a line to
+            // nothing.
+            HostSync.broadcastSyncGroupsIfMemberLeft(level);
+        }
         // ...and the world around the position this block used to occupy has to re-read its signal.
         notifyWorld(level, destroyed.dropPos());
         // A block that no longer holds anything cannot be either half of a wrench link. Both the drop
@@ -2492,6 +3059,24 @@ public final class CarrierStore {
     private static void broadcastCarrier(ServerLevel level, CarrierId carrier,
                                          @Nullable CarriedHostIndex index, @Nullable CarrierPose pose,
                                          List<BlockPos> removed) {
+        if (pose != null && !filesCarrier(index, carrier)) {
+            // A CARRIER THAT IS NO LONGER IN THE INDEX MAY ONLY BE TOLD ABOUT AS GONE.
+            //
+            // The index is what "the server has this carrier" means: a carrier is in it exactly while it
+            // has a record, and the count the client's own trace compares against is read off it. So a
+            // message that still carries a pose for a carrier with no record left is the one shape that
+            // cannot be corrected afterwards - the client stores the pose, no later message ever names
+            // the carrier again, and nothing on the server can answer for it. That is the ghost carrier,
+            // and the exit that says "it is gone" is {@link #forget}: one place decides, whoever the
+            // caller was.
+            //
+            // The removal list travels with it, because a carrier dropped wholesale must still not keep
+            // its hosts as landed records - the coordinate this message names as discarded is what stops
+            // the client drawing it at the block that is no longer there.
+            forget(level, carrier, "no record of it is left in the index, so the message it was about "
+                    + "to be given may only say it is gone", removed);
+            return;
+        }
         REMOVALS.mentioned(level.dimension().location().toString(), carrier);
         HostSync.broadcastCarrier(level, carrier, index, pose, removed);
         // How many carriers the server has, told to the client's own trace so that "the client holds
@@ -3326,6 +3911,13 @@ public final class CarrierStore {
      * the client still believes the block is riding a carrier, so it is not drawn on the world path, and
      * the server no longer has a pose for that carrier, so it is not drawn inside the structure either.
      *
+     * <p><b>And it is enforced, not merely intended.</b> The one exit every carrier message goes
+     * through ({@code broadcastCarrier}) refuses to put a pose on the wire for a carrier this index no
+     * longer files, and sends this removal instead - so a caller that removes the last record and then
+     * re-broadcasts the structure cannot leave the client holding a carrier nothing can answer for. The
+     * two shapes are one line apart: a message with a pose is "here it is", a message without one is
+     * "it is gone".
+     *
      * <p><b>Idempotent in the data, not in the notice.</b> Calling this twice for one carrier writes
      * nothing twice - there is nothing left to write - but it does announce again, because the message is
      * what the client acts on and a dropped packet must not be able to strand a component. The
@@ -3339,12 +3931,36 @@ public final class CarrierStore {
      * @return how many clients-facing notices went out, for the diagnostics
      */
     public static int forget(ServerLevel level, CarrierId carrier, @Nullable String reason) {
+        return forget(level, carrier, reason, List.of());
+    }
+
+    /**
+     * The same, with the hosts this message names also <b>discarded</b> rather than put down.
+     *
+     * <p>A removal normally says only "this carrier is gone", and the client treats every host it was
+     * holding as put down - kept as a landed record and drawn where it was last placed. When the reason
+     * the carrier is gone is that its last record was <b>destroyed</b>, that reading is wrong: there is
+     * no block left to draw a component at. So the caller's discarded coordinates travel on the same
+     * message, exactly as they do on an ordinary carrier payload (see {@code dropCandidate}).
+     */
+    static int forget(ServerLevel level, CarrierId carrier, @Nullable String reason,
+                      @Nullable List<BlockPos> removed) {
         if (level == null || carrier == null) {
             return 0;
         }
         SENT_POSES.remove(carrier.uuid());
         SENT_POSE_TICKS.remove(carrier.uuid());
-        return announceRemoval(level, carrier, reason);
+        return announceRemoval(level, carrier, reason, removed);
+    }
+
+    /**
+     * Whether the index still files a carrier - the one question the removal guard in
+     * {@code broadcastCarrier} asks. A carrier that has put everything down is <b>not</b> gone: its
+     * records are still there (landed), so it is still counted and still answerable, and telling the
+     * client it is gone would be the false statement in the other direction.
+     */
+    private static boolean filesCarrier(@Nullable CarriedHostIndex index, CarrierId carrier) {
+        return index != null && !index.hostsOf(carrier).isEmpty();
     }
 
     /**
@@ -3353,7 +3969,8 @@ public final class CarrierStore {
      * <p>The message is a carrier payload with no pose and no hosts, which is what the client already
      * understands as "drop this carrier and everything I said was riding it".
      */
-    private static int announceRemoval(ServerLevel level, CarrierId carrier, @Nullable String reason) {
+    private static int announceRemoval(ServerLevel level, CarrierId carrier, @Nullable String reason,
+                                       @Nullable List<BlockPos> removed) {
         String dimension = level.dimension().location().toString();
         if (!REMOVALS.owesRemoval(dimension, carrier)) {
             // Nothing was ever put on the wire for this carrier, so there is nothing to take back.
@@ -3362,7 +3979,12 @@ public final class CarrierStore {
             REMOVALS.noteRemovalSuppressed();
             return 0;
         }
-        HostSync.broadcastCarrier(level, carrier, indexOf(level), null);
+        HostSync.broadcastCarrier(level, carrier, indexOf(level), null,
+                removed == null ? List.of() : removed);
+        // The number the client's own count is compared against, advanced here as well: a removal changes
+        // how many carriers there are, and leaving the trace on the pre-removal number would hide the
+        // next mismatch instead of reporting it (see CarrierTrace.Render#serverCarriers).
+        CarrierTrace.noteServerCarriers(level.dimension(), settledCarriers(level));
         REMOVALS.noteRemovalSent();
         if (reason != null && RCConfig.debugLog()) {
             RCConfig.LOGGER.info("[redstonecircuit] carrier {} removal announced to the client ({})",
@@ -3402,6 +4024,13 @@ public final class CarrierStore {
      */
     public static int releaseAll(ServerLevel level, CarrierId carrier, @Nullable String reason,
                                  @Nullable CarriedHostIndex.Landing landing) {
+        // A 同步火把 standing in the world that this structure carried has no host record at all (there is no slot
+        // to write), so its landing cannot depend on the index below - it is the one host that comes down even when
+        // the index has nothing to say. See CarriedSyncTorches#handBack.
+        if (active) {
+            CarriedSyncTorches.handBack(level, carrier,
+                    landing != null ? landing : landingOnRelease(null, lastSentPose(carrier)));
+        }
         CarriedHostIndex index = indexOf(level);
         if (index == null) {
             return 0;
@@ -3623,16 +4252,50 @@ public final class CarrierStore {
         Set<CarrierId> lineWritten = RCConfig.debugLog() ? new HashSet<>() : null;
         SolverNotifications.StructurePass structures = SolverNotifications.structurePass(level,
                 pos -> notifyStructureNow(level, pos, lineWritten));
+        // The positions the projection has LEFT, collected so the client is told in one message: a structure that
+        // drifts over twenty hosts leaves twenty stale world records behind, and one packet is the honest price of
+        // that while twenty would be a packet each.
+        List<BlockPos> left = new ArrayList<>();
         try {
             PROJECTION.forEachChange(dimension, pos -> notifyWorld(level, pos),
                     structures == null ? null : host -> structures.notify(host.localPos()),
-                    CarrierStore::noteTurned);
+                    CarrierStore::noteTurned,
+                    left::add);
+            withdrawLeftWorldEntries(level, left);
         } catch (RuntimeException | LinkageError failed) {
             // The bridge is a convenience over the frozen behaviour, never a requirement: a
             // failure here closes the outward half and says so rather than taking the tick down.
             RCConfig.LOGGER.warn("[redstonecircuit] carrier bridge notification failed; the "
                     + "outward half stays closed until the next tick", failed);
             PROJECTION.begin(dimension, false);
+        }
+    }
+
+    /**
+     * <b>The world path's half of "that host is not drawn here any more".</b>
+     *
+     * <p>Putting a component into a carried block announces it on the world path at the position the host is
+     * <b>projected</b> onto ({@code CarrierInteraction#broadcastPlacementChange}), and the client files that under a
+     * coordinate the server's own store never holds. Two things used to take it back: breaking the block
+     * ({@link #dropCandidate}) and taking the component out. <b>Moving the structure did not</b> - and a machine that
+     * drifts or turns moves every host it carries, so the component stayed drawn at the position it used to be
+     * projected onto, over air, for as long as the client stayed logged in.
+     *
+     * <p>The walk above already answers exactly which coordinates those are ({@code CarrierProjection#forEachChange}'s
+     * leave half); this is the one sentence that turns them into a message, and it is {@link HostSync#publishWorldEntries}
+     * so the guard is the same one the break path uses: a position the world store really holds a component at belongs
+     * to the ordinary world sync and is left alone. Nothing is dropped here - the drop belongs to a destruction, and
+     * this is not one.
+     */
+    private static void withdrawLeftWorldEntries(ServerLevel level, List<BlockPos> left) {
+        if (left.isEmpty()) {
+            return;
+        }
+        HostSync.publishWorldEntries(level, left);
+        if (RCConfig.debugLog()) {
+            RCConfig.LOGGER.info("[redstonecircuit] {} position(s) a structure is no longer drawn at said "
+                    + "to hold nothing: {}", left.size(), left.get(0).toShortString()
+                    + (left.size() > 1 ? " (+" + (left.size() - 1) + " more)" : ""));
         }
     }
 
@@ -3796,6 +4459,33 @@ public final class CarrierStore {
     }
 
     /**
+     * 一个被搬运的 host 的槽位, 刚刚被<b>组 pass</b> 改过: 写回索引, 并让客户端听到。
+     *
+     * <p>与 {@link CarrierNetworks} 的回写是同一条通道 ({@link #afterSolveWrote}): 存档变脏 + 一个搬运包, 于是
+     * "机器里那一份"和"客户端画的那一份"不会有哪怕一 tick 的差。除了一场搬运求解之外, 还有一件事会写一个被搬着的
+     * 元件 - 同步火把的答案属于全组, 而能看见全组的是 level tick 上那一趟 ({@code SyncGroups#tick}) - 所以那条
+     * 通道要有一个公开的入口, 而不是让第二个调用方自己复制一遍"标记脏 + 广播"。
+     *
+     * <p>返回 {@code false} 当索引里已经没有这条记录: 那一刻结构已经把它放下或丢了, 谁也没有地方可写。
+     */
+    public static boolean writeBackCarriedSlot(ServerLevel level, CarrierId carrier, BlockPos localPos,
+                                               @Nullable Slot slot) {
+        if (!active || level == null || carrier == null || localPos == null) {
+            return false;
+        }
+        CarriedHostIndex index = indexOf(level);
+        if (index == null) {
+            return false;
+        }
+        CarriedHost updated = index.updateSlot(carrier, localPos, slot);
+        if (updated == null) {
+            return false;
+        }
+        afterSolveWrote(level, carrier);
+        return true;
+    }
+
+    /**
      * Releases the hosts of every structure that no longer exists.
      *
      * <p>A structure counts as gone only when the source cannot even name a pose for it - the entity has
@@ -3917,6 +4607,11 @@ public final class CarrierStore {
         // pending repeater delays - is keyed by carrier UUID and would otherwise outlive a level it
         // described.
         CarrierNetworks.clear();
+        // Which 同步火把 each structure is carrying is per level for the same reason; a level that is going away has
+        // no blocks left to put them back at.
+        if (active) {
+            CarriedSyncTorches.clear();
+        }
     }
 
     // --------------------------------------------------------------- helpers --

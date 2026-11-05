@@ -363,7 +363,7 @@ final class StructurePreviewGeometry {
         // The switch is handed to the rule rather than read by it, so "nothing is dropped" is arithmetic a test can
         // check (see StructurePreviewVoxels#kept).
         boolean[] kept = StructurePreviewVoxels.kept(size, blocking, RCConfig.structurePreviewCull());
-        // What a buried cell used to save in full, a surface cell now saves in part: the same rule asked one direction
+        // What a buried cell saves in full, a surface cell saves in part: the same rule asked one direction
         // at a time, so a wall of one cell spends two faces out of six on the picture instead of six.
         boolean faces = RCConfig.structurePreviewFaces();
         List<Cell> visible = new ArrayList<>(cells.size());
@@ -528,6 +528,52 @@ final class StructurePreviewGeometry {
      * that fits it in a cube and every nested picture inside it - and nothing of the caller's pose: that is what
      * makes one emitted copy serve the block, the hand and the icon.
      */
+    /**
+     * <b>产物里那一组同步火把之间的连线, 画在方块自己的坐标系里.</b>
+     *
+     * <p>为什么画在这里而不是世界坐标系里: 产物画的是一个<b>缩微模型</b> - 整台机器按
+     * {@code StructurePreviewVoxels#miniatureScale} 压进一个方块 - 于是成员的位置只在这副坐标里有, 而方块所在的那
+     * 几格在世界里是空气。线宽仍是 {@link SyncGroupLines} 那个 0.04 格, <b>不</b>跟着缩放走: 顶点坐标已经由
+     * {@code miniatureCorner} 算进方块的单位立方里, 而线要是也跟着缩到十分之一, 就一个像素都不剩。
+     *
+     * <p>成员来自方块实体同步下来的那张表 (局部坐标 + 频道号), 于是"画几条线"仍然是纯几何
+     * ({@link SyncGroupLines#links}): 一个频道 n 个成员就是 n(n-1)/2 条。
+     */
+    static void drawGroupLines(PoseStack pose, MultiBufferSource buffers, StructurePreview preview,
+                               @Nullable Vec3i payloadSize, List<com.jiangyuefengyu.redstonecircuit.structure.StructurePayload.SyncTorchEntry> members) {
+        if (payloadSize == null || members == null || members.size() < 2) {
+            return;
+        }
+        Vec3i drawn = drawnSize(preview, Detail.FULL);
+        float scale = StructurePreviewVoxels.miniatureScale(drawn);
+        Map<Integer, List<SyncGroupLines.Spot>> byChannel = new LinkedHashMap<>();
+        for (com.jiangyuefengyu.redstonecircuit.structure.StructurePayload.SyncTorchEntry member : members) {
+            if (member == null
+                    || !com.jiangyuefengyu.redstonecircuit.logic.SyncTorchRule.isChannel(member.channel())) {
+                continue;
+            }
+            BlockPos local = member.localPos();
+            int x = StructurePreviewCells.previewCoordinate(local.getX(), preview.scale(), payloadSize.getX());
+            int y = StructurePreviewCells.previewCoordinate(local.getY(), preview.scale(), payloadSize.getY());
+            int z = StructurePreviewCells.previewCoordinate(local.getZ(), preview.scale(), payloadSize.getZ());
+            float[] corner = StructurePreviewVoxels.miniatureCorner(drawn, x, y, z);
+            byChannel.computeIfAbsent(member.channel(), key -> new ArrayList<>())
+                    .add(new SyncGroupLines.Spot(null, null, corner[0] + scale / 2.0F,
+                            corner[1] + scale / 2.0F, corner[2] + scale / 2.0F));
+        }
+        if (byChannel.isEmpty()) {
+            return;
+        }
+        VertexConsumer buffer = buffers.getBuffer(SyncGroupLines.lineType());
+        for (Map.Entry<Integer, List<SyncGroupLines.Spot>> group : byChannel.entrySet()) {
+            int argb = SyncGroupLines.argbOf(group.getKey());
+            for (SyncGroupLines.Link link : SyncGroupLines.links(group.getKey(), group.getValue(),
+                    SyncGroupLines.WorldGate.OPEN)) {
+                SyncGroupLines.emitSegment(pose.last(), buffer, link.world(), argb);
+            }
+        }
+    }
+
     static void bake(MultiBufferSource sink, List<Cell> cells, StructurePreview preview, Detail detail,
                      BlockRenderDispatcher dispatcher) {
         PoseStack pose = new PoseStack();

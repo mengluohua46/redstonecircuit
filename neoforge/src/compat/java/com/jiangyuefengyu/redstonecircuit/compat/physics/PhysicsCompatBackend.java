@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.RCRegistry;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose;
 
@@ -71,7 +72,33 @@ public final class PhysicsCompatBackend {
     public static void installProductCarrier() {
         if (PhysicsCompat.createLoaded()) {
             MovementProductHook.install();
+            installOwnDeviceTypes();
         }
+    }
+
+    /**
+     * <b>The block types that are their own device rather than a host of one.</b>
+     *
+     * <p>Every other type reaches {@code MovementBehaviour.REGISTRY} through {@link #hostBlockStored}, which
+     * fires the first time a <em>host</em> holds a component - and a 同步火把 standing in the world is a
+     * <b>component</b>, never a host, so that path can never fire for it: it holds no slot, and its channel
+     * lives in the world store's own table. Its type therefore had no movement behaviour at all, its channel
+     * was never claimed when a contraption took it, and a click on it never reached the carrier layer.
+     *
+     * <p>Registered <b>here</b>, at install time and not on first placement, for the reason the placed
+     * structure is: the block is ours, there is exactly one of it, and a registration that waits for a
+     * placement is a registration that silently did not happen the one time a player carried a machine before
+     * ever placing a torch. {@code hostBlockStored} is left alone - it is the "a host type first held a
+     * component" entry, and this row in the registry is not that event.
+     *
+     * <p>Both hooks, together: the movement hook is what claims the torch's channel, and the interaction hook
+     * is what makes a 调频器 click on it arrive instead of vanishing into Create's own handling. A type that
+     * travelled but could not be operated would be the same gap in a different place.
+     */
+    private static void installOwnDeviceTypes() {
+        Block torch = RCRegistry.SYNC_TORCH.get();
+        MovementHostHook.register(torch);
+        CarrierToolHook.register(torch);
     }
 
     /**

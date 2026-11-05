@@ -48,6 +48,7 @@ public record StructurePayload(
         List<ShellEntry> contextShell,
         List<SlotEntry> slotData,
         List<SettingEntry> settingData,
+        List<SyncTorchEntry> syncTorchData,
         List<BlockEntityEntry> blockEntities,
         int payloadHash) {
 
@@ -67,6 +68,8 @@ public record StructurePayload(
                             .forGetter(StructurePayload::slotData),
                     SettingEntry.CODEC.listOf().optionalFieldOf("setting_data", List.of())
                             .forGetter(StructurePayload::settingData),
+                    SyncTorchEntry.CODEC.listOf().optionalFieldOf("sync_torch_data", List.of())
+                            .forGetter(StructurePayload::syncTorchData),
                     BlockEntityEntry.CODEC.listOf()
                             .optionalFieldOf("block_entities", List.of())
                             .forGetter(StructurePayload::blockEntities),
@@ -85,6 +88,7 @@ public record StructurePayload(
         contextShell = List.copyOf(contextShell);
         slotData = List.copyOf(slotData);
         settingData = List.copyOf(settingData);
+        syncTorchData = List.copyOf(syncTorchData);
         blockEntities = List.copyOf(blockEntities);
     }
 
@@ -101,7 +105,7 @@ public record StructurePayload(
                             List<BlockEntityEntry> blockEntities,
                             int payloadHash) {
         this(header, faces, manual, List.of(), palette, indices, contextShell, slotData, List.of(),
-                blockEntities, payloadHash);
+                List.of(), blockEntities, payloadHash);
     }
 
     /** The same, carrying a clock's settings - what {@code StructureWorldStore#importFrom} needs. */
@@ -116,7 +120,7 @@ public record StructurePayload(
                             List<BlockEntityEntry> blockEntities,
                             int payloadHash) {
         this(header, faces, manual, List.of(), palette, indices, contextShell, slotData, settingData,
-                blockEntities, payloadHash);
+                List.of(), blockEntities, payloadHash);
     }
 
     /** One block of the world just outside the selection. The position may sit one block outside it. */
@@ -156,6 +160,24 @@ public record StructurePayload(
         }
     }
 
+    /**
+     * One <b>standing</b> 同步火把's channel, at its coordinate inside the selection.
+     *
+     * <p>The embedded form needs no entry of its own: its channel is a field of the slot, and the slot travels whole
+     * ({@link SlotEntry}). A torch standing in the world has no slot at all - the number lives in the level store's
+     * own position table - so without this entry a captured torch comes back unbound and joins no group, which reads
+     * to a player as "the torch does not work".
+     *
+     * <p>Only a real channel is written ({@code > 0}): an unbound torch has nothing to restore, and the block's own
+     * {@code onPlace} writes exactly that row.
+     */
+    public record SyncTorchEntry(BlockPos localPos, int channel) {
+
+        public static final Codec<SyncTorchEntry> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                        BlockPos.CODEC.fieldOf("pos").forGetter(SyncTorchEntry::localPos),
+                        Codec.INT.fieldOf("channel").forGetter(SyncTorchEntry::channel))
+                .apply(instance, SyncTorchEntry::new));
+    }
     /** One block entity's saved data, at its coordinate inside the selection. */
     public record BlockEntityEntry(BlockPos localPos, CompoundTag nbt) {
 
@@ -181,7 +203,7 @@ public record StructurePayload(
                                       List<SettingEntry> settingData,
                                       List<BlockEntityEntry> blockEntities) {
         StructurePayload withoutHash = new StructurePayload(header, faces, manual, output, palette, indices,
-                contextShell, slotData, settingData, blockEntities, 0);
+                contextShell, slotData, settingData, List.of(), blockEntities, 0);
         return withoutHash.withHash(withoutHash.computeHash());
     }
 
@@ -195,7 +217,7 @@ public record StructurePayload(
                                       List<ShellEntry> contextShell,
                                       List<SlotEntry> slotData,
                                       List<BlockEntityEntry> blockEntities) {
-        return of(header, faces, manual, output, palette, indices, contextShell, slotData, List.of(),
+        return of(header, faces, manual, output, palette, indices, contextShell, slotData, List.of(), List.of(),
                 blockEntities);
     }
 
@@ -208,13 +230,29 @@ public record StructurePayload(
                                       List<ShellEntry> contextShell,
                                       List<SlotEntry> slotData,
                                       List<BlockEntityEntry> blockEntities) {
-        return of(header, faces, manual, List.of(), palette, indices, contextShell, slotData, List.of(),
+        return of(header, faces, manual, List.of(), palette, indices, contextShell, slotData, List.of(), List.of(),
                 blockEntities);
     }
 
+    /** The same, carrying the channel of every <b>standing</b> 同步火把 in the selection. */
+    public static StructurePayload of(PayloadHeader header,
+                                      Map<Direction, List<ActivationTable.FaceEntry>> faces,
+                                      List<ActivationTable.ManualEntry> manual,
+                                      List<ActivationTable.OutputEntry> output,
+                                      List<CompoundTag> palette,
+                                      IndexArray indices,
+                                      List<ShellEntry> contextShell,
+                                      List<SlotEntry> slotData,
+                                      List<SettingEntry> settingData,
+                                      List<SyncTorchEntry> syncTorchData,
+                                      List<BlockEntityEntry> blockEntities) {
+        StructurePayload withoutHash = new StructurePayload(header, faces, manual, output, palette, indices,
+                contextShell, slotData, settingData, syncTorchData, blockEntities, 0);
+        return withoutHash.withHash(withoutHash.computeHash());
+    }
     public StructurePayload withHash(int hash) {
         return new StructurePayload(this.header, this.faces, this.manual, this.output, this.palette,
-                this.indices, this.contextShell, this.slotData, this.settingData, this.blockEntities, hash);
+                this.indices, this.contextShell, this.slotData, this.settingData, this.syncTorchData, this.blockEntities, hash);
     }
 
     /** The render cache key: same structure, same number. Computed from a <b>canonical</b> text form

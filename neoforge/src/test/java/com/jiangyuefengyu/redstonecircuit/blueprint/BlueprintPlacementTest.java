@@ -160,7 +160,8 @@ class BlueprintPlacementTest {
         BlueprintComponents.Section section = new BlueprintComponents.Section(new Vec3i(3, 2, 4),
                 List.of(new BlueprintComponents.Node(new BlockPos(0, 0, 0), node(ComponentType.DUST)),
                         new BlueprintComponents.Node(new BlockPos(1, 0, 0), node(ComponentType.REPEATER))),
-                List.of(new BlueprintComponents.Clock(new BlockPos(2, 1, 3), ClockRule.Setting.of(5, 3, 11))),
+                List.of(new BlueprintComponents.Clock(new BlockPos(2, 1, 3),
+                        ClockRule.Setting.of(5, 3, 11, ClockRule.DEFAULT_PULSE_TICKS))),
                 List.of(new BlueprintComponents.Extender(new BlockPos(0, 1, 2), ExtenderRule.Setting.of(2, 7))));
 
         BlockPos anchor = new BlockPos(0, 70, 0);
@@ -174,7 +175,8 @@ class BlueprintPlacementTest {
         assertTrue(nodes.containsKey(new BlockPos(0, 70, -1)), "格子跟着旋转走，可以落到负坐标");
         assertEquals(ComponentType.REPEATER, nodes.get(new BlockPos(0, 70, -1)).type);
         assertTrue(budget.clocks().containsKey(new BlockPos(3, 71, -2)), "时钟的格子同样换算");
-        assertEquals(ClockRule.Setting.of(5, 3, 11), budget.clocks().get(new BlockPos(3, 71, -2)));
+        assertEquals(ClockRule.Setting.of(5, 3, 11, ClockRule.DEFAULT_PULSE_TICKS),
+                budget.clocks().get(new BlockPos(3, 71, -2)));
         assertTrue(budget.extenders().containsKey(new BlockPos(2, 71, 0)), "延长器的格子同样换算");
         assertEquals(ExtenderRule.Setting.of(2, 7), budget.extenders().get(new BlockPos(2, 71, 0)));
     }
@@ -244,7 +246,8 @@ class BlueprintPlacementTest {
     void theThreeTablesDoNotLeakIntoEachOther() {
         BlueprintComponents.Section section = new BlueprintComponents.Section(new Vec3i(1, 1, 1),
                 List.of(new BlueprintComponents.Node(BlockPos.ZERO, node(ComponentType.CLOCK))),
-                List.of(new BlueprintComponents.Clock(BlockPos.ZERO, ClockRule.Setting.of(2, 2, 2))),
+                List.of(new BlueprintComponents.Clock(BlockPos.ZERO,
+                        ClockRule.Setting.of(2, 2, 2, ClockRule.DEFAULT_PULSE_TICKS))),
                 List.of(new BlueprintComponents.Extender(BlockPos.ZERO, ExtenderRule.Setting.of(3, 3))));
         BlueprintPlacement.Budget budget = BlueprintPlacement.budget(section, BlockPos.ZERO, Rotation.NONE,
                 Mirror.NONE);

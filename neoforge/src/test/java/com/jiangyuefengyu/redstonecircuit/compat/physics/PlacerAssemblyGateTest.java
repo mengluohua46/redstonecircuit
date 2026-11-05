@@ -79,6 +79,22 @@ class PlacerAssemblyGateTest {
     }
 
     @Test
+    @DisplayName("称不出质量是同一个事实：组装前的单格与组装后的整个结构由同一个判断回答")
+    void aCellThatWeighsNothingIsTheSameFactBeforeAndAfterAssembly() {
+        assertTrue(PlacerAssemblyGate.weighsNothing(0.0),
+                "a block with no collision shape - a crop, a torch, a line of dust - weighs exactly zero");
+        assertTrue(PlacerAssemblyGate.weighsNothing(Double.NaN), "a mass that could not be divided is no better");
+        assertTrue(PlacerAssemblyGate.weighsNothing(-1.0), "and neither is one below zero");
+        assertFalse(PlacerAssemblyGate.weighsNothing(0.25), "the lightest thing Sable knows still has a body");
+        assertFalse(PlacerAssemblyGate.weighsNothing(1.0));
+
+        assertEquals(PlacerAssemblyGate.weighsNothing(0.0),
+                        PlacerAssemblyGate.bodyProblem(0.0, true, false, true).contains("mass="),
+                "one predicate for both ends, so a cell that is not assembled and a body that is not accepted cannot "
+                        + "disagree about what zero mass means");
+    }
+
+    @Test
     @DisplayName("两样状态都是本次运行的，可以被清掉，像刚启动的服务器")
     void theStateIsPerRunAndCanBeForgotten() {
         assertTrue(PlacerAssemblyGate.claim(7));

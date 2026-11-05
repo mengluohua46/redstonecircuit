@@ -17,6 +17,12 @@ package com.jiangyuefengyu.redstonecircuit.carrier;
  *
  * <p>No level, no block state, no position: two booleans in, one enum out, so the rule is pinned by unit tests with no
  * game running.
+ *
+ * <p><b>One extension, and it is not a third owner.</b> A world position can hold a host record with no block in it
+ * (a record that outlived its block, or a carried host announced where it is drawn), and {@link #drawsHere} is the
+ * same decision with that state in it: the two-fact rule first, and the record drawn by the world path only where the
+ * carried path draws nothing. {@link #owner} stays two-valued, because the ownership question is still "which of the
+ * two paths", not "is this position drawn".
  */
 public final class HostPathOwnership {
 
@@ -63,5 +69,52 @@ public final class HostPathOwnership {
      */
     public static boolean fallbackDraws(boolean worldHost, boolean blockPresent) {
         return !worldPathDraws(worldHost, blockPresent);
+    }
+
+    /**
+     * <b>The third state a world position can be in: a host record whose block is air.</b>
+     *
+     * <p>Two supported things put a host record at a cell the world has no block in, and neither is a fault:
+     *
+     * <ul>
+     *   <li><b>a carried host, announced where it is drawn.</b> Its block is inside the structure, so the world
+     *       has air there by construction - the carrier announces a host at the <em>projected</em> position on
+     *       purpose, because neighbour wiring reads the cell. That one is drawn by the carried path.</li>
+     *   <li><b>a record that outlived its block.</b> The world store's records leave only through a break
+     *       event, a piston's own transfer and a capture's cut, so a block removed any other way (an explosion,
+     *       a command, a structure taking it) leaves its component behind - and the store is {@code SavedData},
+     *       so the record is read back on the next load and survives. Until this method existed such a
+     *       component was drawn by nobody: the world path refused it for want of a block, and no carried
+     *       candidate existed to take it instead.</li>
+     * </ul>
+     *
+     * <p><b>Why this cannot draw anything twice.</b> The ordinary two-fact answer ({@link #worldPathDraws}) is
+     * asked first and is unchanged, so every position drawn today is drawn by the same path as today. Only when
+     * that answer is no does the third state apply, and then only when <em>no carried candidate draws here</em>
+     * - {@code carriedDrawsHere} is that answer, asked of the carrier index by
+     * {@code ClientHostCache#carriedPathDrawsHere}. The two paths therefore stay exact complements: a position
+     * a carried host is drawn at remains the carried path's, and a position holding nothing but a record
+     * becomes the world path's. A position is still drawn by one path or the other, never both and never
+     * neither.
+     *
+     * <p>{@code loaded} has to be its own argument rather than folded into {@code blockPresent}, because the
+     * case this method adds is reached with no block to ask: a chunk the client has not got has nothing to
+     * draw, and a level must not be asked about a position it never sent. It was folded in before, which is
+     * why the old rule happened to be right on an unloaded chunk; here it is stated.
+     *
+     * @param worldHost the client's host sync holds a component for this position
+     * @param blockPresent a block stands at the position (it is not air)
+     * @param carriedDrawsHere the carried path draws a host at this same position
+     * @param loaded the client has this position's chunk
+     */
+    public static boolean drawsHere(boolean worldHost, boolean blockPresent, boolean carriedDrawsHere,
+                                    boolean loaded) {
+        if (!loaded) {
+            return false;
+        }
+        if (worldPathDraws(worldHost, blockPresent)) {
+            return true;
+        }
+        return worldHost && !carriedDrawsHere;
     }
 }

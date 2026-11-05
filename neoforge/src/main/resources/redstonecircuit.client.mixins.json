@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.jiangyuefengyu.redstonecircuit.mixin.client",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "PistonHeadRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

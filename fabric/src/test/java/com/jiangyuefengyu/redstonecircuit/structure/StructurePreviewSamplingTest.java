@@ -18,14 +18,14 @@ import net.minecraft.nbt.CompoundTag;
  *
  * <p>A miniature is a picture of a structure's <b>surface</b>. The majority vote a preview used to be built by is not:
  * a one-cell-thick decorated wall has four cells to the eight of a {@code scale}³ group, so the second, solid layer
- * behind it wins the group and the player is shown the back of the wall. These tests pin the rule that replaced it -
- * exposed cells first, the whole group only when nothing in it is exposed - on the shape an author's real build has, and
+ * behind it wins the group and the player is shown the back of the wall. These tests pin that rule -
+ * exposed cells first, the whole group only when nothing in it is exposed - on the shape a real build has, and
  * on the two ends that have to agree about it: the capture ({@code StructurePreview#build}) and the live view
  * ({@code StructurePreviewCells#representative} as the server calls it).
  */
 class StructurePreviewSamplingTest {
 
-    /** The box the author reported on: 32³, a one-cell-thick wall, a solid layer behind it, air inside. */
+    /** The box: 32³, a one-cell-thick wall, a solid layer behind it, air inside. */
     private static final int SIDE = 32;
 
     /** Palette index / state id of nothing. */
@@ -111,7 +111,7 @@ class StructurePreviewSamplingTest {
         assertEquals(14 * 14 * 14, air, "while the cavity inside it is empty, as it is in the structure");
 
         // The six faces of the coarse picture, each 16×16 cells, as the number of cells that hold the wall. Written out
-        // as well as asserted: this is the acceptance number for the picture an author reported as "two sides missing",
+        // as well as asserted: this is the acceptance number for the picture reported as "two sides missing",
         // and a run that prints it is the answer to "what does it look like now".
         System.out.println("[sampling] 32³ decorated box at scale 2: " + preview.filledCells() + " filled cell(s), wall="
                 + wall + " back=" + planks + " air=" + air);
@@ -186,7 +186,7 @@ class StructurePreviewSamplingTest {
 
     /**
      * A 32³ box: a one-cell-thick decorated wall, one cell in four of it a hole, a solid layer immediately behind the
-     * wall on every face, and air inside - the shape the author's structure has.
+     * wall on every face, and air inside - the shape the sampler has to get right.
      */
     private static int[] decoratedShell(Vec3i size) {
         int[] cells = new int[size.getX() * size.getY() * size.getZ()];

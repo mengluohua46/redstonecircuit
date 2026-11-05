@@ -1,0 +1,96 @@
+{
+  "variants": {
+    "extended=false,facing=down,grabbing=false": {
+      "model": "redstonecircuit:block/honey_piston",
+      "x": 90
+    },
+    "extended=false,facing=down,grabbing=true": {
+      "model": "redstonecircuit:block/honey_piston",
+      "x": 90
+    },
+    "extended=false,facing=east,grabbing=false": {
+      "model": "redstonecircuit:block/honey_piston",
+      "y": 90
+    },
+    "extended=false,facing=east,grabbing=true": {
+      "model": "redstonecircuit:block/honey_piston",
+      "y": 90
+    },
+    "extended=false,facing=north,grabbing=false": {
+      "model": "redstonecircuit:block/honey_piston"
+    },
+    "extended=false,facing=north,grabbing=true": {
+      "model": "redstonecircuit:block/honey_piston"
+    },
+    "extended=false,facing=south,grabbing=false": {
+      "model": "redstonecircuit:block/honey_piston",
+      "y": 180
+    },
+    "extended=false,facing=south,grabbing=true": {
+      "model": "redstonecircuit:block/honey_piston",
+      "y": 180
+    },
+    "extended=false,facing=up,grabbing=false": {
+      "model": "redstonecircuit:block/honey_piston",
+      "x": 270
+    },
+    "extended=false,facing=up,grabbing=true": {
+      "model": "redstonecircuit:block/honey_piston",
+      "x": 270
+    },
+    "extended=false,facing=west,grabbing=false": {
+      "model": "redstonecircuit:block/honey_piston",
+      "y": 270
+    },
+    "extended=false,facing=west,grabbing=true": {
+      "model": "redstonecircuit:block/honey_piston",
+      "y": 270
+    },
+    "extended=true,facing=down,grabbing=false": {
+      "model": "minecraft:block/piston_base",
+      "x": 90
+    },
+    "extended=true,facing=down,grabbing=true": {
+      "model": "minecraft:block/piston_base",
+      "x": 90
+    },
+    "extended=true,facing=east,grabbing=false": {
+      "model": "minecraft:block/piston_base",
+      "y": 90
+    },
+    "extended=true,facing=east,grabbing=true": {
+      "model": "minecraft:block/piston_base",
+      "y": 90
+    },
+    "extended=true,facing=north,grabbing=false": {
+      "model": "minecraft:block/piston_base"
+    },
+    "extended=true,facing=north,grabbing=true": {
+      "model": "minecraft:block/piston_base"
+    },
+    "extended=true,facing=south,grabbing=false": {
+      "model": "minecraft:block/piston_base",
+      "y": 180
+    },
+    "extended=true,facing=south,grabbing=true": {
+      "model": "minecraft:block/piston_base",
+      "y": 180
+    },
+    "extended=true,facing=up,grabbing=false": {
+      "model": "minecraft:block/piston_base",
+      "x": 270
+    },
+    "extended=true,facing=up,grabbing=true": {
+      "model": "minecraft:block/piston_base",
+      "x": 270
+    },
+    "extended=true,facing=west,grabbing=false": {
+      "model": "minecraft:block/piston_base",
+      "y": 270
+    },
+    "extended=true,facing=west,grabbing=true": {
+      "model": "minecraft:block/piston_base",
+      "y": 270
+    }
+  }
+}

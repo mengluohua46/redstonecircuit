@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/piston_inventory",
+  "textures": {
+    "top": "redstonecircuit:block/honey_piston_head"
+  }
+}

@@ -9,6 +9,10 @@ import com.jiangyuefengyu.redstonecircuit.block.BlockPlacerBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.block.ClockBlock;
 import com.jiangyuefengyu.redstonecircuit.block.ControllerBlock;
 import com.jiangyuefengyu.redstonecircuit.block.ExtenderBlock;
+import com.jiangyuefengyu.redstonecircuit.block.HoneyPistonBlock;
+import com.jiangyuefengyu.redstonecircuit.block.HoneyPistonHeadBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock;
+import com.jiangyuefengyu.redstonecircuit.block.TriggerBlock;
 import com.jiangyuefengyu.redstonecircuit.block.LogicIntegratorBlock;
 import com.jiangyuefengyu.redstonecircuit.block.RedstoneStructureBlock;
 import com.jiangyuefengyu.redstonecircuit.block.RedstoneStructureBlockEntity;
@@ -19,6 +23,7 @@ import com.jiangyuefengyu.redstonecircuit.block.TransformerBlock;
 import com.jiangyuefengyu.redstonecircuit.block.TransmissionGateBlock;
 import com.jiangyuefengyu.redstonecircuit.block.VariableRepeaterBlock;
 import com.jiangyuefengyu.redstonecircuit.block.WeatherDetectorBlock;
+import com.jiangyuefengyu.redstonecircuit.item.FrequencyTunerItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneGogglesItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.RotationRodItem;
@@ -30,6 +35,8 @@ import com.mojang.serialization.Codec;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
+import com.jiangyuefengyu.redstonecircuit.logic.TunerRule;
+
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -393,6 +400,119 @@ public final class RCRegistry {
             BuiltInRegistries.ITEM, RedstoneCircuit.id("redstone_structure_block"),
             new BlockItem(REDSTONE_STRUCTURE_BLOCK, new Item.Properties()));
 
+    // ------------------------------------------------------ 同步火把 / 调频器 --
+
+    /**
+     * 同步火把 as a block: 红石火把's shape, direction rules, place and break behaviour, with the polarity reversed -
+     * 吸附面 <b>有</b>信号才亮 - and the answer decided by the whole channel instead of by this torch
+     * ({@code SyncGroups#tick} is the only writer).
+     *
+     * <p>Its properties are the vanilla redstone torch's, {@code lightLevel} included: a torch whose channel is driven
+     * glows, which is the one thing visible from the outside that tells a player this is not a dead torch.
+     */
+    public static final SyncTorchBlock SYNC_TORCH = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("sync_torch"),
+            new SyncTorchBlock(BlockBehaviour.Properties.of()
+                    .instabreak()
+                    .sound(SoundType.WOOD)
+                    .noCollission()
+                    .pushReaction(PushReaction.DESTROY)
+                    .lightLevel(state -> state.getValue(SyncTorchBlock.LIT) ? 7 : 0)));
+
+    /**
+     * The item a player holds. A plain right-click on the ground puts the torch in the world as a block (vanilla's own
+     * block placement, with the torch's own 附着 rule); shift-right-click on a host block stores it inside as the
+     * {@code SYNC_TORCH} component - the same two gestures every other component item has ({@code HostRules}).
+     */
+    public static final BlockItem SYNC_TORCH_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("sync_torch"),
+            new BlockItem(SYNC_TORCH, new Item.Properties()));
+
+    // ------------------------------------------------------ 红石触发器 --
+
+    /**
+     * 红石触发器 - 一条上升沿切换一次开关的元件, 站着的时候是贴在方块上/下的一小段柱子 (不是薄板: 它没有界面).
+     *
+     * <p>Properties as a lever's, minus {@code noCollission}: it has a shape of its own (a lever is flat against its
+     * support and has none). {@code noOcclusion} like the four 薄板, which is also half of why it can never be a host -
+     * the other half is that it is not a full cube, and a component inside it would be a second owner of a cell it
+     * already answers from.
+     */
+    public static final TriggerBlock TRIGGER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("trigger"),
+            new TriggerBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.STONE)
+                    .strength(1.0F)
+                    .sound(SoundType.WOOD)
+                    .noOcclusion()));
+
+    /**
+     * The item a player holds: a plain right-click puts the trigger in the world as a block (贴地 or 贴天花板, and a wall
+     * click is refused), while shift-right-click on a host block stores it inside as the {@code TRIGGER} component - the
+     * same two gestures every other component item has ({@code HostRules}).
+     */
+    public static final BlockItem TRIGGER_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("trigger"),
+            new BlockItem(TRIGGER, new Item.Properties()));
+
+    /**
+     * 调频器 - the item that binds 同步火把 into one channel and reads a channel back out of one.
+     *
+     * <p>Stacks to one because it carries an identity (one channel) rather than a count, the same reason
+     * {@link #STRUCTURE_ITEM} does.
+     */
+    public static final FrequencyTunerItem FREQUENCY_TUNER_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("frequency_tuner"),
+            new FrequencyTunerItem(new Item.Properties().stacksTo(1)));
+
+    /**
+     * 调频器's channel as an item component: the number <b>and</b> the dimension it belongs to.
+     *
+     * <p>Channels are handed out per dimension, so a bare number is not a channel: "3" in the overworld and "3" in
+     * 下界 are two unrelated groups, and an item carrying only the number would bind across that line.
+     *
+     * <p>{@code networkSynchronized} for the same reason as {@link #STRUCTURE_DATA}: the tooltip is drawn on the
+     * client, so a component that is only persistent arrives there empty - which reads as "the tuner lost its channel".
+     */
+    public static final DataComponentType<TunerRule.Channel> TUNER_CHANNEL = Registry.register(
+            BuiltInRegistries.DATA_COMPONENT_TYPE, RedstoneCircuit.id("tuner_channel"),
+            DataComponentType.<TunerRule.Channel>builder()
+                    .persistent(TunerRule.Channel.CODEC)
+                    .networkSynchronized(TunerRule.Channel.STREAM_CODEC)
+                    .cacheEncoding()
+                    .build());
+
+    // ------------------------------------------------------------- 蜂蜜活塞 --
+
+    /**
+     * 蜂蜜活塞 - vanilla's piston plus one bit of state (see {@link HoneyPistonBlock}). Its properties are
+     * {@code Blocks.PISTON}'s own, taken from the vanilla declaration rather than approximated, so it is placed, broken
+     * and pushed like a piston; the two suffocating/view-blocking predicates are the vanilla ones, which answer by
+     * {@code EXTENDED} because an extended base is not a full cube.
+     */
+    public static final HoneyPistonBlock HONEY_PISTON = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("honey_piston"),
+            new HoneyPistonBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.STONE)
+                    .strength(1.5F)
+                    .isRedstoneConductor((state, level, pos) -> false)
+                    .isSuffocating((state, level, pos) -> !state.getValue(HoneyPistonBlock.EXTENDED))
+                    .isViewBlocking((state, level, pos) -> !state.getValue(HoneyPistonBlock.EXTENDED))
+                    .pushReaction(PushReaction.BLOCK)));
+
+    /** The head: {@code Blocks.PISTON_HEAD}'s properties, loot table included - it is never taken by a player. */
+    public static final HoneyPistonHeadBlock HONEY_PISTON_HEAD = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("honey_piston_head"),
+            new HoneyPistonHeadBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.STONE)
+                    .strength(1.5F)
+                    .noLootTable()
+                    .pushReaction(PushReaction.BLOCK)));
+
+    public static final BlockItem HONEY_PISTON_ITEM = Registry.register(
+            BuiltInRegistries.ITEM, RedstoneCircuit.id("honey_piston"),
+            new BlockItem(HONEY_PISTON, new Item.Properties()));
+
     /**
      * 结构's payload as an item component: the structure's id and the few fields that describe it.
      *
@@ -435,6 +555,12 @@ public final class RCRegistry {
                         output.accept(TRANSFORMER_ITEM);
                         output.accept(CLOCK_ITEM);
                         output.accept(EXTENDER_ITEM);
+                        output.accept(HONEY_PISTON_ITEM);
+                        // HONEY_PISTON_HEAD has no item: it is the piston's own arm, and vanilla's head is not an
+                        // item either.
+                        output.accept(SYNC_TORCH_ITEM);
+                        output.accept(TRIGGER_ITEM);
+                        output.accept(FREQUENCY_TUNER_ITEM);
                         output.accept(REDSTONE_STRUCTURE_BLOCK_ITEM);
                     })
                     .build());
@@ -442,8 +568,17 @@ public final class RCRegistry {
     private RCRegistry() {
     }
 
+    /**
+     * The armour points every slot gets. A zero is left <b>out</b> rather than written as a zero: an attribute
+     * modifier of 0 is still a modifier, so vanilla would draw the "when on head: +0 armour" block on the goggles -
+     * which is exactly the line a pair of goggles must not have (they protect against nothing, and the tooltip is
+     * where it says so).
+     */
     private static Map<ArmorItem.Type, Integer> defense(int value) {
         Map<ArmorItem.Type, Integer> defense = new EnumMap<>(ArmorItem.Type.class);
+        if (value == 0) {
+            return defense;
+        }
         for (ArmorItem.Type type : ArmorItem.Type.values()) {
             defense.put(type, value);
         }

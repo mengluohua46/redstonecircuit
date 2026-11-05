@@ -241,14 +241,14 @@ class BlockPlacerWiringTest {
     }
 
     @Test
-    @DisplayName("子维度创建默认关闭（读这个开关、并且必须判在分配之前的那一处不在这个 jar 里）")
-    void creatingAStructureIsOffByDefault() {
-        assertFalse(RCConfig.placerCreatesStructures(),
-                "making a structure and immediately taking it back is the only thing this mod does that touches the "
-                        + "optional mod's saved sub-level bookkeeping, and a damaged saved sub-level is what a failed "
-                        + "load reports. So the feature ships switched off, and the default is the half of that fact "
-                        + "this build can state: the refusal that reads the switch, and the requirement that it comes "
-                        + "before anything is allocated, live in the compat half, which is not part of this jar");
+    @DisplayName("子维度创建默认开启（读这个开关、并且必须判在分配之前的那一处不在这个 jar 里）")
+    void creatingAStructureIsOnByDefault() {
+        assertTrue(RCConfig.placerCreatesStructures(),
+                "the machine assembles a structure for what it places unless the player turns that off; the switch is "
+                        + "what keeps a world with a damaged saved sub-level from being written to at all. The refusal "
+                        + "that reads the switch, and the requirement that it comes before anything is allocated, live "
+                        + "in the compat half - which is what makes the default the half of that fact this build can "
+                        + "state, since that half is not part of this jar");
     }
 
     private static String block() throws IOException {

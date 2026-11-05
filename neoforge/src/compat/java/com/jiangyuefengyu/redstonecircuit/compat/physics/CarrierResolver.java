@@ -24,6 +24,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -44,9 +45,12 @@ import org.joml.Vector3d;
  */
 final class CarrierResolver implements CarrierStore.CarrierSource {
 
-    /** Lazily created; the structure access shares this resolver's entity and sub-level lookups. */
+    /**
+     * Lazily created; the structure access shares this resolver's entity and sub-level lookups, and answers both
+     * halves of "one of this carrier's blocks" - the read ({@link CarrierAccess}) and the write.
+     */
     @Nullable
-    private CarrierAccess structureAccess;
+    private CarrierStructureAccess structureAccess;
 
     /**
      * The stand-in identity of every contraption that has been claimed before its entity existed, keyed by
@@ -117,6 +121,21 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
      */
     @Override
     public CarrierAccess access() {
+        return structure();
+    }
+
+    /**
+     * {@code CarrierSource#setCarriedBlock}: writing one of a carrier's blocks. Reached only for a carrier whose
+     * storage is not the level - the carrier layer does the sub-level half itself, which is the same criterion
+     * ({@code CarrierStore#storageInLevel}) that gives the write its two branches here.
+     */
+    @Override
+    public boolean setCarriedBlock(CarrierId carrier, BlockPos local, BlockState state) {
+        return structure().setBlock(carrier, local, state);
+    }
+
+    /** The one structure-access instance: it holds nothing but a back-reference, and both halves use it. */
+    private CarrierStructureAccess structure() {
         if (structureAccess == null) {
             structureAccess = new CarrierStructureAccess(this);
         }

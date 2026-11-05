@@ -179,6 +179,9 @@ public final class StructureCapture {
         List<StructurePayload.BlockEntityEntry> blockEntities = new ArrayList<>();
         List<StructurePayload.SlotEntry> slots = new ArrayList<>();
         List<StructurePayload.SettingEntry> settings = new ArrayList<>();
+        // 同步火把 standing in the world keep their channel in the store beside the block, exactly like a
+        // clock's setting - so it travels the same way, or the torch comes back unbound and joins no group.
+        List<StructurePayload.SyncTorchEntry> torches = new ArrayList<>();
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
 
         for (int y = 0; y < box.size().getY(); y++) {
@@ -224,6 +227,12 @@ public final class StructureCapture {
                         extender.save(setting);
                         settings.add(new StructurePayload.SettingEntry(new BlockPos(x, y, z), setting));
                     }
+                    // And a standing 同步火把's channel, which is beside the block for the same reason. Only a real
+                    // channel is written: an unbound torch has nothing to restore, and its own onPlace writes that row.
+                    int syncChannel = store.syncTorchChannelAt(pos);
+                    if (limits.migrateSlots() && syncChannel > 0) {
+                        torches.add(new StructurePayload.SyncTorchEntry(new BlockPos(x, y, z), syncChannel));
+                    }
                 }
             }
         }
@@ -235,8 +244,13 @@ public final class StructureCapture {
         PayloadHeader header = new PayloadHeader(PayloadHeader.CURRENT_FORMAT, java.util.UUID.randomUUID(),
                 request.name(), box.size(), request.cornerA().subtract(box.min()), nesting,
                 request.ioMode(), request.cut);
+        if (com.jiangyuefengyu.redstonecircuit.RCConfig.debugLog()) {
+            com.jiangyuefengyu.redstonecircuit.RCConfig.LOGGER.info(
+                    "[redstonecircuit] structure capture: {} standing sync torch channel(s), {} component slot(s), cut={}, migrateSlots={}",
+                    torches.size(), slots.size(), request.cut(), limits.migrateSlots());
+        }
         StructurePayload payload = StructurePayload.of(header, request.faces(), request.manual(),
-                request.output(), palette, IndexArray.of(cells, palette.size()), shell, slots, settings,
+                request.output(), palette, IndexArray.of(cells, palette.size()), shell, slots, settings, torches,
                 blockEntities);
 
         if (request.cut()) {

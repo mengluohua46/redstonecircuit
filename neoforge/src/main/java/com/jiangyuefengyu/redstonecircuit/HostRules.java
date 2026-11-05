@@ -245,6 +245,16 @@ public final class HostRules {
         if (item == RCRegistry.EXTENDER_ITEM.get()) {
             return ComponentType.EXTENDER;
         }
+        // 同步火把 is one too: inside a host it is the SYNC_TORCH slot, whose channel is Slot#syncGroup (it has to
+        // follow a piston), and outside it is the block of the same name.
+        if (item == RCRegistry.SYNC_TORCH_ITEM.get()) {
+            return ComponentType.SYNC_TORCH;
+        }
+        // 红石触发器 is the same pair of gestures: outside it is the block of that name, inside a host it is the TRIGGER
+        // slot, whose edge memory is Slot#triggerInput (it has to follow a piston, so it cannot be a world-side table).
+        if (item == RCRegistry.TRIGGER_ITEM.get()) {
+            return ComponentType.TRIGGER;
+        }
         return null;
     }
 
@@ -266,6 +276,8 @@ public final class HostRules {
             case TRANSFORMER -> new ItemStack(RCRegistry.TRANSFORMER_ITEM.get());
             case CLOCK -> new ItemStack(RCRegistry.CLOCK_ITEM.get());
             case EXTENDER -> new ItemStack(RCRegistry.EXTENDER_ITEM.get());
+            case SYNC_TORCH -> new ItemStack(RCRegistry.SYNC_TORCH_ITEM.get());
+            case TRIGGER -> new ItemStack(RCRegistry.TRIGGER_ITEM.get());
             case PRESSURE_PLATE -> new ItemStack(Items.LIGHT_WEIGHTED_PRESSURE_PLATE);
         };
     }

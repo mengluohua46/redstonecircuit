@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/template_piston",
+  "textures": {
+    "bottom": "minecraft:block/piston_bottom",
+    "platform": "redstonecircuit:block/honey_piston_head",
+    "side": "minecraft:block/piston_side"
+  }
+}

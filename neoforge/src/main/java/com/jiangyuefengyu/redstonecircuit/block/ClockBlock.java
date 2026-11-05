@@ -38,8 +38,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
  * 时钟源: the one device that answers to nothing but the world clock. 正面 is where the player stood and
- * 背面 is where it emits; nothing reaches it, and {@link ClockRule} is a function of the period, the
- * strength and the world's own tick. The answer lives in {@link #LIT}, and 秒/tick/强度 live in the level's
+ * 背面 is where it emits; nothing reaches it, and {@link ClockRule} is a function of the period, the pulse
+ * width, the strength and the world's own tick. The answer lives in {@link #LIT}, and 秒/tick/强度/脉冲 live in the level's
  * {@code InnerRedstoneStore} - in block state they would be millions of states, and beside the block they
  * travel with a captured structure. It is driven by the level's own tick pass and the plot-cell walk, never
  * by a scheduled tick of its own: a block does not tick itself in a game test, and a plot's chunks do not tick.
@@ -98,7 +98,7 @@ public class ClockBlock extends RcPlateBlock {
     }
 
     /**
-     * This clock's three numbers, from the store beside it, or the default when there is nothing stored.
+     * This clock's four numbers, from the store beside it, or the default when there is nothing stored.
      * Server side only: a client has no store, so a client asking this gets the default.
      */
     public static ClockRule.Setting settingAt(BlockGetter level, BlockPos pos) {
@@ -115,7 +115,7 @@ public class ClockBlock extends RcPlateBlock {
     // ------------------------------------------------------------------ reading --
 
     /**
-     * Everything the screen shows, read at one position in one go: the three numbers the player set, what
+     * Everything the screen shows, read at one position in one go: the four numbers the player set, what
      * 背面 answers right now (0 between pulses), and how many ticks until the output next changes.
      */
     public record Readout(ClockRule.Setting setting, int power, int ticksToEdge) {
@@ -126,7 +126,7 @@ public class ClockBlock extends RcPlateBlock {
         ClockRule.Setting setting = settingAt(level, pos);
         boolean on = state.getValue(LIT);
         return new Readout(setting, on ? setting.strength() : 0,
-                ClockRule.ticksToEdge(level.getGameTime(), setting.period()));
+                ClockRule.ticksToEdge(level.getGameTime(), setting.period(), setting.pulse()));
     }
 
     // ---------------------------------------------------------------- answering --
@@ -142,7 +142,7 @@ public class ClockBlock extends RcPlateBlock {
             return;
         }
         ClockRule.Setting setting = settingAt(level, pos);
-        boolean on = ClockRule.isOn(level.getGameTime(), setting.period());
+        boolean on = ClockRule.isOn(level.getGameTime(), setting.period(), setting.pulse());
         if (state.getValue(LIT) == on) {
             return;
         }
@@ -225,7 +225,7 @@ public class ClockBlock extends RcPlateBlock {
     }
 
     /**
-     * Writes the three numbers beside the block and answers with the new state of the world; a new period
+     * Writes the four numbers beside the block and answers with the new state of the world; a new period
      * re-phases the clock against the world clock rather than restarting a countdown, so the answer is
      * derived again immediately. Returns whether the stored setting changed.
      */
@@ -235,7 +235,8 @@ public class ClockBlock extends RcPlateBlock {
             return false;
         }
         // Every setting that reaches the store goes through the range check first, as it does in 红石变压器.
-        ClockRule.Setting wanted = ClockRule.Setting.of(setting.seconds(), setting.ticks(), setting.strength());
+        ClockRule.Setting wanted = ClockRule.Setting.of(setting.seconds(), setting.ticks(), setting.strength(),
+                setting.pulse());
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
         ClockRule.Setting before = store.clockAt(pos);
         store.putClock(pos, wanted);
@@ -250,9 +251,10 @@ public class ClockBlock extends RcPlateBlock {
             return;
         }
         Readout readout = readout(level, pos, state);
+        // a/b/c/d are the setting itself, in its own order: 秒, tick, 强度, 脉冲 - the payload already had the fourth slot.
         PacketDistributor.sendToPlayer(player, new RCNetwork.DeviceViewPayload(pos, open,
                 DeviceKind.CLOCK.ordinal(), readout.setting().seconds(), readout.setting().ticks(),
-                readout.setting().strength(), 0, readout.power(), readout.ticksToEdge()));
+                readout.setting().strength(), readout.setting().pulse(), readout.power(), readout.ticksToEdge()));
     }
 
     /**
@@ -281,7 +283,7 @@ public class ClockBlock extends RcPlateBlock {
             return;
         }
         if (payload.verb() == RCNetwork.DeviceEditPayload.Verb.SET) {
-            ClockRule.Setting wanted = wanted(payload.a(), payload.b(), payload.c());
+            ClockRule.Setting wanted = wanted(payload.a(), payload.b(), payload.c(), payload.d());
             if (wanted != null) {
                 applySettings(level, pos, wanted);
             }
@@ -289,13 +291,15 @@ public class ClockBlock extends RcPlateBlock {
         sendView(player, level, pos, false);
     }
 
-    /** The three numbers a payload carries, or {@code null} when any of them is not a setting this device has. */
+    /** The four numbers a payload carries, or {@code null} when any of them is not a setting this device has. Every
+     * field is refused rather than clamped - a screen that sent a 脉冲 of 3 must be told, not quietly given 2. */
     @Nullable
-    public static ClockRule.Setting wanted(int seconds, int ticks, int strength) {
-        if (!ClockRule.isSeconds(seconds) || !ClockRule.isTicks(ticks) || !ClockRule.isStrength(strength)) {
+    public static ClockRule.Setting wanted(int seconds, int ticks, int strength, int pulse) {
+        if (!ClockRule.isSeconds(seconds) || !ClockRule.isTicks(ticks) || !ClockRule.isStrength(strength)
+                || !ClockRule.isPulse(pulse)) {
             return null;
         }
-        return new ClockRule.Setting(seconds, ticks, strength);
+        return new ClockRule.Setting(seconds, ticks, strength, pulse);
     }
 
     /** Where a device is drawn, and whether the player is close enough to it to be editing it. */
@@ -328,8 +332,8 @@ public class ClockBlock extends RcPlateBlock {
         }
         ClockRule.Setting setting = slot.clock;
         PacketDistributor.sendToPlayer(player, new RCNetwork.DeviceViewPayload(host, open,
-                DeviceKind.CLOCK.ordinal(), setting.seconds(), setting.ticks(), setting.strength(), 0,
-                slot.power, ClockRule.ticksToEdge(level.getGameTime(), setting.period())));
+                DeviceKind.CLOCK.ordinal(), setting.seconds(), setting.ticks(), setting.strength(), setting.pulse(),
+                slot.power, ClockRule.ticksToEdge(level.getGameTime(), setting.period(), setting.pulse())));
     }
 
     /** The stored clock's changes: checked, written, re-solved, and told to the client. */
@@ -349,7 +353,7 @@ public class ClockBlock extends RcPlateBlock {
             return;
         }
         if (payload.verb() == RCNetwork.DeviceEditPayload.Verb.SET) {
-            ClockRule.Setting wanted = wanted(payload.a(), payload.b(), payload.c());
+            ClockRule.Setting wanted = wanted(payload.a(), payload.b(), payload.c(), payload.d());
             if (wanted != null) {
                 applyHostSettings(level, host, slot, wanted);
             }
@@ -358,7 +362,7 @@ public class ClockBlock extends RcPlateBlock {
     }
 
     /**
-     * Writes the three numbers onto the stored component and lets the network know. The answer is not
+     * Writes the four numbers onto the stored component and lets the network know. The answer is not
      * written here - it is a function of the world clock, and the next pass of the tick that owns it
      * derives it - so what this must do is make that pass happen now.
      */
@@ -368,7 +372,8 @@ public class ClockBlock extends RcPlateBlock {
             return false;
         }
         ClockRule.Setting before = slot.clock;
-        ClockRule.Setting wanted = ClockRule.Setting.of(setting.seconds(), setting.ticks(), setting.strength());
+        ClockRule.Setting wanted = ClockRule.Setting.of(setting.seconds(), setting.ticks(), setting.strength(),
+                setting.pulse());
         slot.clock = wanted;
         announceHostSettings(level, host, slot);
         return !wanted.equals(before);

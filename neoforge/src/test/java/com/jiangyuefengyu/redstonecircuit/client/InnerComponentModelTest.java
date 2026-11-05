@@ -238,8 +238,8 @@ class InnerComponentModelTest {
     }
 
     @Test
-    @DisplayName("a cut side draws nothing at all: no line is what not connected looks like")
-    void cutSidesDrawNothing() {
+    @DisplayName("a hand-cut side loses its line and gains a red mark, the pin's own shape")
+    void cutSidesShowARedMark() {
         // A lever rather than a wire: a wire's flat lines are vanilla's business now, so the loss of a
         // line can only still be seen on a component whose lines we draw ourselves.
         Slot lever = slot(ComponentType.LEVER);
@@ -247,9 +247,13 @@ class InnerComponentModelTest {
         lever.setConnection(Direction.EAST, ConnectionState.OFF);
         List<Box> withCut = boxes(lever, EVERYTHING);
 
-        assertEquals(uncut - 1, withCut.size(), "the cut side simply loses its line");
-        assertTrue(withCut.stream().noneMatch(box -> box.argb() == 0xFF000000),
-                "and nothing is drawn in its place");
+        assertEquals(uncut, withCut.size(),
+                "the line goes and a mark takes its place, so the count is unchanged");
+        List<Box> cuts = withCut.stream().filter(box -> box.argb() == ConnectionBars.CUT_COLOR).toList();
+        assertEquals(1, cuts.size(), "exactly one red mark, on the side the wrench cut");
+        Box cut = cuts.get(0);
+        assertTrue(!cut.textured(), "a mark, not a piece of wire: a line would say the side is connected");
+        assertTrue(cut.a() > 0.3F, "and it sits out at the block's face, clear of the component");
     }
 
     @Test

@@ -4,6 +4,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
@@ -56,6 +57,12 @@ public final class RedstoneCircuit {
         com.jiangyuefengyu.redstonecircuit.compat.physics.PhysicsCompat.init();
 
         modContainer.registerConfig(ModConfig.Type.COMMON, RCConfig.SPEC);
+
+        // The mod list's Config button. The screen it opens is a client class, and the guard is what keeps a dedicated
+        // server from ever loading the holder that names it - "compiles" is not the same thing as "starts".
+        if (FMLEnvironment.dist.isClient()) {
+            com.jiangyuefengyu.redstonecircuit.client.ConfigScreenRegistration.register(modContainer);
+        }
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {

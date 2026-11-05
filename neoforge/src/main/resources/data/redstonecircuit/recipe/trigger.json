@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "T": {
+      "item": "minecraft:redstone_torch"
+    },
+    "L": {
+      "item": "minecraft:lever"
+    }
+  },
+  "pattern": [
+    "T",
+    "L"
+  ],
+  "result": {
+    "count": 1,
+    "id": "redstonecircuit:trigger"
+  }
+}

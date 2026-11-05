@@ -50,7 +50,12 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
          * 信号延长器: whether it is answering, at the strength it is answering with - the input's own while it is
          * arriving, and the strength it was answering with while a hold runs; both settings live on its screen.
          */
-        EXTENDER
+        EXTENDER,
+        /**
+         * 同步火把: whether the whole channel it is bound to is lit - its entire state. Which channel that is, and
+         * what colour that channel has, are drawn in the world instead of being written here.
+         */
+        SYNC_TORCH
     }
 
     /**
@@ -74,6 +79,11 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
             case TRANSFORMER -> StateKind.TRANSFORMER;
             case CLOCK -> StateKind.CLOCK;
             case EXTENDER -> StateKind.EXTENDER;
+            case SYNC_TORCH -> StateKind.SYNC_TORCH;
+            // 红石触发器 has two states and nothing else: answering 15 or silent. That is what StateKind.TORCH already
+            // says ("lit"/"unlit"), so the trigger borrows it rather than adding a kind of its own - a fifth kind would
+            // have to be worded in the Jade overlay and in the carried overlay as well, two tables outside this device.
+            case TRIGGER -> StateKind.TORCH;
         };
         return new InnerComponentLine(slot.type, kind, slot.power, slot.delay,
                 slot.mode == ComparatorMode.SUBTRACT, slot.powered);
@@ -101,6 +111,7 @@ public record InnerComponentLine(ComponentType type, StateKind kind, int power, 
             case TRANSFORMER -> type + " " + (hasOutput() ? "output=" + power : "no output");
             case CLOCK -> type + " " + (hasOutput() ? "output=" + power : "no output");
             case EXTENDER -> type + " " + (hasOutput() ? "output=" + power : "no output");
+            case SYNC_TORCH -> type + " " + (hasOutput() ? "lit" : "dark");
         };
     }
 

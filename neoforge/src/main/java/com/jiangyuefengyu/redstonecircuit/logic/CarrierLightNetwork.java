@@ -14,6 +14,7 @@ import com.jiangyuefengyu.redstonecircuit.data.Slot;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.ticks.TickPriority;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -125,12 +126,21 @@ public final class CarrierLightNetwork {
     }
 
     /**
-     * Applies every driven component whose scheduled re-evaluation has come due. The output is decided now
-     * rather than remembered from when it was scheduled, which is what lets a short pulse disappear.
+     * Applies every driven component whose scheduled re-evaluation has come due, in queue order.
+     *
+     * <p>Vanilla's {@code DiodeBlock#tick} in miniature, and asymmetric like it: a component that was
+     * <b>on</b> follows what it reads now, while one that was <b>off</b> is switched on whatever it reads,
+     * with one more full delay queued behind it only when the input has already gone. That is what makes an
+     * input pulse shorter than the delay come out one delay wide instead of vanishing - the world solver does
+     * the same, and the two must not drift apart.
+     *
+     * <p>A component held still by a diode beside it is skipped and not re-queued, exactly as a locked vanilla
+     * repeater never ticks.
      */
     private void applyDueFlips(PowerEnvironment env, long now) {
-        List<BlockPos> due = pending.takeDue(now);
-        for (BlockPos pos : due) {
+        List<PendingFlips.Flip> due = pending.drainDue(now);
+        for (PendingFlips.Flip flip : due) {
+            BlockPos pos = flip.pos();
             PowerEnvironment.Node node = env.nodeAt(pos.getX(), pos.getY(), pos.getZ());
             if (node == null) {
                 // Taken out of the structure while its re-evaluation was waiting; nothing to do.
@@ -142,12 +152,38 @@ public final class CarrierLightNetwork {
             // A bridged environment reads the world at a position relative to this component, so it is told
             // which one that is before it is asked. A no-op for every other environment.
             env.setQueryPosition(pos);
-            int desired = PowerSolver.desiredOutput(env, pos, node);
-            if (desired == node.power()) {
+            if (PowerSolver.isSignalLocked(env, pos, node)) {
                 continue;
             }
-            node.setPower(desired);
+            int desired = PowerSolver.desiredOutput(env, pos, node);
+            int before = node.power();
+            int after;
+            if (before > 0) {
+                if (desired == before) {
+                    continue;
+                }
+                after = desired;
+            } else if (node.type().isDiode()) {
+                // Off before this tick: switched on whatever arrives now, at the strength the queue recorded.
+                after = desired > 0 ? desired : PowerSolver.clamp(flip.target());
+                if (after <= 0) {
+                    continue;
+                }
+            } else {
+                // A torch asks again before it re-lights itself, so for it a pulse that has gone stays gone.
+                if (desired == before) {
+                    continue;
+                }
+                after = desired;
+            }
+            node.setPower(after);
             changed.add(pos.immutable());
+            if (before == 0 && desired == 0) {
+                // The input left before the delay elapsed: one more full delay turns it off again. Vanilla
+                // schedules that second tick at VERY_HIGH.
+                pending.schedule(pos, now + Math.max(1, node.type().delayTicks(delayOf(env, pos))),
+                        TickPriority.VERY_HIGH, 0);
+            }
         }
     }
 
@@ -206,6 +242,8 @@ public final class CarrierLightNetwork {
                 continue;
             }
             env.setQueryPosition(pos);
+            // A component held still by a diode beside it answers what it already holds, so it never looks
+            // stale here: no entry, no tick, exactly as a locked vanilla repeater has none.
             int desired = PowerSolver.desiredOutput(env, pos, node);
             if (desired == node.power()) {
                 continue;
@@ -218,7 +256,9 @@ public final class CarrierLightNetwork {
                 changed.add(pos.immutable());
                 continue;
             }
-            pending.schedule(pos, now + delay);
+            // The strength it is heading for travels with the entry: by the time this tick arrives the pulse
+            // that started it may be unreadable, and vanilla turns the component on anyway.
+            pending.schedule(pos, now + delay, PowerSolver.tickPriority(env, pos, node), desired);
         }
     }
 

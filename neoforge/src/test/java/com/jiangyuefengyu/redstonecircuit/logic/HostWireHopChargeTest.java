@@ -334,9 +334,11 @@ class HostWireHopChargeTest {
     void theCarrierPathAndTheWorldRuleAreUnchanged() throws Exception {
         String space = flat(
                 "src/main/java/com/jiangyuefengyu/redstonecircuit/carrier/CarrierSpace.java");
-        assertTrue(space.contains("io.signalIntoOwnFrame(queryPos, direction)"),
-                "the carrier half still reads the world through the owner-aware form");
-        assertTrue(space.contains("Math.max(worldSignal, structureSignal)"),
+        assertTrue(space.contains("bridge.signalIntoOwnFrame(queryPos, direction)"),
+                "the carrier half still reads the world through the owner-aware form: its STOCK answer is that "
+                        + "call, made from worldSignal, and the pair rule replaces that answer rather than "
+                        + "opening a second way into the world");
+        assertTrue(space.contains("Math.max(worldHalf, structureSignal)"),
                 "and the two halves are still combined as the larger");
 
         String network = flat(

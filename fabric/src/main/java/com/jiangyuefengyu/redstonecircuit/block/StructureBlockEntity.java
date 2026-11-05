@@ -398,6 +398,12 @@ public class StructureBlockEntity extends BlockEntity {
      * <p>Its shape is {@link BlockEntityTicker}'s, so the block can hand it straight to vanilla.
      */
     public static void serverTick(Level level, BlockPos pos, BlockState state, StructureBlockEntity product) {
+        // 每 40 tick 问一次"产物里那几支火把还是不是同一组": 号会变 (调频器), 而客户端手里那份是随方块实体走的,
+        // 于是变了就得说一声; 没变什么都不发。
+        if (level instanceof net.minecraft.server.level.ServerLevel server
+                && server.getGameTime() % 40L == 0L) {
+            product.refreshGroupTorches();
+        }
         if (!(level instanceof ServerLevel server)) {
             return;
         }
@@ -1566,6 +1572,90 @@ public class StructureBlockEntity extends BlockEntity {
         level.setBlock(this.getBlockPos(), state.setValue(StructureBlock.LIGHT, lit), Block.UPDATE_CLIENTS);
     }
 
+    /**
+     * <b>这个产物里那几支同步火把: 局部坐标加频道号.</b>
+     *
+     * <p>为什么由方块实体带下去: 产物的方块都在口袋里, 而客户端手里只有一张缩微模型 - 它画得出"那一格是同步火把",
+     * 却画不出"它和谁一组", 因为频道号在口袋那份存储里, 而且每次放置都是新号。于是这一份随方块实体同步出去, 与面表、
+     * 手动表走同一个通道 (update tag), 客户端由此画得出产物里面的组线。
+     *
+     * <p>只在 update tag 里, 不在存档里: 号属于口袋那份存储, 存档时再抄一份就只是多一份迟早不一致的副本。
+     */
+    private List<StructurePayload.SyncTorchEntry> groupTorches = List.of();
+
+    /** 产物内部那几支同步火把 (局部坐标 + 频道号); 客户端据此画组线, 服务端这一份是上一次同步出去的值。 */
+    public List<StructurePayload.SyncTorchEntry> groupTorches() {
+        return this.groupTorches;
+    }
+
+    /**
+     * 这一刻这个产物里有哪些同步火把: 从口袋那份存储现读。
+     *
+     * <p>现读而不是记着: 玩家用调频器改号时, 改动发生在口袋那一层, 不在方块实体这一层 - 记一份副本就是记一份迟早
+     * 不对的表。整份表也就是几行, 而调用点每 40 tick 才问一次。
+     */
+    private List<StructurePayload.SyncTorchEntry> readGroupTorches() {
+        if (!(this.level instanceof net.minecraft.server.level.ServerLevel server)
+                || server.getServer() == null || this.plotIndex < 0) {
+            return List.of();
+        }
+        net.minecraft.server.level.ServerLevel pocket =
+                com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketDimension.of(server.getServer());
+        if (pocket == null) {
+            return List.of();
+        }
+        BlockPos origin =
+                com.jiangyuefengyu.redstonecircuit.structure.pocket.PocketSpace.originOf(this.plotIndex);
+        com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore store =
+                com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore.get(pocket);
+        java.util.List<StructurePayload.SyncTorchEntry> out = new java.util.ArrayList<>();
+        for (BlockPos pos : store.syncTorchPositions()) {
+            int channel = store.syncTorchChannelAt(pos);
+            if (channel <= 0) {
+                continue;
+            }
+            BlockPos local = pos.subtract(origin);
+            if (local.getX() < 0 || local.getY() < 0 || local.getZ() < 0
+                    || local.getX() >= this.size.getX() || local.getY() >= this.size.getY()
+                    || local.getZ() >= this.size.getZ()) {
+                continue;
+            }
+            out.add(new StructurePayload.SyncTorchEntry(local, channel));
+        }
+        return List.copyOf(out);
+    }
+
+    /** 那张表变了就说一声, 没变什么都不做 (每 40 tick 问一次, 见 {@code serverTick})。 */
+    private void refreshGroupTorches() {
+        List<StructurePayload.SyncTorchEntry> now = readGroupTorches();
+        if (now.equals(this.groupTorches)) {
+            return;
+        }
+        this.groupTorches = now;
+        if (this.level != null) {
+            BlockState state = getBlockState();
+            this.level.sendBlockUpdated(this.worldPosition, state, state,
+                    net.minecraft.world.level.block.Block.UPDATE_CLIENTS);
+        }
+    }
+
+    /** 那张表跟着 update tag 走; 顺手把服务端自己那一份换成同一个值, 于是比较的是"客户端手里是什么"。 */
+    private void putGroupTorches(CompoundTag tag) {
+        this.groupTorches = readGroupTorches();
+        if (this.groupTorches.isEmpty()) {
+            return;
+        }
+        StructurePayload.SyncTorchEntry.CODEC.listOf().encodeStart(NbtOps.INSTANCE, this.groupTorches).result()
+                .ifPresent(encoded -> tag.put("group_torches", encoded));
+    }
+
+    private void readGroupTorches(CompoundTag tag) {
+        this.groupTorches = tag.contains("group_torches")
+                ? StructurePayload.SyncTorchEntry.CODEC.listOf()
+                        .parse(NbtOps.INSTANCE, tag.get("group_torches")).result().orElse(List.of())
+                : List.of();
+    }
+
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
@@ -1605,6 +1695,7 @@ public class StructureBlockEntity extends BlockEntity {
         this.preview = tag.contains("preview")
                 ? StructurePreview.CODEC.parse(NbtOps.INSTANCE, tag.get("preview")).result().orElse(null)
                 : null;
+        readGroupTorches(tag);
     }
 
     @Override
@@ -1623,6 +1714,7 @@ public class StructureBlockEntity extends BlockEntity {
         putManual(tag);
         putOutput(tag);
         putPreview(tag);
+        putGroupTorches(tag);
         return tag;
     }
 

@@ -3,6 +3,7 @@ package com.jiangyuefengyu.redstonecircuit.carrier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -103,6 +104,23 @@ public final class CarriedHostIndex {
 
         /** The world position local coordinate {@code localPos} is being put down at. */
         BlockPos landingFor(BlockPos localPos);
+    }
+
+    /**
+     * 一次「机器内部换格子」的结果: 搬走了几条记录, 因为目标格上已经有一条记录而没有搬几条。
+     *
+     * <p>撞上的那一条<b>留在原格</b>, 与搬运世界 store 时「目标格上还站着一个不走的占用者, 两个就都要留着」是同一句话;
+     * 而它的安全方向是「元件留在它原来那一格」—— 坏掉的是一条记录的坐标, 不是元件本身。
+     */
+    public record LocalMoves(int moved, int blocked) {
+
+        /** 什么都没动: 这一格里没有这台机器的东西, 或者每一条都撞上了目标格。 */
+        public static final LocalMoves NONE = new LocalMoves(0, 0);
+
+        /** 真的搬走了东西时为 true。 */
+        public boolean movedAny() {
+            return moved > 0;
+        }
     }
 
     // ------------------------------------------------------------------ state --
@@ -510,6 +528,81 @@ public final class CarriedHostIndex {
             byCarrier.remove(to.uuid());
         }
         return moved;
+    }
+
+    /**
+     * <b>一台机器内部的方块换了格子: 按 (机器, 机器内坐标) 记的记录跟着走。</b>
+     *
+     * <p>为什么需要这一条: 结构里的一台活塞把方块推/收一格之后, 那一格方块<b>真的换了位置</b> —— 对 Sable 子层级来说
+     * 「机器内坐标」本身就是 level 坐标, 于是「方块在世界里挪了」与「记录的键变了」是同一件事。记录留在旧键上, 之后按
+     * 位置问记录的每一条路都找不到它: {@code hitAt} 只认键恰好等于那一格的记录, 于是打掉新位置那块方块时
+     * {@code destroyedHostAt} 答 {@code null}, 连 {@link #discard} 都不发生 —— 名单闸门没机会问, 眼镜那条线一直在;
+     * 组 pass 的 roster 从 {@link #liveHostsOf} 收成员, 位置对不上时那一支的行为也跟着错。
+     *
+     * <p><b>不覆盖。</b>目标格上已经有一条记录 (而且它不是这一批里要走的), 那一条留下、这一条<b>留在原格</b>; 记日志的
+     * 是调用方 ({@code CarrierStore#moveWithinCarriers}) —— 判据在这里只有一句, 而叙述只在一个地方。
+     *
+     * <p><b>两段式。</b>一排方块里一格既是一个的落点又是另一个的起点, 所以旧键先全部收走、新键再一起写; 边读边写会把一条
+     * 记录写到还没离开的那一条上面。
+     *
+     * <p><b>已落地的记录不搬。</b>它按 {@link CarriedHost#at()} 在世界里作答, {@code local} 只是它身份的一半, 而它对应的
+     * 那格方块已经不在结构里了 —— 搬它只会给一条已经交出去的记录编一个新地址。
+     */
+    public LocalMoves moveLocals(@Nullable CarrierId carrier, @Nullable Map<BlockPos, BlockPos> moves) {
+        if (carrier == null || moves == null || moves.isEmpty()) {
+            return LocalMoves.NONE;
+        }
+        Long2ObjectMap<CarriedHost> hosts = byCarrier.get(carrier.uuid());
+        if (hosts == null) {
+            return LocalMoves.NONE;
+        }
+        // 要走的那几条: 旧键上真的有一条还骑着的记录。
+        Map<BlockPos, CarriedHost> leaving = new LinkedHashMap<>();
+        for (Map.Entry<BlockPos, BlockPos> move : moves.entrySet()) {
+            if (move.getKey() == null || move.getValue() == null) {
+                continue;
+            }
+            CarriedHost host = hosts.get(move.getKey().asLong());
+            if (host == null || host.landed()) {
+                continue;
+            }
+            leaving.put(move.getKey().immutable(), host);
+        }
+        if (leaving.isEmpty()) {
+            return LocalMoves.NONE;
+        }
+        // 第一遍: 谁走、谁被挡住。挡住的那一条原样留在旧键上, 于是这一遍一条都不删。
+        Map<BlockPos, BlockPos> planned = new LinkedHashMap<>();
+        int blocked = 0;
+        for (Map.Entry<BlockPos, CarriedHost> entry : leaving.entrySet()) {
+            BlockPos from = entry.getKey();
+            BlockPos to = moves.get(from).immutable();
+            // 目标格上已经有记录, 而它不是这一批里要走的 (要走的那几条此刻都还在旧键上, 于是「在 leaving 里」
+            // 就是「这一格马上就要空出来」)。
+            if (hosts.containsKey(to.asLong()) && !leaving.containsKey(to)) {
+                blocked++;
+                continue;
+            }
+            planned.put(from, to);
+        }
+        if (planned.isEmpty()) {
+            return new LocalMoves(0, blocked);
+        }
+        // 第二遍: 旧键先全部收走, 新键再一起写。
+        for (BlockPos from : planned.keySet()) {
+            hosts.remove(from.asLong());
+        }
+        int moved = 0;
+        for (Map.Entry<BlockPos, BlockPos> entry : planned.entrySet()) {
+            CarriedHost host = leaving.get(entry.getKey());
+            BlockPos to = entry.getValue();
+            CarriedHost relocated = new CarriedHost(host.origin(), to, host.slot(), host.at(),
+                    host.landed(), host.conflict());
+            hosts.put(to.asLong(), relocated);
+            bind(relocated);
+            moved++;
+        }
+        return new LocalMoves(moved, blocked);
     }
 
     // -------------------------------------------------------------- releasing --

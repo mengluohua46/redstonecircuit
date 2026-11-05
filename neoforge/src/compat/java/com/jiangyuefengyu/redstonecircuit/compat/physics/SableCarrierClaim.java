@@ -8,7 +8,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarriedHostIndex;
+import com.jiangyuefengyu.redstonecircuit.carrier.CarriedSyncTorches;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierId;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierKind;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierPose;
@@ -17,6 +19,7 @@ import com.jiangyuefengyu.redstonecircuit.carrier.CarrierStore;
 import com.jiangyuefengyu.redstonecircuit.carrier.SubLevelSpace;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneNode;
 import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
@@ -244,6 +247,10 @@ final class SableCarrierClaim {
                 refused++;
                 continue;
             }
+            if (claimSyncTorch(level, space, store, local, origin)) {
+                claimed++;
+                continue;
+            }
             CarrierPose pose = space.pose();
             CarrierStore.startMoving(level, space.uuid(), CarrierKind.SUB_LEVEL, local, origin);
             claimed++;
@@ -271,8 +278,10 @@ final class SableCarrierClaim {
         return claimed;
     }
 
-    /** The world positions inside a sub-level that still hold a component in the level's own store.
-     * Bounded by the store, not by the plot: its position list, filtered by the sub-level's bounds. */
+    /** The world positions inside a sub-level that still hold a component <em>of some kind</em> in the level's
+     * own store. Bounded by the store, not by the plot: its position lists, filtered by the sub-level's bounds,
+     * and the second list is not the first one counted twice - a 同步火把 standing in the world has a row in the
+     * store's own table and no slot at all, so a candidate set read off one list alone never contains it. */
     private static List<BlockPos> candidates(ServerLevel level, SubLevelSpace space,
                                              InnerRedstoneStore store) {
         List<BlockPos> out = new ArrayList<>();
@@ -289,7 +298,83 @@ final class SableCarrierClaim {
             }
             out.add(worldPos);
         }
+        // 立在世界里的同步火把: 频道在 store 的另一张表里, 一个槽位都没有 - 于是它今天完全不在候选里, 机器搬走它时
+        // 谁也不认领。
+        for (BlockPos worldPos : store.syncTorchPositions()) {
+            if (out.size() >= MAX_CLAIMS_PER_PASS) {
+                break;
+            }
+            if (!space.containsWorld(worldPos) || out.contains(worldPos)) {
+                continue;
+            }
+            out.add(worldPos);
+        }
+        // And the ones that have <em>just</em> left the world: their row is gone from the store by now (it is keyed
+        // by a world position and the block's own hook deletes it), so the channel waits in the carrier layer until
+        // this pass claims it. See CarriedSyncTorches#stash.
+        for (BlockPos worldPos : CarriedSyncTorches.pending(level)) {
+            if (out.size() >= MAX_CLAIMS_PER_PASS) {
+                break;
+            }
+            if (!space.containsWorld(worldPos) || out.contains(worldPos)) {
+                continue;
+            }
+            out.add(worldPos);
+        }
         return out;
+    }
+
+    /**
+     * One standing 同步火把 taken into this sub-level: its channel and this instant's reading go on riding with
+     * the machine.
+     *
+     * <p>The proof that this is really a move and not a coincidence is <b>positive</b>: the machine's own cell
+     * holds a 同步火把. That cell being air in the world, projecting into the structure's bounds and staying inside
+     * them is what every candidate satisfies - including a torch a player broke two blocks under a machine that
+     * happens to be flying over it.
+     *
+     * <p>It is <b>not</b> claimed into the carrier index. Every record there stands for a host block with a slot,
+     * and the release writes those slots at the landing position; this form has no slot, so it is handed back by
+     * {@code CarriedSyncTorches} when the carrier releases (see {@code CarrierStore#releaseAll}).
+     *
+     * @return whether this candidate was a standing 同步火把, so it has been dealt with
+     */
+    private static boolean claimSyncTorch(ServerLevel level, SubLevelSpace space, InnerRedstoneStore store,
+                                          BlockPos local, BlockPos origin) {
+        BlockState here = level.getBlockState(local);
+        if (!(here.getBlock() instanceof SyncTorchBlock)) {
+            return false;
+        }
+        CarriedSyncTorches.Capture lifted = CarriedSyncTorches.take(level, origin);
+        int channel;
+        byte inputs;
+        if (lifted != null) {
+            channel = lifted.channel();
+            inputs = lifted.inputs();
+        } else if (store.hasSyncTorch(origin)) {
+            channel = store.syncTorchChannelAt(origin);
+            inputs = store.syncTorchInputsAt(origin);
+        } else {
+            // No row anywhere: a torch this feature never saw leave (the row was written by the move itself, or
+            // the level was saved in between). It still rides, and it still answers - as an unbound torch.
+            channel = 0;
+            inputs = 0;
+        }
+        CarriedSyncTorches.capture(space.carrier(), local, origin, channel, inputs, here.getValue(SyncTorchBlock.LIT));
+        // The world row is put away: this torch is not at that coordinate any more, and a row left behind would be
+        // read by the next torch placed there. The row the machine's own cell may hold (its placement wrote one) goes
+        // too, or the group pass would see one torch as two members - one of them at a position nobody is looking at.
+        store.removeSyncTorch(origin);
+        store.removeSyncTorch(local);
+        // The machine's cell takes over this instant's reading, so its neighbours on the machine see the same faces
+        // the torch had while it stood in the world.
+        store.putSyncTorchInputs(local, inputs);
+        HostSync.broadcastSyncGroups(level);
+        if (RCConfig.traceCarrier()) {
+            RCConfig.LOGGER.info("[redstonecircuit] sable claim {} sync torch local={} origin={} channel={}",
+                    space.carrier().shortId(), local.toShortString(), origin.toShortString(), channel);
+        }
+        return true;
     }
 
     /** Whether the local coordinate the pose named is a block the structure really stands on: an affine

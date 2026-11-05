@@ -2,13 +2,17 @@ package com.jiangyuefengyu.redstonecircuit.blueprint;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.jetbrains.annotations.Nullable;
 
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
+import com.jiangyuefengyu.redstonecircuit.data.InnerRedstoneStore;
+import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponentType;
@@ -47,6 +51,19 @@ public final class BlueprintDeploy {
     private BlueprintDeploy() {
     }
 
+    /**
+     * One line about one deploy, behind {@code debugLog}.
+     *
+     * <p>Added because "the group line was not drawn" cannot be told apart from "the channel never arrived" without
+     * knowing which gate the deploy stopped at: the section may be missing from the file, Create's settings may not
+     * be readable, or the section may simply carry no channels. One real run answers all three.
+     */
+    private static void trace(String message) {
+        if (RCConfig.debugLog()) {
+            RCConfig.LOGGER.info("[redstonecircuit] " + message);
+        }
+    }
+
     // ------------------------------------------------------------ read side --
 
     /**
@@ -56,8 +73,11 @@ public final class BlueprintDeploy {
     public static void sectionRead(@Nullable CompoundTag tag) {
         if (tag != null && tag.contains(BlueprintComponents.KEY)) {
             SECTION.set(tag);
+            trace("blueprint file carries our section");
         } else {
             SECTION.remove();
+            trace("blueprint file carries NO redstonecircuit section (tag=" + (tag == null ? "null" : "present")
+                    + ") - nothing of ours can be restored from it");
         }
     }
 
@@ -71,21 +91,65 @@ public final class BlueprintDeploy {
         CompoundTag tag = SECTION.get();
         SECTION.remove();
         if (tag == null || !(level instanceof ServerLevel serverLevel) || stack == null || stack.isEmpty()) {
+            trace("blueprint deploy: skipped before reading it (section=" + (tag == null ? "null" : "present")
+                    + ", level=" + (level instanceof ServerLevel ? "server" : "not-server")
+                    + ", stack=" + (stack == null || stack.isEmpty() ? "empty" : "present") + ")");
             return;
         }
         try {
             StructurePlaceSettings settings = settingsOf(stack);
             BlockPos anchor = anchorOf(stack);
             if (settings == null || anchor == null) {
+                trace("blueprint deploy: skipped (settings=" + (settings == null ? "null" : "ok")
+                        + ", anchor=" + (anchor == null ? "null" : "ok") + ") - Create's components/reflection"
+                        + " could not be read, so nothing of ours was restored");
                 return;
             }
+            // 一次放置一张新表: 上一次为另一台机器领的号不该被这一次接着用.
+            BlueprintRestore.forgetChannels(serverLevel.dimension());
             BlueprintPlacement.Budget budget = budgetOf(tag, anchor, settings.getRotation(), settings.getMirror());
             if (budget != null) {
                 BlueprintRestore.remember(serverLevel.dimension(), anchor, budget);
+                restoreSyncTorchChannels(serverLevel, tag, anchor, settings);
+            } else {
+                trace("blueprint deploy: the section decoded to no budget, so nothing of ours was placed");
             }
         } catch (RuntimeException failed) {
             report("load", "a blueprint's components could not be read: " + failed);
         }
+    }
+
+    /**
+     * 世界形态的同步火把的频道, 写回它们要落地的格子。
+     *
+     * <p>为什么不走 {@link BlueprintRestore}: 那张表是"坐标 → 元件", 而这里的频道行不是元件 - 它属于 store 的位置表,
+     * 与时钟源的设置同一类东西。落点由 {@link BlueprintPlacement#toWorld} 换算, 因为蓝图自己的坐标与世界的坐标只该在
+     * 那一处相遇; 旋转与镜像从物品上来, 与元件的落点用的是同一对值, 所以一支火把和它旁边那个方块不会转到两个地方去。
+     *
+     * <p>写在<b>加载</b>这一刻而不是每个方块落地时: 频道行不依赖方块是否已经在那里 (组 pass 会跳过还立着空气的格子),
+     * 而 Create 的一次打印可能跨越很多 tick。
+     */
+    private static void restoreSyncTorchChannels(ServerLevel level, CompoundTag tag, BlockPos anchor,
+                                                 StructurePlaceSettings settings) {
+        BlueprintComponents.Section section = BlueprintComponents.readFile(tag);
+        if (section == null || section.syncTorches().isEmpty()) {
+            trace("blueprint deploy: section has NO standing sync torch channel (section=" + (section == null ? "damaged" : "ok")
+                    + ") - any torch in it lands unbound, which is what a missing group line looks like");
+            return;
+        }
+        InnerRedstoneStore store = InnerRedstoneStore.get(level);
+        // 放出来的这一份用自己的频道号: 捕获时的号码属于它被复制的那台机器, 沿用会把复制品和原件绑成一组.
+        // 分组留着, 号码是新的, 一个号只换一次.
+        for (BlueprintComponents.SyncTorch entry : section.syncTorches()) {
+            int fresh = BlueprintRestore.freshChannel(store, level.dimension(), entry.channel());
+            store.putSyncTorch(BlueprintPlacement.toWorld(anchor, settings.getRotation(), settings.getMirror(),
+                    entry.pos()), fresh);
+        }
+        // 蓝图让一个维度多出了几个频道, 客户端那一份只能整份换掉。
+        HostSync.broadcastSyncGroups(level);
+        trace("blueprint deploy: restored " + section.syncTorches().size() + " standing sync torch channel(s), " + ", at anchor="
+                + anchor.toShortString() + " rotation=" + settings.getRotation() + " mirror=" + settings.getMirror()
+                + ", and told every client the whole membership");
     }
 
     /**

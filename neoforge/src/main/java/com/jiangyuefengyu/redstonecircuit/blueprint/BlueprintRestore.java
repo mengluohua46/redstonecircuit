@@ -59,6 +59,8 @@ public final class BlueprintRestore {
 
     /** A cannon that has finished printing but still has projectiles in the air, by its own position. */
     private static final Map<ResourceKey<Level>, Map<BlockPos, BlockPos>> AWAITING_LAST = new HashMap<>();
+    /** 蓝图里的频道号 → 这一次放出来的号, 一次放置一张. */
+    private static final Map<ResourceKey<Level>, Map<Integer, Integer>> FRESH_CHANNELS = new HashMap<>();
 
     private static final java.util.Set<String> WARNED = ConcurrentHashMap.newKeySet();
 
@@ -123,6 +125,7 @@ public final class BlueprintRestore {
             Slot slot = null;
             ClockRule.Setting clock = null;
             ExtenderRule.Setting extender = null;
+            boolean landed = false;
             synchronized (LOCK) {
                 List<Pending> list = PENDING.get(level.dimension());
                 if (list == null) {
@@ -138,7 +141,13 @@ public final class BlueprintRestore {
                         extender = foundExtender;
                     }
                 }
+                int left = list.size();
                 prune(level.dimension(), list);
+                // THE MOMENT THE PRINT FINISHED. Blocks land one at a time through Create's own placement loop, so
+                // the one that empties this record is the last one - and prune deletes the record in that same
+                // breath, which is why finish() then finds nothing and the new membership is never announced.
+                // So the test lives beside the deletion: a shorter table means one print done.
+                landed = list.size() < left;
             }
             if (slot != null) {
                 // The same gate the compensation pass applies, asked here too: a blueprint is somebody else's file,
@@ -165,6 +174,11 @@ public final class BlueprintRestore {
                     report("refused-extender", "an extender's settings were not put back at "
                             + pos.toShortString() + ": no extender stands there");
                 }
+            }
+            if (landed) {
+                // Said here, after this cell's own slot was written, and never in the middle: the snapshot names the
+                // cells this print creates, so it may only go out once the last of them exists.
+                HostSync.broadcastSyncGroups(level);
             }
         } catch (RuntimeException failed) {
             report("settle", "a component could not be put back at " + pos.toShortString() + ": " + failed);
@@ -276,15 +290,57 @@ public final class BlueprintRestore {
                 writeExtender(level, entry.getKey(), entry.getValue());
             }
         }
+        // AND THE MEMBERSHIP, ONCE THE BLOCKS ARE THERE. The channel rows were written when the file was loaded,
+        // before a single block of the print existed, so the snapshot that went out then named cells that were still
+        // air; the client compares it against its own copy, finds nothing to do, and never learns the members
+        // that exist now, with nothing else to re-send it. One snapshot per sweep: a print is over in a few
+        // ticks, and nothing is sent once the grid is empty.
+        if (pending.isEmpty()) {
+            HostSync.broadcastSyncGroups(level);
+        }
     }
 
+    /**
+     * <b>A deployed copy gets channel numbers of its own.</b>
+     *
+     * <p>A blueprint is a copy: the numbers inside it belong to the machine it was taken from, so reusing them ties the
+     * copy to the original, so a printed machine would join the group of the one it was copied from and neither
+     * would light. The <b>grouping</b> is what the copy is for, so it is kept: one captured number in,
+     * one new number out, minted from the level once per placement.
+     */
+    static int freshChannel(InnerRedstoneStore store, ResourceKey<Level> dimension, int captured) {
+        if (captured <= 0) {
+            return captured;
+        }
+        Map<Integer, Integer> map = FRESH_CHANNELS.computeIfAbsent(dimension, key -> new HashMap<>());
+        Integer minted = map.get(captured);
+        if (minted == null) {
+            minted = store.allocateSyncChannel();
+            map.put(captured, minted);
+        }
+        return minted;
+    }
+
+    /** Starts a placement with a clean map: the numbers minted for the last one belong to that machine. */
+    public static void forgetChannels(ResourceKey<Level> dimension) {
+        FRESH_CHANNELS.remove(dimension);
+    }
+
+    /**
+     * A component restored inside a block: one position, one slot, and the news put on the wire.
+     */
     private static void writeNode(ServerLevel level, BlockPos pos, Slot slot) {
         InnerRedstoneStore store = InnerRedstoneStore.get(level);
-        store.getOrCreate(pos).setSlot(slot);
+        Slot written = slot;
+        if (slot.type == com.jiangyuefengyu.redstonecircuit.data.ComponentType.SYNC_TORCH) {
+            written = slot.copy();
+            written.syncGroup = freshChannel(store, level.dimension(), slot.syncGroup);
+        }
+        store.getOrCreate(pos).setSlot(written);
         store.markDirty();
         // A component restored inside a block changes no block state, so the client learns about it no other way -
         // the same reason the structure release broadcasts the slots it writes back.
-        HostSync.broadcast(level, pos, slot);
+        HostSync.broadcast(level, pos, written);
         InnerRedstoneNetwork.markDirtyWithNeighbours(level, pos);
     }
 

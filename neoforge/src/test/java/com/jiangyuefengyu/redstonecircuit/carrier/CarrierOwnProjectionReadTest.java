@@ -123,9 +123,27 @@ class CarrierOwnProjectionReadTest {
         assertTrue(network.contains("return refusingOwnProjectionAt(owner, worldPos, () -> {"),
                 "the owner-aware read runs its whole body - vanilla half included - under the refusal, "
                         + "instead of filtering the projected half alone");
-        assertTrue(io.contains("InnerRedstoneNetwork.worldSignalAt(level, worldPos, worldDirection, "
-                        + "reader)"),
-                "and the carrier bridge still asks the owner-aware form, naming the reader");
+        assertTrue(io.contains("InnerRedstoneNetwork.worldSignalIntoOwnFrame( "
+                        + "level, worldPos, worldDirection, reader, mine)"),
+                "and the carrier bridge still asks the owner-aware read, naming the reader - now reached "
+                        + "through the seam-aware entry point, which decides WHICH question a seam is asked "
+                        + "but never WHO is asking");
+        assertTrue(network.contains("return worldSignalAt(level, worldPos, worldDirection, owner);"),
+                "and that entry point still ends at the owner-aware merged read with the owner passed on: "
+                        + "worldSignalAt(level, worldPos, worldDirection, null) - or a bare readSignal - "
+                        + "would answer this carrier's own host back");
+        assertTrue(network.contains("return worldSupplyAt(level, worldPos, owner);"),
+                "the lossless branch carries the same owner into the supply question, so the refusal covers "
+                        + "every cell that read makes instead of only the one it starts at");
+        assertTrue(network.contains("BlockPos neighbour = worldPos.relative(direction);"),
+                "the cell that read is made from is a NEIGHBOUR of the block, so the block's own strength "
+                        + "cannot come back as its own supply - the same statement, pinned separately so a "
+                        + "later edit cannot satisfy one half of it and quietly drop the other");
+        assertTrue(network.contains("best = Math.max(best, worldSignalAt(level, neighbour, direction, "
+                        + "owner));"),
+                "and that question is asked one cell AWAY from the block it is about, with the owner named "
+                        + "on each of the six: reading the block ITSELF would hand a lossless pair its own "
+                        + "answer back, which is the latch the whole read exists to remove");
         assertTrue(networks.contains("new CarrierWorldIo(pose, bridge.signals(), carrier, ctx.level())"),
                 "with the carrier and the level injected where both are in hand");
         assertTrue(store.contains("carrier -> afterSolveWrote(level, carrier), bridge, level)"),

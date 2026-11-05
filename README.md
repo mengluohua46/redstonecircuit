@@ -5,8 +5,8 @@
 Put redstone components *inside* blocks, then see them with the redstone goggles.
 
 * Minecraft **1.21.1**（客户端与服务端都要装 / required on both client and server）
-* **NeoForge**：21.1.100+（**推荐 21.1.250 或更新**）· 版本 / Version **1.2.1** · `redstonecircuit-1.2.1-neoforge-1.21.1.jar`
-* **Fabric**：Fabric Loader 0.15.11+ 与 **Fabric API** · 版本 / Version **1.1.1** · `redstonecircuit-1.1.1-fabric-1.21.1.jar`
+* **NeoForge**：21.1.100+（**推荐 21.1.250 或更新**）· 版本 / Version **1.3.0** · `redstonecircuit-1.3.0-neoforge-1.21.1.jar`
+* **Fabric**：Fabric Loader 0.15.11+ 与 **Fabric API** · 版本 / Version **1.2.0** · `redstonecircuit-1.2.0-fabric-1.21.1.jar`
 * 两个加载器各自独立编号、独立发版，按你用的加载器装对应的 jar 即可 / one jar per loader, versioned independently
 * 作者 / Author: 江月风雨
 
@@ -57,17 +57,17 @@ the redstone goggles let you see the wiring, facing, delay and connections insid
 **NeoForge**
 
 1. 为 Minecraft **1.21.1** 安装 **NeoForge 21.1.100 或更新**（**推荐 21.1.250 或更新**）。
-   * jar 里声明的最低要求是 `[21.1.100,)`，这个下限是**实测过**的（用该版本编译并跑完 245 类 / 1678 个单元测试 + 201 个 GameTest）；
+* jar 里声明的最低要求是 `[21.1.100,)`，这个下限是**实测过**的（用该版本编译并跑完 300 类 / 2038 个单元测试 + 237 个 GameTest）；
      更老的 21.1.x 会被加载器判为依赖版本不符而拒绝加载。
-2. 把 `redstonecircuit-1.2.1-neoforge-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
+2. 把 `redstonecircuit-1.3.0-neoforge-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
 3. 启动游戏即可，没有其它前置模组。
 
 **Fabric**
 
 1. 为 Minecraft **1.21.1** 安装 **Fabric Loader 0.15.11 或更新**，并把 **Fabric API** 一起装进 `mods`。
-   * 元数据里声明的最低 Loader 是 `>=0.15.11`，同样是**实测过**的（钉在这个版本上构建并跑完 235 类 / 1645 个单元测试 + 200 个 GameTest）。
+   * 元数据里声明的最低 Loader 是 `>=0.15.11`，同样是**实测过**的（钉在这个版本上构建并跑完 289 类 / 1970 个单元测试 + 238 个 GameTest）。
    * **Fabric API 是 Fabric 版的前置**（写在 `fabric.mod.json` 的 `depends` 里）；NeoForge 版则不需要任何前置。
-2. 把 `redstonecircuit-1.1.1-fabric-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
+2. 把 `redstonecircuit-1.2.0-fabric-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
 3. 启动游戏即可。
 
 两个加载器上的玩法、配置项与指令是同一套设计；两个 jar **各自独立编号、独立发版**（NeoForge 1.2.x、Fabric 1.1.x），

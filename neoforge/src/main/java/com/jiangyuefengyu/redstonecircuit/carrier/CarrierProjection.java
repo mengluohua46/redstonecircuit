@@ -487,6 +487,34 @@ public final class CarrierProjection {
     public void forEachChange(ResourceKey<Level> dimension, Consumer<BlockPos> action,
                               @Nullable Consumer<ProjectedHost> structureAction,
                               @Nullable Consumer<TurnedHost> onTurn) {
+        forEachChange(dimension, action, structureAction, onTurn, null);
+    }
+
+    /**
+     * <b>The same walk, with the positions the projection has <em>left</em> named separately.</b>
+     *
+     * <p>Putting a component into a carried block announces it on the world path at the position the host is
+     * <b>projected</b> onto ({@code CarrierInteraction#broadcastPlacementChange}), and that record is keyed by a
+     * position the server's own store never holds - it exists only in the client's copy. A structure that drifts or
+     * turns moves every host it carries, and each of them leaves one such record behind at the position it used to
+     * be drawn at; nothing else in the feature ever names that coordinate again. So the removal is owed by the one
+     * walk that already knows the answer, and it is told here rather than through {@code action}, which is the same
+     * coordinate asked about for a different reason.
+     *
+     * <p>{@code action} still receives the position as well: the world beside it has to re-read the signal, which is
+     * a question about that coordinate and not about the client's copy of it.
+     *
+     * <p>A host that <b>turned</b> on its own position is not a position the projection left - it is projected
+     * exactly where it was - so it reaches {@code action} and {@code onTurn} only. Withdrawing the world record
+     * there would take back a message that is still true.
+     *
+     * <p>And the leave is reported <b>before</b> the wake, so nobody is told to re-read a position the client has
+     * not yet been told to stop drawing.
+     */
+    public void forEachChange(ResourceKey<Level> dimension, Consumer<BlockPos> action,
+                              @Nullable Consumer<ProjectedHost> structureAction,
+                              @Nullable Consumer<TurnedHost> onTurn,
+                              @Nullable Consumer<BlockPos> onLeft) {
         Table now = tables.get(dimension);
         Table before = previous.get(dimension);
 
@@ -495,6 +523,9 @@ public final class CarrierProjection {
                 boolean stillThere = now != null && now.bridged()
                         && now.byWorldPos().containsKey(old.worldPos().asLong());
                 if (!stillThere) {
+                    if (onLeft != null) {
+                        onLeft.accept(old.worldPos());
+                    }
                     action.accept(old.worldPos());
                 }
             }

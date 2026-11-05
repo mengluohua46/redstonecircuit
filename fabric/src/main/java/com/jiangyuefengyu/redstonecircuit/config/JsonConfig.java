@@ -130,6 +130,19 @@ public final class JsonConfig {
         return java.util.List.copyOf(lines);
     }
 
+    /**
+     * Writes one value and saves the file: what the configuration screen calls when a control moves.
+     *
+     * <p>Written as the kind of object handed in, and nothing is coerced: a screen that gives a number for a colour
+     * gets a number, and the getter on the other side reads back whatever it expects from the file it wrote.
+     */
+    public void put(String key, Object value) {
+        if (key == null || value == null) {
+            return;
+        }
+        values.add(key, toJson(value));
+        save();
+    }
     public Path path() {
         return path;
     }

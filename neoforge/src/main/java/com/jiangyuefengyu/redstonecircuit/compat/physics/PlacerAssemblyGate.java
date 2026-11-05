@@ -12,10 +12,17 @@ package com.jiangyuefengyu.redstonecircuit.compat.physics;
  * <ul>
  *   <li>{@link #claim} - one assembly per server tick. The rest of a tick's placements wait for a later tick
  *       instead of assembling in the same pass, so the number of new bodies a single pass produces stays at one.</li>
- *   <li>{@link #switchOff} - once a structure comes back without a body, no more structures are assembled for the
- *       rest of the run. The machine is not stopped by that: it keeps placing its block, which simply stays an
- *       ordinary block in the world.</li>
+ *   <li>{@link #switchOff} - once a structure is <b>found</b> without a usable body, no more structures are
+ *       assembled for the rest of the run. The machine is not stopped by that: it keeps placing its block, which
+ *       simply stays an ordinary block in the world. A structure that is gone before it can be read back is not that
+ *       fact - its body went with it - so only a body that is still there can switch this off.</li>
  * </ul>
+ *
+ * <p>One more fact both ends of that judgement share lives here, so the two ends cannot disagree: {@link
+ * #weighsNothing} is the same question asked of a single cell before it is assembled and of a whole structure
+ * afterwards. A block with no collision shape - a crop, a torch, a line of redstone dust - weighs exactly zero
+ * whatever its tags say, so a structure made of one would be the very body the second rule exists to keep out of the
+ * physics step; such a cell is therefore not assembled at all.
  *
  * <p>Neither rule names a Sable type or a level, so both are checkable without either.
  */
@@ -65,7 +72,7 @@ public final class PlacerAssemblyGate {
      * Switches assembly off for the rest of this server run.
      *
      * @return true when this call is what switched it off, so that the caller writes the one line: the first
-     *     structure with no body is the one that says why
+     *     structure found with no usable body is the one that says why
      */
     public static synchronized boolean switchOff(String reason) {
         if (switchedOff != null) {
@@ -91,11 +98,21 @@ public final class PlacerAssemblyGate {
     public static String bodyProblem(double mass, boolean centreOfMassPresent, boolean plotEmpty,
                                      boolean poseReadable) {
         StringBuilder problem = new StringBuilder();
-        add(problem, !Double.isFinite(mass) || mass <= 0.0, "mass=" + mass);
+        add(problem, weighsNothing(mass), "mass=" + mass);
         add(problem, !centreOfMassPresent, "centreOfMass=absent");
         add(problem, plotEmpty, "plotBounds=empty");
         add(problem, !poseReadable, "pose=unreadable");
         return problem.isEmpty() ? null : problem.toString();
+    }
+
+    /**
+     * Whether a mass is one nothing can be done with: zero is what a plot holding no solid block weighs, and a value
+     * that is not finite is what a division that could not be made leaves behind.
+     *
+     * @param mass the mass of one block's worth of plot contents, or of a whole structure
+     */
+    public static boolean weighsNothing(double mass) {
+        return !Double.isFinite(mass) || mass <= 0.0;
     }
 
     private static void add(StringBuilder problem, boolean wrong, String fact) {

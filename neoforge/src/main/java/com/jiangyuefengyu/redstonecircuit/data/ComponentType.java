@@ -71,7 +71,7 @@ public enum ComponentType {
      *
      * <p>It has no input face, so nothing ever notifies it and nothing in the solve re-derives it: its output is written
      * by the tick that owns the world it lives in ({@code InnerRedstoneNetwork#tickTimedDevices} for a host standing in
-     * the world, {@code CarrierNetworks} for one riding a machine), from the three settings on the slot.
+     * the world, {@code CarrierNetworks} for one riding a machine), from the four settings on the slot.
      */
     CLOCK,
     /**
@@ -85,7 +85,35 @@ public enum ComponentType {
      *
      * <p>像 控制器 和 红石变压器 一样它 <b>不是</b> 二极管: 它答的是普通的弱信号, 不会给自己埋着的方块充能。
      */
-    EXTENDER;
+    EXTENDER,
+    /**
+     * 同步火把 - 和红石火把同一个形状、同一套方向, 极性反过来, 而亮灭由一个<b>频道</b>上所有成员共同决定.
+     *
+     * <p>红石火把是"没信号才亮", 它是"有信号才亮"; 除了这一条, 方向与红石火把逐字相同: 只读吸附面 (它粘着的那个方块),
+     * 除吸附面以外的五个方向都输出, 答的是普通弱信号, 所以不会给埋着自己的方块充能。
+     *
+     * <p>它的输出不是自己算出来的, 所以 {@link #isDriven()} 必须是 <b>false</b>: 求解器看不见它、也永远不会推导它
+     * ({@code PowerSolver#desiredOutput} 没有这个类型的分支, 落到"原样保留"那一档)。写 {@link Slot#power} 的只有那一趟
+     * 组 pass ({@code SyncGroups#tick}) - 组内是 OR, 任一成员在自己吸附面收到信号, 全组同 tick 一起亮; 所以逐个元件
+     * 的延迟在这里没有位置, {@link #delayTicks} 就是 0。
+     */
+    SYNC_TORCH,
+    /**
+     * 红石触发器 - 一条上升沿切换一次开关的元件.
+     *
+     * <p>方向与 控制器 / 红石变压器 / 信号延长器 完全同一套: 读 {@link Slot#facing} 那一面 (正面), 在
+     * {@code facing.getOpposite()} 那一面 (背面) 答 15 或 0; 而它 <b>不是</b> 二极管 - 答的是普通弱信号, 不会给自己
+     * 埋着的方块充能。
+     *
+     * <p>它的输出不是输入的强度, 而是输入的<b>边沿</b>: 从没电变有电的那一次翻一档, 之后保持通电不再翻, 断电也不翻。
+     * 所以它不可能由 {@link com.jiangyuefengyu.redstonecircuit.logic.PowerSolver#desiredOutput} 推导 - 那是一个"此刻的
+     * 输入 ⇒ 此刻的输出"的函数, 而这一步要的是<b>上一次</b>的输入。推导它的只有拥有这个世界的那一趟 tick
+     * ({@code InnerRedstoneNetwork#tickTriggers}), 读的是槽位上的 {@link Slot#triggerInput}。
+     *
+     * <p>于是 {@link #isDriven()} 仍是 false (没有延迟、不跟随输入), 而 {@link #hasInputSide()} 是 true: 它有一个属于
+     * 自己的输入面 - 扳手锁一条线不该把它读的那一面锁掉 - 但没有需要等的延迟。
+     */
+    TRIGGER;
 
     /** True when this component is a power source rather than a conductor/relay. */
     public boolean isSource() {
@@ -149,7 +177,10 @@ public enum ComponentType {
      * its feed away.
      */
     public boolean hasInputSide() {
-        return isDriven() || this == CONTROLLER || this == TRANSFORMER || this == EXTENDER;
+        // 红石触发器 has one too: it reads exactly one face - its own - and a routing lock must not be able to take that
+        // feed away. It is not driven, though: nothing here decides its output (see TRIGGER above).
+        return isDriven() || this == CONTROLLER || this == TRANSFORMER || this == EXTENDER
+                || this == TRIGGER;
     }
 
     /**
@@ -163,6 +194,17 @@ public enum ComponentType {
      */
     public boolean isTimeDriven() {
         return this == CLOCK;
+    }
+
+    /**
+     * True for the one component whose answer belongs to a <b>group</b> rather than to itself: 同步火把.
+     *
+     * <p>谓词单独一个, 因为"它自己不看输入"和"它的答案由别人决定"是两件事: 前面每一档都是"我这一个元件的输入是多少",
+     * 而这一档的输入是同一频道上所有成员输入的最大值 (语义上的 OR)。只有一趟 pass 能同时看到全组, 所以只有那一趟
+     * 可以写它的输出 - 这就是它不能由求解器推导的全部理由。
+     */
+    public boolean isGroupDriven() {
+        return this == SYNC_TORCH;
     }
 
     /** True when flipping this component needs a player (or the debug command). */

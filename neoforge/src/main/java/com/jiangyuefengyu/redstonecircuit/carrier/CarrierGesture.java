@@ -3,6 +3,7 @@ package com.jiangyuefengyu.redstonecircuit.carrier;
 import com.jiangyuefengyu.redstonecircuit.HostRules;
 import com.jiangyuefengyu.redstonecircuit.RCRegistry;
 import com.jiangyuefengyu.redstonecircuit.data.ComponentType;
+import com.jiangyuefengyu.redstonecircuit.item.FrequencyTunerItem;
 
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
@@ -37,6 +38,13 @@ public final class CarrierGesture {
         WRENCH,
         /** The rotation rod - the world's rod, on the structure's record. */
         ROD,
+        /**
+         * 调频器 - the frequency tuner, which is the one item whose click decides <em>itself</em> from what it
+         * points at ({@link FrequencyTunerItem}). It ranks below the two tools and level with a component: an
+         * item that names its own target does not own "the whole click" the way a tool does, so a wrench in
+         * the other hand still wins this delivery.
+         */
+        TUNER,
         /** A redstone component in hand, or a bare hand while sneaking: a placement. */
         PLACEMENT,
         /** Both hands empty, not sneaking: work what is inside the carried block. */
@@ -57,7 +65,18 @@ public final class CarrierGesture {
      * <p>{@code empty} is <em>not</em> derivable from the other three: "no wrench, no rod, no component" is also true
      * of a plank, and telling those two apart is half of what this class exists for.
      */
-    public record Hold(boolean wrench, boolean rod, boolean component, boolean empty) {
+    public record Hold(boolean wrench, boolean rod, boolean component, boolean empty, boolean tuner) {
+
+        /**
+         * The four facts every caller before the tuner existed writes: no tuner in hand.
+         *
+         * <p>Kept as its own constructor so the rule's shape did not have to change to admit a fifth item:
+         * a hand is a tool, a component, an empty hand or something else, and "holds the tuner" is a fifth
+         * answer that only {@link #of(net.minecraft.world.item.ItemStack)} can give.
+         */
+        public Hold(boolean wrench, boolean rod, boolean component, boolean empty) {
+            this(wrench, rod, component, empty, false);
+        }
 
         /** A hand holding nothing: the state the switch gesture requires of <em>both</em> hands. */
         public static final Hold NOTHING = new Hold(false, false, false, true);
@@ -72,8 +91,11 @@ public final class CarrierGesture {
             }
             boolean wrench = RCRegistry.isWrench(stack);
             boolean rod = RCRegistry.isRotationRod(stack);
-            ComponentType component = wrench || rod ? null : HostRules.componentFor(stack);
-            return new Hold(wrench, rod, component != null, stack.isEmpty());
+            // The tuner is read off the stack, never off a "does it look like a tool" heuristic: the item's
+            // own class is what {@code InnerRedstoneInteraction} asks, and the two must answer alike.
+            boolean tuner = !wrench && !rod && stack.getItem() instanceof FrequencyTunerItem;
+            ComponentType component = wrench || rod || tuner ? null : HostRules.componentFor(stack);
+            return new Hold(wrench, rod, component != null, stack.isEmpty(), tuner);
         }
     }
 
@@ -102,6 +124,14 @@ public final class CarrierGesture {
             // thing over both hands rather than per hand, which is what makes the answer independent of the order
             // the two deliveries arrive in.
             return Kind.NONE;
+        }
+        if (hand.tuner()) {
+            // 调频器 owns a click only in the hand that was dispatched, and only against a target it is
+            // pointed at: whether that target is a 同步火把 is asked later, by whoever resolves the target
+            // ({@code CarrierInteraction#handleTunerClick}). Here it is nothing more than "not NONE", so
+            // the entry points dispatch it instead of dropping it - and a tool in the other hand has
+            // already answered above, whose click this is.
+            return Kind.TUNER;
         }
         if (hand.component()) {
             return Kind.PLACEMENT;
@@ -230,6 +260,7 @@ public final class CarrierGesture {
         return switch (kind) {
             case WRENCH -> "wrench";
             case ROD -> "rotation rod";
+            case TUNER -> "frequency tuner";
             case PLACEMENT -> "placement";
             case SWITCH -> "bare hand";
             case NONE -> "none";
