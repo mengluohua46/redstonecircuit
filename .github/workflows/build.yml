@@ -28,6 +28,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # The Fabric build compiles against two optional mods that are NOT committed (third-party
+      # binaries, see fabric/libs/README.md), so a fresh clone has them missing and the compile
+      # would fail here. They are compile-only, never bundled into the jar.
+      - name: Fetch optional Fabric compile-time jars
+        if: matrix.loader == 'fabric'
+        run: |
+          mkdir -p fabric/libs
+          curl -fsSL -o "fabric/libs/modmenu-11.0.5.jar" \
+            "https://maven.terraformersmc.com/releases/com/terraformersmc/modmenu/11.0.5/modmenu-11.0.5.jar"
+          curl -fsSL -o "fabric/libs/placeholder-api-2.4.2+1.21.jar" \
+            "https://maven.nucleoid.xyz/releases/eu/pb4/placeholder-api/2.4.2+1.21/placeholder-api-2.4.2+1.21.jar"
+          ls -l fabric/libs
+
       # `build` also runs the unit tests. The optional physics-structure compatibility layer
       # (Sable / Create) simply stays out of the build when those mods are not installed, which
       # is the normal case on a runner - see neoforge/build.gradle.

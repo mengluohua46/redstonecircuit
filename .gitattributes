@@ -3,3 +3,13 @@
 # are changed when only line endings change.
 src/generated/**/.cache/* text eol=lf
 src/generated/**/*.json text eol=lf
+
+# Binaries: never converted, never diffed as text.
+*.jar binary
+*.png binary
+*.ogg binary
+
+# The wrapper scripts: one is shell (LF only), the other is a batch file (CRLF only).
+# Without these two lines a Windows checkout can hand Gradle a CRLF shell script.
+gradlew     text eol=lf
+gradlew.bat text eol=crlf
