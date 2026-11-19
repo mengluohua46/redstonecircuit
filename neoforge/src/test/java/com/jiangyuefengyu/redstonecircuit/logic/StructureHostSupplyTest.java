@@ -223,7 +223,7 @@ class StructureHostSupplyTest {
         assertTrue(network.contains("return worldSignalAt(level, world, CarrierDirections.worldDirection(pose, direction), carrier)"),
                 "through the one world-signal implementation, with the machine's own projections refused: a host "
                         + "of this structure must not arrive a second time as an uncharged copy");
-        assertTrue(network.contains("if (SuperconductingWireBlock.isSuperconductor(level.getBlockState(world))) {"),
+        assertTrue(network.contains("if (SuperconductingWireBlock.isSuperconducting(level.getBlockState(world))) {"),
                 "and a wire of ours is a node of the solve rather than a supply, in this frame as in supplyAt");
 
         assertTrue(space.contains("return pairOwnSupply(() -> worldSupplyOf(wireCell, reader), "

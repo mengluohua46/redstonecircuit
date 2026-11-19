@@ -1,0 +1,87 @@
+{
+  "render_type": "minecraft:cutout",
+  "ambientocclusion": false,
+  "textures": {
+    "particle": "redstonecircuit:block/superconducting_dust_dot",
+    "line": "redstonecircuit:block/superconducting_dust_line0",
+    "overlay": "minecraft:block/redstone_dust_overlay"
+  },
+  "elements": [
+    {
+      "from": [
+        0.0,
+        0.0,
+        15.75
+      ],
+      "to": [
+        8.0,
+        16.0,
+        15.75
+      ],
+      "shade": false,
+      "faces": {
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            8
+          ],
+          "texture": "#line",
+          "shade": false,
+          "tintindex": 0,
+          "rotation": 90
+        },
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            8
+          ],
+          "texture": "#line",
+          "shade": false,
+          "tintindex": 0,
+          "rotation": 90
+        }
+      }
+    },
+    {
+      "from": [
+        0.0,
+        0.0,
+        15.75
+      ],
+      "to": [
+        8.0,
+        16.0,
+        15.75
+      ],
+      "shade": false,
+      "faces": {
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            8
+          ],
+          "texture": "#overlay",
+          "shade": false,
+          "rotation": 90
+        },
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            8
+          ],
+          "texture": "#overlay",
+          "shade": false,
+          "rotation": 90
+        }
+      }
+    }
+  ]
+}

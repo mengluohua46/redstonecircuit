@@ -85,22 +85,26 @@ public final class CarrierMessages {
     }
 
     /**
-     * The translation key of a component's item. Mirrors {@code HostRules#itemFor}, the one place that maps
-     * a component to the item it turns back into.
+     * <b>The translation key of the item a component turns back into - which is its block's key whenever
+     * that item is a {@code BlockItem}.</b> A {@code BlockItem} answers with its <b>block's</b> description
+     * id ({@code block.minecraft.repeater}), never an {@code item.} one, and nothing at render time turns a
+     * missing key into a present one: a wrong half is the raw key in a player's chat line. Only the
+     * redstone dust is a plain item. Mirrors {@code HostRules#itemFor}, and {@link
+     * com.jiangyuefengyu.redstonecircuit.CarrierNameGameTest} holds the two together against the registry.
      */
     public static String itemKey(ComponentType type) {
         return switch (type) {
             case DUST -> "item.minecraft.redstone";
-            case SUPERCONDUCTOR -> "item.redstonecircuit.superconducting_redstone";
-            case REPEATER -> "item.minecraft.repeater";
-            case RETAINING_REPEATER -> "item.redstonecircuit.retaining_repeater";
-            case DOUBLE_REPEATER -> "item.redstonecircuit.double_repeater";
-            case DOUBLE_RETAINING_REPEATER -> "item.redstonecircuit.double_retaining_repeater";
-            case COMPARATOR -> "item.minecraft.comparator";
-            case TORCH -> "item.minecraft.redstone_torch";
-            case LEVER -> "item.minecraft.lever";
-            case BUTTON -> "item.minecraft.stone_button";
-            case PRESSURE_PLATE -> "item.minecraft.stone_pressure_plate";
+            case SUPERCONDUCTOR -> "block.redstonecircuit.superconducting_redstone";
+            case REPEATER -> "block.minecraft.repeater";
+            case RETAINING_REPEATER -> "block.redstonecircuit.retaining_repeater";
+            case DOUBLE_REPEATER -> "block.redstonecircuit.double_repeater";
+            case DOUBLE_RETAINING_REPEATER -> "block.redstonecircuit.double_retaining_repeater";
+            case COMPARATOR -> "block.minecraft.comparator";
+            case TORCH -> "block.minecraft.redstone_torch";
+            case LEVER -> "block.minecraft.lever";
+            case BUTTON -> "block.minecraft.stone_button";
+            case PRESSURE_PLATE -> "block.minecraft.light_weighted_pressure_plate";
             case CONTROLLER -> "block.redstonecircuit.controller";
             case TRANSFORMER -> "block.redstonecircuit.transformer";
             case CLOCK -> "block.redstonecircuit.clock";

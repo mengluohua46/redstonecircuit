@@ -30,7 +30,6 @@ public class SuperconductingRedstoneItem extends BlockItem {
                                 TooltipFlag flag) {
         // One line by default, the how-to behind [Shift], like Create's wrench (RcTooltips).
         RcTooltips.append(tooltip, flag, "item.redstonecircuit.superconducting_redstone.tip",
-                RcTooltips.detail("item.redstonecircuit.superconducting_redstone.tip.place"),
-                RcTooltips.detail("item.redstonecircuit.superconducting_redstone.tip.lossless", ChatFormatting.GOLD));
+                RcTooltips.detail("item.redstonecircuit.superconducting_redstone.tip.place"));
     }
 }

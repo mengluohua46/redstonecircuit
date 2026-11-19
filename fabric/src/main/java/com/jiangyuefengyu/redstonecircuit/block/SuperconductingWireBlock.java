@@ -105,9 +105,21 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
         return state.is(RCRegistry.SUPERCONDUCTING_WIRE);
     }
 
-    /** The strength a wire of either kind currently holds, read straight from its state. */
+    /**
+     * True for every cell of the superconducting <b>network</b>: the floor dust and a sheet of it on any face.
+     *
+     * <p>The two are one wire and not two materials - that is the whole of 作者's ruling of 2026-11-15, that a run
+     * laid up a wall and onto a ceiling keeps its strength across the seam. So the run is collected with this
+     * predicate, written with it, and read for supply with it; {@link #isSuperconductor} stays "the block" for the
+     * calls that mean exactly that.
+     */
+    public static boolean isSuperconducting(BlockState state) {
+        return isSuperconductor(state) || state.getBlock() instanceof SurfaceSuperconductingWireBlock;
+    }
+
+    /** The strength a wire of any kind currently holds, read straight from its state. */
     public static int wirePower(BlockState state) {
-        if (state.is(Blocks.REDSTONE_WIRE) || isSuperconductor(state)) {
+        if (state.is(Blocks.REDSTONE_WIRE) || isSuperconducting(state)) {
             return state.getValue(POWER);
         }
         return 0;
@@ -229,7 +241,7 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
         int from = 0;
         for (BlockPos pos : run) {
             BlockState state = level.getBlockState(pos);
-            if (!isSuperconductor(state) || state.getValue(POWER) == strength) {
+            if (!isSuperconducting(state) || state.getValue(POWER) == strength) {
                 continue;
             }
             if (first == null) {
@@ -307,7 +319,7 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
     /** Every superconducting wire joined to {@code origin}, by the rule that decides the wire's shape. */
     public static List<BlockPos> collectRun(Level level, BlockPos origin) {
         List<BlockPos> run = new ArrayList<>();
-        if (!isSuperconductor(level.getBlockState(origin))) {
+        if (!isSuperconducting(level.getBlockState(origin))) {
             return run;
         }
         Set<BlockPos> seen = new HashSet<>();
@@ -336,6 +348,10 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
      * one is not joined, which is why the shape shows no connection there either.
      */
     private static List<BlockPos> joinedWires(Level level, BlockPos pos) {
+        BlockState here = level.getBlockState(pos);
+        if (here.getBlock() instanceof SurfaceSuperconductingWireBlock) {
+            return joinedSheets(level, pos, here);
+        }
         List<BlockPos> joined = new ArrayList<>();
         for (Direction direction : Direction.Plane.HORIZONTAL) {
             BlockPos neighbour = pos.relative(direction);
@@ -355,7 +371,48 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
                 }
             }
         }
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos cell = pos.relative(direction);
+            // The floor dust's plane is DOWN, so a sheet joins it from a cell beside it that carries that same plane.
+            // Vertically there is nothing to join: a sheet would have to hang on a block, and dust is not one.
+            if (sharesPlane(level.getBlockState(cell), Direction.DOWN)) {
+                joined.add(cell.immutable());
+            }
+        }
         return joined;
+    }
+
+    /**
+     * A sheet's own joins: the same plane in the neighbouring cells, and the superconducting dust it hangs on.
+     *
+     * <p>The plane is {@link SurfaceWireBlock#ring} - the four directions inside one face - and the two sheets must be
+     * on the <b>same</b> face, which is the join the ordinary sheet already uses (作者 2026-11-12「平面外情况，就不管了」).
+     * Out of plane a sheet joins nothing but the block it lies against, and only when that block is this dust.
+     */
+    private static List<BlockPos> joinedSheets(Level level, BlockPos pos, BlockState here) {
+        List<BlockPos> joined = new ArrayList<>();
+        for (Direction face : SurfaceWireBlock.faces(here)) {
+            for (Direction towards : SurfaceWireBlock.ring(face)) {
+                BlockPos cell = pos.relative(towards);
+                if (sharesPlane(level.getBlockState(cell), face)) {
+                    joined.add(cell.immutable());
+                }
+            }
+        }
+        return joined;
+    }
+
+    /**
+     * Whether a neighbouring cell carries this dust on the given plane.
+     *
+     * <p>A sheet there must hold that very face; the floor dust lies on the {@code DOWN} plane and on no other, which
+     * is the same reading {@code SurfaceWireBlock#holdsPlane} gives it.
+     */
+    private static boolean sharesPlane(BlockState neighbour, Direction face) {
+        if (neighbour.getBlock() instanceof SurfaceSuperconductingWireBlock) {
+            return SurfaceWireBlock.hasFace(neighbour, face);
+        }
+        return isSuperconductor(neighbour) && face == Direction.DOWN;
     }
 
     /**
@@ -415,7 +472,7 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
             int got;
             try {
                 BlockState state = level.getBlockState(neighbour);
-                if (isSuperconductor(state) || state.is(Blocks.REDSTONE_WIRE)) {
+                if (isSuperconducting(state) || state.is(Blocks.REDSTONE_WIRE)) {
                     tag = "ownkind";
                     got = 0;
                 } else {
@@ -467,8 +524,15 @@ public class SuperconductingWireBlock extends RedStoneWireBlock {
         for (Direction direction : Direction.values()) {
             BlockPos neighbour = pos.relative(direction);
             BlockState state = level.getBlockState(neighbour);
-            if (isSuperconductor(state) || state.is(Blocks.REDSTONE_WIRE)) {
+            if (isSuperconducting(state) || state.is(Blocks.REDSTONE_WIRE)) {
                 // Its own kind is the run itself; ordinary dust is the wire scan's business below.
+                continue;
+            }
+            if (state.getBlock() instanceof SurfaceWireBlock) {
+                // 另一族的贴面粉：它从超导这里零损耗取电（{@code SurfaceWireBlock#wireStrength} 那条 lossless），
+                // 所以超导读它就必须收一跳 —— 两边都收，这个环才没有增益 1。少了这一跳就是自锁：
+                // GameTest {@code aSuperconductingSheetDoesNotLatchWithAnOrdinaryOne} 钉着它。
+                best = Math.max(best, Math.max(0, state.getValue(POWER) - 1));
                 continue;
             }
             Slot held = components == null ? null : components.slotAt(neighbour);

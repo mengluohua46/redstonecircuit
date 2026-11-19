@@ -122,8 +122,7 @@ public final class InnerSwitches {
             // (a double repeater reads 4/8/12/16, a plain one 2/4/6/8).
             case REPEATER, RETAINING_REPEATER, DOUBLE_REPEATER, DOUBLE_RETAINING_REPEATER ->
                     Component.translatable("message.redstonecircuit.switch.repeater",
-                            Component.literal(Integer.toString(slot.delay)),
-                            Component.literal(Integer.toString(slot.type.delayTicks(slot.delay))));
+                            Component.literal(Integer.toString(slot.delay)));
             case COMPARATOR -> Component.translatable(slot.mode == ComparatorMode.SUBTRACT
                     ? "message.redstonecircuit.switch.comparator.subtract"
                     : "message.redstonecircuit.switch.comparator.compare");

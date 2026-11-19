@@ -64,6 +64,7 @@ public final class RedstoneCircuit implements ModInitializer {
         // never announce themselves) and the sweep that drops all of it when the server stops.
         InnerRedstoneTickHandler.register();
         InnerRedstoneTickHandler.registerServerStopped();
+        com.jiangyuefengyu.redstonecircuit.logic.WeatherDetectorWearer.register();
 
         // Which blocks hide redstone, and what is inside them: sent on arrival, then on every change.
         HostSync.register();

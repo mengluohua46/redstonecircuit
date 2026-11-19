@@ -8,7 +8,11 @@ import com.jiangyuefengyu.redstonecircuit.network.HostSync;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import org.jetbrains.annotations.Nullable;
+
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ComparatorBlock;
+import net.minecraft.world.level.block.RepeaterBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -60,6 +64,57 @@ public final class RotationRod {
             case UP -> Direction.DOWN;
             case DOWN -> Direction.NORTH;
         };
+    }
+
+    /**
+     * Turns a diode that is a <b>block</b> rather than a component in a slot: 中继器（贴面）, and vanilla's own repeater.
+     *
+     * <p>One click, one step. A plate on a wall steps round the four directions inside its wall (up and down
+     * included); a plate on the floor or the ceiling, and a vanilla repeater, step round the four horizontal sides in
+     * the order {@link #nextFacing} documents. Returns the 朝向 it now reads, or {@code null} when the block at
+     * {@code pos} is neither of those, in which case the caller keeps looking for something to turn.
+     */
+    @Nullable
+    public static Direction turnWorldDiode(ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.SurfaceDiodeBlock) {
+            return com.jiangyuefengyu.redstonecircuit.block.SurfaceDiodeBlock
+                    .turnClockwise(level, pos, state);
+        }
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.SurfaceTriggerBlock) {
+            return com.jiangyuefengyu.redstonecircuit.block.SurfaceTriggerBlock.turnClockwise(level, pos, state);
+        }
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.RcPlateBlock) {
+            // The four 薄板 carry their own 贴面, so the rod walks the ring inside that plate's plane - and the
+            // device re-derives its answer from the notification, exactly as it does for any other neighbour change.
+            return com.jiangyuefengyu.redstonecircuit.block.RcPlateBlock.turnClockwise(level, pos, state);
+        }
+        if (state.getBlock() instanceof com.jiangyuefengyu.redstonecircuit.block.TriggerBlock) {
+            // 红石触发器 walks the four horizontal sides alone: its 朝向 is vanilla's horizontal property, because it
+            // only ever stands on a floor or hangs from a ceiling.
+            Direction next = state.getValue(com.jiangyuefengyu.redstonecircuit.block.TriggerBlock.FACING).getClockWise();
+            BlockState turned = state.setValue(com.jiangyuefengyu.redstonecircuit.block.TriggerBlock.FACING, next);
+            level.setBlock(pos, turned, Block.UPDATE_ALL);
+            level.neighborChanged(pos, turned.getBlock(), pos);
+            return next;
+        }
+        if (state.getBlock() instanceof ComparatorBlock) {
+            Direction next = state.getValue(ComparatorBlock.FACING).getClockWise();
+            BlockState turned = state.setValue(ComparatorBlock.FACING, next);
+            level.setBlock(pos, turned, Block.UPDATE_ALL);
+            level.neighborChanged(pos, turned.getBlock(), pos);
+            return next;
+        }
+        if (state.getBlock() instanceof RepeaterBlock) {
+            // A vanilla repeater cannot read up or down - its property has four horizontal values - so its cycle is
+            // the horizontal ring alone, not the six-step one a component walks.
+            Direction next = state.getValue(RepeaterBlock.FACING).getClockWise();
+            BlockState turned = state.setValue(RepeaterBlock.FACING, next);
+            level.setBlock(pos, turned, Block.UPDATE_ALL);
+            level.neighborChanged(pos, turned.getBlock(), pos);
+            return next;
+        }
+        return null;
     }
 
     /** Steps the component in the block at {@code pos} one place around the cycle, and tells the world. */

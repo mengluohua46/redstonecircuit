@@ -37,16 +37,15 @@ displayName="Redstone Circuit" #mandatory
 #updateJSONURL="https://change.me.example.invalid/updates.json" #optional
 
 # A URL for the "homepage" for this mod, displayed in the mod UI
-# The "Visit website" link in the mod list. FML carries exactly ONE of these per mod, so the two store pages
-# cannot both live here: the author picked CurseForge for this loader (2026-11-04), and the Modrinth page is
-# the Fabric build's homepage plus a line in README.md and in 上架材料.
+# The "Visit website" link in the mod list. FML carries exactly ONE of these per mod, and CurseForge is the
+# mod's only store listing, so this slot is never contended.
 displayURL="https://www.curseforge.com/minecraft/mc-mods/redstone-circuit" #optional
 
 # A file name (in the root of the mod JAR) containing a logo for display
 logoFile="logo.png" #optional
 
 # A text field displayed in the mod UI
-credits="Built with the NeoForged MDK. English and Chinese descriptions are both shipped; item and block names are translated in both languages. Also on Modrinth: https://modrinth.com/mod/redstone-circuit" #optional
+credits="Built with the NeoForged MDK. English and Chinese descriptions are both shipped; item and block names are translated in both languages." #optional
 
 # The authors of the mod, displayed in the mod UI (optional)
 authors="${mod_authors}"

@@ -15,7 +15,6 @@
   "custom": {
     "modmenu": {
       "links": {
-        "modmenu.modrinth": "https://modrinth.com/mod/redstone-circuit",
         "modmenu.curseforge": "https://www.curseforge.com/minecraft/mc-mods/redstone-circuit"
       }
     }
@@ -34,7 +33,9 @@
     ],
     "fabric-gametest": [
       "com.jiangyuefengyu.redstonecircuit.BlockPlacerGameTest",
+      "com.jiangyuefengyu.redstonecircuit.CarriedSupportGameTest",
       "com.jiangyuefengyu.redstonecircuit.CarrierHostRuleGameTest",
+      "com.jiangyuefengyu.redstonecircuit.CarrierNameGameTest",
       "com.jiangyuefengyu.redstonecircuit.ClockGameTest",
       "com.jiangyuefengyu.redstonecircuit.ControllerGameTest",
       "com.jiangyuefengyu.redstonecircuit.CrossBoundaryLatencyGameTest",
@@ -46,6 +47,7 @@
       "com.jiangyuefengyu.redstonecircuit.HostRulesGameTest",
       "com.jiangyuefengyu.redstonecircuit.InnerRedstoneGameTest",
       "com.jiangyuefengyu.redstonecircuit.LogicIntegratorGameTest",
+      "com.jiangyuefengyu.redstonecircuit.PlateMountGameTest",
       "com.jiangyuefengyu.redstonecircuit.PistonHostTransferGameTest",
       "com.jiangyuefengyu.redstonecircuit.PocketPistonGameTest",
       "com.jiangyuefengyu.redstonecircuit.PocketPlotPersistenceGameTest",
@@ -66,10 +68,15 @@
       "com.jiangyuefengyu.redstonecircuit.StructureSoundBridgeGameTest",
       "com.jiangyuefengyu.redstonecircuit.StructureSpaceGameTest",
       "com.jiangyuefengyu.redstonecircuit.StructureTwoStageGameTest",
+      "com.jiangyuefengyu.redstonecircuit.SurfaceRepeaterGameTest",
+      "com.jiangyuefengyu.redstonecircuit.SurfaceTriggerGameTest",
+      "com.jiangyuefengyu.redstonecircuit.SurfaceVariableRepeaterGameTest",
+      "com.jiangyuefengyu.redstonecircuit.SurfaceWireGameTest",
       "com.jiangyuefengyu.redstonecircuit.SyncTorchGameTest",
       "com.jiangyuefengyu.redstonecircuit.TransformerGameTest",
       "com.jiangyuefengyu.redstonecircuit.TransmissionGateGameTest",
       "com.jiangyuefengyu.redstonecircuit.TriggerGameTest",
+      "com.jiangyuefengyu.redstonecircuit.WeatherDetectorWearGameTest",
       "com.jiangyuefengyu.redstonecircuit.WireStaircaseGameTest",
       "com.jiangyuefengyu.redstonecircuit.network.StructureEditPathGameTest"
     ],

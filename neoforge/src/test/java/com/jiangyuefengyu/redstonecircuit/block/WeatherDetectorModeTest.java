@@ -61,21 +61,95 @@ class WeatherDetectorModeTest {
         }
     }
 
+    private static final List<String> MOUNTS = List.of("down", "up", "north", "south", "east", "west");
+
     @Test
-    @DisplayName("the blockstate answers every weather and every answer, or the block would not draw")
-    void theBlockstateCoversAllSixStates() throws IOException {
+    @DisplayName("the blockstate answers every mount, every weather and every answer, or the block would not draw")
+    void theBlockstateCoversEveryState() throws IOException {
         String json = readResource("blockstates", "weather_detector.json");
-        for (Mode mode : Mode.values()) {
-            for (String active : List.of("true", "false")) {
-                String variant = "\"weather=" + mode.key() + ",active=" + active + "\"";
-                assertTrue(json.contains(variant),
-                        "the blockstate has no variant for " + variant + ", which leaves the block with "
-                                + "no model in that state");
+        for (String mount : MOUNTS) {
+            for (Mode mode : Mode.values()) {
+                for (String active : List.of("true", "false")) {
+                    String variant = "\"mount=" + mount + ",weather=" + mode.key() + ",active=" + active + "\"";
+                    assertTrue(json.contains(variant),
+                            "the blockstate has no variant for " + variant + ", which leaves the block with "
+                                    + "no model in that state");
+                }
             }
         }
         assertFalse(json.contains("rainy="),
                 "the block has no two-valued 'rainy' variant, so a blockstate still listing it "
                         + "would never match anything");
+    }
+
+    @Test
+    @DisplayName("every mount puts the plate on its own face: 底贴住那一面，杆朝外")
+    void everyMountPutsThePlateOnItsFace() throws IOException {
+        var variants = com.google.gson.JsonParser.parseString(readResource("blockstates", "weather_detector.json"))
+                .getAsJsonObject().getAsJsonObject("variants");
+        for (String mount : MOUNTS) {
+            var variant = variants.getAsJsonObject("mount=" + mount + ",weather=clear,active=false");
+            int x = variant.has("x") ? variant.get("x").getAsInt() : 0;
+            int y = variant.has("y") ? variant.get("y").getAsInt() : 0;
+            // 原版口径：方块状态的 x / y 合起来是 Ry(-y)·Rx(-x)
+            int[][] m = mul(rotY(-y), rotX(-x));
+            assertEquals(mount, name(apply(m, new int[] { 0, -1, 0 })),
+                    mount + "：模型的底没有贴在挂载那一面");
+            assertEquals(OPPOSITE.get(mount), name(apply(m, new int[] { 0, 1, 0 })),
+                    mount + "：顶面和杆没有朝外");
+        }
+    }
+
+    private static final java.util.Map<String, String> OPPOSITE = java.util.Map.of(
+            "down", "up", "up", "down", "north", "south", "south", "north", "west", "east", "east", "west");
+
+    private static final java.util.Map<String, int[]> DIR = java.util.Map.of(
+            "down", new int[] { 0, -1, 0 }, "up", new int[] { 0, 1, 0 },
+            "north", new int[] { 0, 0, -1 }, "south", new int[] { 0, 0, 1 },
+            "west", new int[] { -1, 0, 0 }, "east", new int[] { 1, 0, 0 });
+
+    private static String name(int[] v) {
+        for (var entry : DIR.entrySet()) {
+            int[] d = entry.getValue();
+            if (d[0] == v[0] && d[1] == v[1] && d[2] == v[2]) {
+                return entry.getKey();
+            }
+        }
+        throw new AssertionError("不是一个方向：" + v[0] + "," + v[1] + "," + v[2]);
+    }
+
+    private static int[][] mul(int[][] a, int[][] b) {
+        int[][] out = new int[3][3];
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                for (int k = 0; k < 3; k++) {
+                    out[i][j] += a[i][k] * b[k][j];
+                }
+            }
+        }
+        return out;
+    }
+
+    private static int[] apply(int[][] m, int[] v) {
+        int[] out = new int[3];
+        for (int i = 0; i < 3; i++) {
+            for (int k = 0; k < 3; k++) {
+                out[i] += m[i][k] * v[k];
+            }
+        }
+        return out;
+    }
+
+    private static int[][] rotX(double degrees) {
+        int s = (int) Math.round(Math.sin(Math.toRadians(degrees)));
+        int c = (int) Math.round(Math.cos(Math.toRadians(degrees)));
+        return new int[][] { { 1, 0, 0 }, { 0, c, -s }, { 0, s, c } };
+    }
+
+    private static int[][] rotY(double degrees) {
+        int s = (int) Math.round(Math.sin(Math.toRadians(degrees)));
+        int c = (int) Math.round(Math.cos(Math.toRadians(degrees)));
+        return new int[][] { { c, 0, s }, { 0, 1, 0 }, { -s, 0, c } };
     }
 
     @Test

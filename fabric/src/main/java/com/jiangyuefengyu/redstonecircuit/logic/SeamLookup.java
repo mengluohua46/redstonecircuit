@@ -164,7 +164,10 @@ final class OfLevel implements SeamLookup {
 
     @Override
     public boolean runAt(BlockPos cell) {
-        return SuperconductingWireBlock.isSuperconductor(level.getBlockState(cell));
+        // The network, not the block: a sheet of the same dust on any face is a cell of this run, and answering "no"
+        // here left every sheet beside a host block unsolved - it was never a cell the merge pass would write, so the
+        // dust inside that block could not light it (作者 2026-11-15).
+        return SuperconductingWireBlock.isSuperconducting(level.getBlockState(cell));
     }
 
     @Override

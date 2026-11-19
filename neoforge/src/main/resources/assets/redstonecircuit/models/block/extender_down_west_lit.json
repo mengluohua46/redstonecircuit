@@ -1,0 +1,106 @@
+{
+  "elements": [
+    {
+      "faces": {
+        "down": {
+          "rotation": 270,
+          "texture": "#bottom",
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ]
+        },
+        "east": {
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "north": {
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "south": {
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "up": {
+          "rotation": 90,
+          "texture": "#top",
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ]
+        },
+        "west": {
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        }
+      },
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        2,
+        16
+      ]
+    },
+    {
+      "faces": {
+        "up": {
+          "rotation": 90,
+          "texture": "#dot",
+          "uv": [
+            1,
+            10,
+            3,
+            12
+          ]
+        }
+      },
+      "from": [
+        4,
+        2.01,
+        1
+      ],
+      "to": [
+        6,
+        2.01,
+        3
+      ]
+    }
+  ],
+  "parent": "minecraft:block/block",
+  "textures": {
+    "bottom": "redstonecircuit:block/extender_bottom",
+    "dot": "redstonecircuit:block/extender_dot",
+    "particle": "redstonecircuit:block/extender_top",
+    "side": "redstonecircuit:block/extender_side",
+    "top": "redstonecircuit:block/extender_top_run"
+  }
+}

@@ -1,165 +1,179 @@
-# 红石电路 · Redstone Circuit
+# Redstone Circuit
 
-把红石元件放进**方块内部**，再用**红石眼镜**看见它们。
+**English** · [简体中文](README.zh-CN.md)
 
-Put redstone components *inside* blocks, then see them with the redstone goggles.
+Put redstone components *inside* blocks and see them with the **redstone goggles** - and mount components on **any face** of a block.
 
-* Minecraft **1.21.1**（客户端与服务端都要装 / required on both client and server）
-* **NeoForge**：21.1.100+（**推荐 21.1.250 或更新**）· 版本 / Version **1.3.0** · `redstonecircuit-1.3.0-neoforge-1.21.1.jar`
-* **Fabric**：Fabric Loader 0.15.11+ 与 **Fabric API** · 版本 / Version **1.2.0** · `redstonecircuit-1.2.0-fabric-1.21.1.jar`
-* 两个加载器各自独立编号、独立发版，按你用的加载器装对应的 jar 即可 / one jar per loader, versioned independently
-* 作者 / Author: 江月风雨
+* Minecraft **1.21.1** (required on both client and server)
+* **NeoForge**: 21.1.100+ (**21.1.250 or newer recommended**) · version **1.3.1** · `redstonecircuit-1.3.1-neoforge-1.21.1.jar`
+* **Fabric**: Fabric Loader 0.15.11+ and **Fabric API** · version **1.2.1** · `redstonecircuit-1.2.1-fabric-1.21.1.jar`
+* The two loaders are versioned and released independently - install the jar for the loader you use
+* Author: 江月风雨
 
 ---
 
-## 这是什么 / What it is
+## What it is
 
-原版红石只能铺在地面上，占地方也不好看。本模组让红石、中继器、比较器等元件可以**存进方块内部**
-（石头、木板……任何完整的不透明方块），并从那个方块**照常向外发出红石信号**；戴上红石眼镜就能
-看见方块里面的线路、朝向、档位与连接关系。
+Vanilla redstone has to lie on the ground, which takes space and does not look good. This mod lets dust, repeaters,
+comparators and the rest be stored **inside** a block (stone, planks, any full opaque block) while that block still
+emits redstone exactly as the component would - and the redstone goggles let you see the wiring, facing, delay and
+connections inside it. On top of that it adds some new redstone components, and every one of them can also be
+**mounted on any face** of a block.
 
-Vanilla redstone has to lie on the ground. This mod lets dust, repeaters, comparators and the rest be
-stored **inside** a block, while that block still emits redstone exactly as the component would - and
-the redstone goggles let you see the wiring, facing, delay and connections inside it.
+## Features
 
-## 内容 / Features
-
-| 内容 | 说明 |
+| Feature | What it does |
 |---|---|
-| 方块内元件 | 红石粉、中继器、比较器、红石火把、拉杆、按钮都可以 Shift+右键放进方块内部；空手 Shift+右键取回 |
-| 与原版一致 | 不修改任何原版红石特性：发光方向、强弱电、延迟、衰减全部照原版规则 |
-| 垂直面 | 元件也可以贴在方块的顶面/底面，连接规则与平地相同 |
-| 红石眼镜 | 戴在头上（无护甲值）后，含红石的方块变半透明并显示内部元件；脱下立刻恢复。**内部画的就是原版模型与贴图**：中继器、比较器、火把、拉杆、按钮用的是原版方块自己的模型，红石线就是原版红石粉的样子 |
-| 红石扳手 | 右键选中一个元件，Shift+右键相邻方块锁定这条线，其余方向自动隔断；可锁定多条、也可锁定活塞/红石灯等没有嵌入红石的方块 |
-| 超导红石粉 | 铜锭居中 + 8 个红石 → 9 个。与红石粉完全一样，但**信号不衰减**，多远都保持原强度；右键铺在方块上，Shift+右键放进方块内部 |
-| 维持中继器 | 长得像中继器，但**输入多少强度就输出多少强度**（原版中继器一律补满到 15）。合成配方与中继器相同，只是三个石头换成三个铁锭 |
-| 双倍红石中继器 | 两个**中继器**竖着合成。档位外观不变，**每档耗时翻倍**：1/2/3/4 档 = 4/8/12/16 游戏刻（原版是 2/4/6/8） |
-| 双倍维持中继器 | 两个**维持中继器**竖着合成。同样是每档耗时翻倍，并且保持"输入多少输出多少" |
-| 天气探测器 | 像阳光探测器，但测的是天气：空手右键**循环**切换「晴天／雨天／雷暴」三档，天气与当前档位相符就恒定输出 15。三档互斥——打雷只算「雷暴」档，不会让「雨天」档输出。**不需要看到天空**，埋在地下室里也照常工作 |
-| 方向转向杆 | 给有方向的元件转向：每点一次，朝向按**固定的六态循环**走一格（北、东、南、西、上、下，再回北），所以**上下两种朝向也到得了**；点哪一面不影响结果。红石粉没有方向，转不动（需要佩戴红石眼镜） |
-| Jade（玉）支持 | 装了 [Jade](https://modrinth.com/mod/jade) 时：对准维持中继器/双倍中继器/双倍维持中继器显示「延迟：第 N 档（M tick）」，对准天气探测器显示当前模式与输出强度，对准**藏着中继器的方块**也会显示里面那一颗的档位。**不装 Jade 完全没影响**，本模组不依赖它 |
-| 红石眼镜装头盔 | 与**任意**头盔一起合成（工作台或物品栏 2×2），那件头盔还是它自己——名字、附魔、耐久都不变，只多出红石眼镜的效果 |
-| 结构里的声音 | 结构在工作时，中继器、拉杆、按钮、音符盒的声音从**拥有这个结构的方块**处传来，距离衰减照常 |
-| 空手调设置 | 空手右键中继器切换延迟档位、右键比较器切换比较/减法模式（和原版右键地面上的元件一样） |
-| 无侵入 | 原版方块、原版世界数据都不改动；数据存在世界存档的自定义数据里 |
-| 红石结构方块 | 框选一片区域把它**捕获**下来：**第一次操作只显示边框，第二次才真正执行**；捕获到的结构收进「结构」物品，可以拿在手上，也可以由方块在原地或别处**释放**。结构里的方块照常在跑——里面的活塞、红石、漏斗都是**真方块**。结构物品带立体缩略预览 |
-| 结构方块的控制方式 | **面表**：六个面各自通电时向指定的格子注入信号；**按键面板**：**6×6 的按键格（可翻页）**，每个按键绑一个名字与一个格子，按下就推一次脉冲；**输出表**：指定的格子有信号时，某个面向外发出设定强度。三张表里填的格子都从**选区第一格**算起（0,0,0 就是起手框选的那个角），所以捕获前后数字不变 |
-| 逻辑整合器 | 七档逻辑门，一面输入、一面输出 |
-| 传输门 | 正面主输入、背面主输出、四个侧面是副输入；**恰好一个副输入有信号**时才放行主输入 |
-| 方块放置器 | 自带九格储物，把里面的方块放到正面 |
-| 控制器 | 按输入档位比较正面信号，满足条件才从背面输出 |
-| 红石变压器 | 把正面收到的信号，按设定强度从背面输出；没有输入就输出 0 |
-| 时钟源 | 每（秒 × 20 + 刻）从背面输出一次设定强度的脉冲，持续 2 tick；0 秒 0 tick 就是关掉 |
-| 信号延长器 | 输入在时原样输出，输入走后再保持设定时长 |
+| Components inside blocks | Dust, repeaters, comparators, torches, levers and buttons go inside a block with shift-right-click; empty-handed shift-right-click takes them back |
+| Same as vanilla | No vanilla redstone behaviour is changed: emission side, weak/strong power, delays and decay all follow the vanilla rules |
+| **Surface components** | Vanilla's **repeater, comparator, redstone dust, redstone torch, stone / oak / light weighted / heavy weighted pressure plate**, plus this mod's **superconducting dust, retaining repeater, double repeater, double retaining repeater, trigger, controller, redstone transformer, clock source, signal extender and weather detector**, can all be mounted on the top, bottom and four side faces of a block. They have **no item of their own**: use the matching item on the faces vanilla has no answer for (a repeater's top-face click is still the vanilla repeater; a wall side or a block's underside becomes the surface version), and breaking one gives that item back |
+| One cell, six faces | Each face of one block can carry a piece of its own, independently; a left click removes only the layer you are looking at |
+| Redstone goggles | Worn on the head (no armour value), they turn blocks that hold redstone translucent and draw the component inside; taking them off restores the normal look. **What is drawn inside is vanilla's own model and texture**: repeaters, comparators, torches, levers and buttons borrow the vanilla block's own model, and the dust is drawn as vanilla redstone dust |
+| Redstone wrench | Right-click a component to select it, then shift-right-click a neighbouring block to lock that one line and cut the rest automatically; several lines can be locked, and the far end may be a piston, a redstone lamp or anything else that has no redstone inside |
+| Superconducting redstone dust | Copper ingot in the middle plus 8 redstone → 9. Used exactly like dust, but the **signal does not decay**, however far it runs; right-click a block to lay it, shift-right-click to store it inside |
+| Retaining repeater | Looks like a repeater, but it **passes on the strength it was given** (a vanilla repeater always restores 15). Same recipe as the repeater, with the three stone replaced by three iron ingots |
+| Double repeater | Two **repeaters** stacked vertically. The settings look the same, but **every delay is doubled**: settings 1/2/3/4 take 4/8/12/16 game ticks (vanilla takes 2/4/6/8) |
+| Double retaining repeater | Two **retaining repeaters** stacked vertically. Same doubling, and it still passes on the strength it was given |
+| Weather detector | Like a daylight detector, but it watches the weather: an empty-hand right-click **cycles** clear / rain / thunder, and while the weather matches it outputs a steady 15. The three settings are mutually exclusive - thunder only counts as thunder, it does not make the rain setting output. **It never needs to see the sky**, so it works in a basement. It can also be **worn on the head** (an easter egg): +4 attack damage in clear weather, +4 max health in rain, and a lightning bolt lands on whatever you hit during a thunderstorm |
+| Rotation rod | Turns a component that has a facing: each click steps it one place round a **fixed six-step cycle** (north, east, south, west, up, down, back to north), so **up and down are reachable**; the face you click on does not matter. It also turns **vanilla repeaters and comparators and every surface component**; the **four plates (controller / redstone transformer / clock source / signal extender)** turn within their own plane (on a wall, up and down are part of that cycle) and the face they hang on never moves. Dust has no facing, so it cannot be turned (the goggles must be worn) |
+| Jade support | With [Jade](https://www.curseforge.com/minecraft/mc-mods/jade) installed: aiming at a retaining / double / double retaining repeater shows "delay: setting N (M ticks)", a weather detector shows its mode and output, a **block holding a repeater** shows the setting of the one inside, and a **surface component** shows which face it sits on. **Not having Jade changes nothing** - the mod does not depend on it |
+| Goggles into a helmet | Craft the **redstone goggles** together with **any helmet** (crafting table or the 2×2 grid) and that helmet stays itself - same name, enchantments and durability - with the goggles' effect added |
+| Sounds inside a structure | While a structure runs, the sounds of its repeaters, levers, buttons and note blocks come from **the block that owns the structure**, with normal distance falloff |
+| Settings with an empty hand | Right-click a repeater's block to change its delay, a comparator's block to switch compare/subtract (exactly like right-clicking the component on the ground) |
+| Non-invasive | No vanilla block and no vanilla world data is changed; everything is kept in the world's own saved data |
+| Redstone structure block | Select a region to **capture** it: **the first operation only shows the border, the second one really does it**. What you capture goes into a 结构 (Structure) item you can carry, and it can be **released** in place or anywhere else by the block. What travels keeps working - the pistons, redstone and hoppers inside are **real blocks**. The item carries a 3D preview |
+| Driving a structure | **Face table**: each of the six faces injects into the cells you name while it is energized. **Key panel**: a **6×6 grid of buttons with pages**, each bound to a name and a cell, pressing one pushes a single pulse. **Output table**: a cell carrying a signal makes one face answer with a set strength. All cells are counted from **the selection's first cell** (0,0,0 is the corner you started the box on), so the numbers survive a capture |
+| Logic integrator | Seven logic gates, one input face and one output face |
+| Transmission gate | Main input on the front, main output on the back, four side inputs; the main input passes only while **exactly one side input** carries a signal |
+| Block placer | Nine slots of storage; it places what it holds in front of itself |
+| Controller | Compares the front signal against a set strength and only then outputs on the back |
+| Redstone transformer | Outputs the signal it receives on the front at a set strength on the back; with no input it outputs 0 |
+| Clock source | One pulse of a set strength every (seconds × 20 + ticks), lasting the pulse length you set (typed the same way, seconds + ticks, 2 ticks by default; longer than the period means it never stops); 0 seconds 0 ticks switches it off |
+| Signal extender | Passes the input through while it is there, then holds the output for a set duration |
+| Where the four plates mount | Controller / redstone transformer / clock source / signal extender can be mounted on **any face** (floor, wall, ceiling - all six). On a wall or a ceiling the "front" (input) face lies in the plate's own plane and is chosen by where you look when you place it; if the block behind it is broken (or pushed away by a piston) the plate drops |
 
-## 安装 / Installation
+## Installation
 
 **NeoForge**
 
-1. 为 Minecraft **1.21.1** 安装 **NeoForge 21.1.100 或更新**（**推荐 21.1.250 或更新**）。
-* jar 里声明的最低要求是 `[21.1.100,)`，这个下限是**实测过**的（用该版本编译并跑完 300 类 / 2038 个单元测试 + 237 个 GameTest）；
-     更老的 21.1.x 会被加载器判为依赖版本不符而拒绝加载。
-2. 把 `redstonecircuit-1.3.0-neoforge-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
-3. 启动游戏即可，没有其它前置模组。
+1. Install **NeoForge 21.1.100 or newer** for Minecraft **1.21.1** (**21.1.250 or newer recommended**).
+   * The minimum declared in the jar is `[21.1.100,)`, and that floor is **measured**: this build compiles against it and
+     passes 300 classes / 2083 unit tests + 326 GameTests. An older 21.1.x is rejected by the loader as a version mismatch.
+2. Put `redstonecircuit-1.3.1-neoforge-1.21.1.jar` into `.minecraft/mods` (client and server both).
+3. Start the game; there are no other dependencies.
 
 **Fabric**
 
-1. 为 Minecraft **1.21.1** 安装 **Fabric Loader 0.15.11 或更新**，并把 **Fabric API** 一起装进 `mods`。
-   * 元数据里声明的最低 Loader 是 `>=0.15.11`，同样是**实测过**的（钉在这个版本上构建并跑完 289 类 / 1970 个单元测试 + 238 个 GameTest）。
-   * **Fabric API 是 Fabric 版的前置**（写在 `fabric.mod.json` 的 `depends` 里）；NeoForge 版则不需要任何前置。
-2. 把 `redstonecircuit-1.2.0-fabric-1.21.1.jar` 放进 `.minecraft/mods`（客户端与服务端都要放）。
-3. 启动游戏即可。
+1. Install **Fabric Loader 0.15.11 or newer** for Minecraft **1.21.1**, and put **Fabric API** into `mods` as well.
+   * The minimum loader declared in the metadata is `>=0.15.11`, also **measured**: this build is pinned to it and
+     passes 300 classes / 2118 unit tests + 327 GameTests.
+   * **Fabric API is a dependency of the Fabric build** (declared in `fabric.mod.json`'s `depends`); the NeoForge build needs nothing else.
+2. Put `redstonecircuit-1.2.1-fabric-1.21.1.jar` into `.minecraft/mods` (client and server both).
+3. Start the game.
 
-两个加载器上的玩法、配置项与指令是同一套设计；两个 jar **各自独立编号、独立发版**（NeoForge 1.2.x、Fabric 1.1.x），
-报问题时请说明用的是哪一个。唯一的功能差别：**机械动力 / 机械动力：航空学的物理结构适配只有 NeoForge 版有**
-（Fabric 版不含该适配）；玉（Jade）两个版本都支持。
+The gameplay, the configuration keys and the commands are one design on both loaders; the two jars are **versioned and
+released independently** (NeoForge 1.3.x, Fabric 1.2.x), so please say which one you use when reporting a problem. The one
+functional difference: **the Create / Create: Aeronautics physics-structure adaptation exists only in the NeoForge build**
+(the Fabric build does not include it); Jade is supported on both.
 
-可选：装 [Jade（玉）](https://modrinth.com/mod/jade) 后，对准中继器、天气探测器或藏着红石的方块会显示档位与模式——
-适配是本模组自带的，装 Jade 就够了，不需要另外下什么。没装也一切照常（两个加载器都一样）。
+Optional: with [Jade](https://www.curseforge.com/minecraft/mc-mods/jade) installed, aiming at a repeater, a weather
+detector, a surface component or a block holding redstone shows its setting, mode or mounting face - the adaptation ships
+with the mod, so Jade alone is enough. Without it everything works as usual (on both loaders).
 
-## 合成 / Recipes
+## Crafting
 
-* **红石眼镜**：`玻璃 · 红石 · 玻璃`（横排三格）
-* **红石扳手**：`红石` 竖着三个
-* **超导红石粉**：3×3 里正中间放**铜锭**、周围一圈 8 个**红石** → 产出 **9 个**
-* **维持中继器**：和原版中继器一样（`红石火把 · 红石 · 红石火把` 在上，三个**铁锭**在下），只是石头换成铁锭
-* **双倍红石中继器**：两个**中继器**竖着放（上一格一个、下一格一个）
-* **双倍维持中继器**：两个**维持中继器**竖着放
-* **方向转向杆**：`红石` 竖着三个，在最上面那个的**左边**再放一个**红石**（形状像 `┐` 反过来）
-* **天气探测器**：上排正中`避雷针`；中排`石英 · 幽匿感测体 · 石英`；下排三个`石头`
-* **红石结构方块**：`红石·圆石·红石 / 圆石·下界之星·圆石 / 红石·圆石·红石`（正中是**下界之星**）
-* **逻辑整合器**：`铜锭·青金石·铜锭 / 石英·红石·石英 / 铜锭·青金石·铜锭`
-* **传输门**：`红石 / 红石·石英块·红石 / 红石`（十字形，正中是**石英块**）
-* **方块放置器**：`圆石·木板·圆石 / 木板·铁锭·木板 / 圆石·木板·圆石`（木板可用任意木板）
-* **控制器**：上排空；中排正中最一个 `红石`；下排三个 `金锭`
-* **红石变压器**：`石英·铜锭·石英 / 红石·红石·红石 / 石英·铜锭·石英`
-* **时钟源**：`空·石英·空 / 金锭·时钟·金锭 / 空·石英·空`（一个**原版时钟**在正中）
-* **信号延长器**：`铁锭·金锭·铁锭 / 青金石·红石·青金石 / 铁锭·金锭·铁锭`
-* **把红石眼镜装进头盔**：把**红石眼镜**与**任意头盔**放进同一张合成格（工作台或物品栏 2×2 都行），得到装了眼镜的那件头盔——名字、附魔、耐久都保留
+* **Redstone goggles**: `glass · redstone · glass` (one row)
+* **Redstone wrench**: three `redstone` stacked vertically
+* **Superconducting redstone dust**: a **copper ingot** in the middle of a 3×3 with 8 **redstone** around it → **9**
+* **Retaining repeater**: exactly like a vanilla repeater (`torch · redstone · torch` on top, three **iron ingots** below), with the stone replaced by iron
+* **Double repeater**: two **repeaters** stacked vertically
+* **Double retaining repeater**: two **retaining repeaters** stacked vertically
+* **Rotation rod**: three `redstone` stacked vertically, plus one more **redstone** to the **left** of the top one (a mirrored `┐`)
+* **Weather detector**: `lightning rod` on the top middle; `quartz · sculk sensor · quartz` in the middle row; three `stone` below
+* **Redstone structure block**: `redstone·cobblestone·redstone / cobblestone·nether star·cobblestone / redstone·cobblestone·redstone` (**nether star** in the middle)
+* **Logic integrator**: `copper·lapis·copper / quartz·redstone·quartz / copper·lapis·copper`
+* **Transmission gate**: `redstone / redstone·quartz block·redstone / redstone` (a cross with a **quartz block** in the middle)
+* **Block placer**: `cobblestone·planks·cobblestone / planks·iron ingot·planks / cobblestone·planks·cobblestone` (any planks)
+* **Controller**: top row empty; one `redstone` in the middle; three `gold ingots` below
+* **Redstone transformer**: `quartz·copper·quartz / redstone·redstone·redstone / quartz·copper·quartz`
+* **Clock source**: `empty·quartz·empty / gold·clock·gold / empty·quartz·empty` (a **vanilla clock** in the middle)
+* **Signal extender**: `iron·gold·iron / lapis·redstone·lapis / iron·gold·iron`
+* **Goggles into a helmet**: put the **goggles** and **any helmet** in the same crafting grid (crafting table or the 2×2 grid) and you get that helmet with the goggles' effect - name, enchantments and durability are kept
 
-## 用法 / Usage
+**Surface components have no recipe**: each one uses the item of its own family, and no new item was added.
 
-* **放进方块**：手持元件，**Shift+右键**目标方块（点哪一面，那一面就是它的输入面）。
-* **取回**：空手 **Shift+右键**该方块。
-* **操作开关/设置**：空手**右键**含拉杆、按钮、中继器、比较器的方块。
-* **改线路**：手持**红石扳手**右键一个元件选中，再 **Shift+右键**相邻的方块锁定连接；
-  重复同样操作依次切换 `锁定 → 断开 → 自动`；Shift+右键已选中的方块本身可清除它的全部设定。
-  （需要佩戴红石眼镜）
+## Usage
 
-## 配置 / Configuration
+* **Into a block**: hold the component and **shift-right-click** the target block (the face you click becomes its input face).
+* **Back out**: empty-handed **shift-right-click** that block.
+* **Onto a face**: hold the matching item and right-click **any face**. A face vanilla can already use keeps the vanilla
+  block (a repeater's top face, dust on the ground); a face vanilla has no answer for (a wall side, a block's underside,
+  a ceiling) becomes the surface version, with the same signal rules as the floor version.
+* **Remove one layer**: left-click that face; the other faces of the same block are untouched.
+* **Switches and settings**: **right-click** a block holding a lever, a button, a repeater or a comparator with an empty hand.
+* **Rewiring**: hold the **redstone wrench**, right-click a component to select it, then **shift-right-click** a neighbouring
+  block to lock the connection. Repeating the same gesture cycles `locked → cut → automatic`; shift-right-clicking the
+  selected block itself clears all of its overrides. (The goggles must be worn.)
 
-`config/redstonecircuit-common.toml`：
+## Configuration
 
-| 键 | 默认 | 说明 |
+`config/redstonecircuit-common.toml` (the Fabric build uses `config/redstonecircuit.json` with the same keys):
+
+| Key | Default | Meaning |
 |---|---|---|
-| `hostOverlayMode` | `GOGGLES` | `GOGGLES` 只在戴眼镜时显示内部；`ALWAYS` 不用眼镜也能看；`OFF` 完全不画 |
-| `hostOverlayAlpha` / `Color` / `Frame*` | 150 / 淡蓝 / 红 | 外壳与边框的外观 |
-| `superconductorFrameColor` | `FF8C00` | 装着**超导红石粉**的方块，边框单独用这个颜色（默认就是超导粉的橙色），一眼和红石粉方块区分；改成和 `hostOverlayFrameColor` 相同即关闭该区分 |
-| `showInnerComponents` | `true` | 是否绘制方块内部的元件 |
-| `seeInnerComponentsThroughWalls` | `false` | 关掉视线检测（真透视） |
-| `wrenchNeedsGoggles` | `true` | 扳手是否必须先戴眼镜 |
-| `hostAcceptsStrongPower` | `true` | 是否接受旁边实心方块传导的强电（原版语义） |
-| `hostConductsStrongPower` | `false` | 装着元件的方块是否像普通石头那样，把邻居中继器/比较器灌进来的**强电继续传导给它四周**。关掉（默认）时，中继器指着另一个中继器的方块只把信号交给里面的元件，不会顺带点亮那个方块两侧的红石粉；打开则完全是原版方块语义 |
-| `slotSyncRange` | `0` | 元件数据同步范围；0 = 本维度所有玩家 |
-| `structureMaxSize` | `48` | 结构方块一次能框选的最大边长（48³ = 110,592 格） |
-| `structurePreviewCells` | `4096` | 缩略预览最多多少格；超过就把预览粗化（与 `structurePreviewBytes` 一起决定粗细，取更粗的那个） |
-| `structureMaxLoadedPockets` / `structureMaxLoadedColumns` | `16` / `256` | 同时装载的结构上限（按区块柱算）。调大能让很多结构同时运行，代价是内存与加载时间 |
-| `structurePocketSounds` | `true` | 结构里发出的声音是否在拥有它的方块那里播放（关掉就只剩子维度里的静音） |
-| `debugLog` | 随包而定 | 详细日志。**正式包默认 `false`**（免得刷屏），开发/测试包默认 `true`；即使是正式包，也可以在启动参数里加 `-Dredstonecircuit.debugLog=true` 临时打开 |
+| `hostOverlayMode` | `GOGGLES` | `GOGGLES` draws the inside only while the goggles are worn; `ALWAYS` without them; `OFF` never |
+| `hostOverlayAlpha` / `Color` / `Frame*` | 150 / light blue / red | Look of the shell and the frame |
+| `superconductorFrameColor` | `FF8C00` | Blocks holding **superconducting dust** get their own frame colour (the dust's orange by default) so they stand out from dust blocks; set it equal to `hostOverlayFrameColor` to turn that off |
+| `showInnerComponents` | `true` | Whether the component inside is drawn |
+| `seeInnerComponentsThroughWalls` | `false` | Turns the line-of-sight test off (true x-ray) |
+| `wrenchNeedsGoggles` | `true` | Whether the wrench requires the goggles |
+| `hostAcceptsStrongPower` | `true` | Whether the block accepts the strong power a neighbouring solid block conducts (vanilla semantics) |
+| `hostConductsStrongPower` | `false` | Whether a block holding a component conducts that **strong power on to its own neighbours** the way a plain stone block would. Off (the default) means a repeater pointing at another repeater's block only delivers the signal to the component inside and does not light the dust beside that block; on is exactly the vanilla-block semantics |
+| `slotSyncRange` | `0` | Sync range for component data; 0 = every player in the dimension |
+| `structureMaxSize` | `48` | Longest edge a structure block can select (48³ = 110,592 cells) |
+| `structurePreviewCells` | `4096` | Most cells in the 3D preview; beyond that the preview is coarsened (together with `structurePreviewBytes`, the coarser of the two wins) |
+| `structureMaxLoadedPockets` / `structureMaxLoadedColumns` | `16` / `256` | How many structures may be loaded at once (counted in chunk columns). Raising it lets more structures run at the same time, at the cost of memory and load time |
+| `structurePocketSounds` | `true` | Whether sounds made inside a structure play at the block that owns it (off leaves them silent, inside the pocket only) |
+| `debugLog` | per build | Detailed logging. **A release build defaults to `false`** (so the log stays quiet); development builds default to `true`. Even a release build can be asked for it with `-Dredstonecircuit.debugLog=true` |
 
-## 反馈 / Reporting problems
+## Reporting problems
 
-出问题时请附上 `logs/latest.log`（本模组的行以 `[redstonecircuit]` 开头，其中包含方块状态、
-供电来源与崩溃堆栈）、你用的是 **NeoForge 版还是 Fabric 版**，以及你当时在做什么操作。
+Please attach `logs/latest.log` (this mod's lines start with `[redstonecircuit]` and carry the block state, where the
+signal came from and any stack trace), say whether you use the **NeoForge or the Fabric build**, and describe what you were doing.
 
-## 版权 / License
-
-**MIT**，详见 [LICENSE](LICENSE)。可以自由使用、修改、再分发（保留版权声明即可）。
+## License
 
 **MIT** - see [LICENSE](LICENSE). Use it, change it, ship it; keep the copyright notice.
 
-Minecraft 本身及其原始素材的版权归 Mojang Studios；模组中有几张贴图是对原版贴图的改色
-（见下方"说明"），它们不在本项目的 MIT 授权范围内。
+Minecraft itself and its original assets belong to Mojang Studios; a few textures in this mod are recolours of vanilla
+textures (see Notes below) and are not covered by this project's MIT licence.
 
-`TEMPLATE_LICENSE.txt` 是 NeoForged MDK 模板文件自身的 MIT 许可，与本模组的授权无关。
+`TEMPLATE_LICENSE.txt` is the MIT licence of the NeoForged MDK template itself and has nothing to do with this mod's licence.
 
-## 说明 / Notes
+## Notes
 
-* 方块内的元件**直接使用原版方块自己的模型与贴图**（NeoForge 1.1.0 / Fabric 1.0.0 起）：中继器、比较器、红石火把、拉杆、按钮
-  分别借原版对应方块的状态去取已烘焙好的模型，红石线用原版 `redstone_wire` 的部件拼出来。
-  这里只是**引用**原版资源（`minecraft:block/...`），游戏从自己的 jar 里加载，本模组没有复制任何原版素材；
-  副作用是玩家换材质包时，方块内部也会跟着变。1.1.0 新增的维持中继器、双倍中继器、双倍维持中继器与天气探测器
-  用的是**本模组自己的贴图与模型**（模型沿用原版中继器/阳光探测器的几何，贴图为本模组自制），
-  在方块内部也画它们自己的样子。
-* Jade（玉）适配是本模组的**软依赖**：编译时只用到 Jade 的 API（`compileOnly`），打包出来的 jar
-  里不含 Jade 的任何代码、元数据里也只是 `optional`，所以没装 Jade 的玩家完全不受影响；
-  装了 Jade 时它会自己扫描到我们的插件类，把中继器档位、天气探测器模式显示出来。
-* 超导粉与超导线的方块贴图是原版红石粉贴图的**换色版本**（橙色），红石眼镜的头顶贴图由原版皮革头盔
-  贴图改色而来；其余贴图（眼镜、扳手、图标）为本模组自制。如果你对这类衍生资源有顾虑，
-  可以自行替换 `src/main/resources/assets/redstonecircuit/textures/` 下的对应文件。
-* 模组通过 Mixin 让原版方块能够"用内部元件的信号对外发光"（两个加载器各自用自己那一套 Mixin 配置）；
-  原版逻辑本身没有被覆盖（只做提前返回的注入）。
-* 仓库里有 `neoforge/` 与 `fabric/` 两个目录，各自是一份独立的 Gradle 构建，互不干扰：
-  进哪个目录就在哪个目录里跑 `./gradlew build`。
-* **已知且有意保留**：用活塞推走装了红石的方块时，原位置会留下残余信号（只有"被玩家破坏"的路径
-  会掉落元件）。作者把它当作一个小特性保留。
+* The components inside a block **use the vanilla block's own model and textures**: repeaters, comparators, torches,
+  levers and buttons borrow the state of the matching vanilla block to take its baked model, and the dust is assembled
+  from vanilla `redstone_wire` parts. Only vanilla resources are **referenced** (`minecraft:block/...`) and the game loads
+  them from its own jar - no vanilla asset is copied. The side effect is that a resource pack changes what you see inside a
+  block too. The retaining repeater, both double repeaters and the weather detector use **this mod's own models and
+  textures** (geometry borrowed from the vanilla repeater / daylight detector, textures made for this mod), and they are
+  drawn as themselves inside a block as well.
+* **Surface components** (since 1.3.1 / 1.2.1) reference existing textures only: repeaters, comparators, torches and the four
+  pressure plates use the vanilla block's own textures, dust uses vanilla `redstone_dust_line` plus the overlay, and the
+  superconducting sheet uses this mod's orange dust texture. **No new bitmap was added**; each face combination gets its own
+  model file, which is why `models/block/surface_*.json` is numerous - that is state expansion, not new art.
+* Jade support is a **soft dependency**: only Jade's API is used at compile time (`compileOnly`), the shipped jar contains
+  none of Jade's code, and the metadata marks it `optional`, so a player without Jade is unaffected. With Jade installed it
+  finds our plugin class on its own and shows repeater settings, weather detector modes and which face a surface component
+  sits on.
+* The superconducting dust and wire textures are **recolours** (orange) of vanilla's redstone dust texture, and the goggles'
+  head texture is a recolour of the vanilla leather helmet. Every other texture (goggles, wrench, icon) was made for this
+  mod. If you have concerns about derived assets, replace the files under
+  `src/main/resources/assets/redstonecircuit/textures/`.
+* The mod uses Mixin to let a vanilla block "emit the signal of the component inside it" (each loader has its own mixin
+  configuration); no vanilla logic is overwritten - the injections only return early.
+* The repository holds `neoforge/` and `fabric/`, two independent Gradle builds that do not interfere: `cd` into one and
+  run `./gradlew build` there.
+* **Known and deliberate**: pushing a block that holds redstone away with a piston leaves a residual signal at the old
+  position (only the "broken by a player" path drops the component). The author keeps that as a small quirk.

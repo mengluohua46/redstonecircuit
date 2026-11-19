@@ -73,6 +73,20 @@ public final class CarrierStore {
         @Nullable
         CarrierId carrierAt(ServerLevel level, BlockPos worldPos);
 
+        /**
+         * <b>Every structure whose world bounds contain this position</b> - more than one when two machines are drawn
+         * through each other or side by side, which is the ordinary case at a junction between two structures.
+         *
+         * <p>{@link #carrierAt} answers with one of them, and which one that is depends on the order the container keeps
+         * its sub-levels in - so a read that has to name the block the player sees cannot stop there: the same position
+         * answered {@code oak_planks} through one structure and air through the other, one call apart (作者 2026-11-17 的
+         * 诊断日志). This default keeps the single answer for a source that has no list to offer.
+         */
+        default java.util.List<CarrierId> carriersAt(ServerLevel level, BlockPos worldPos) {
+            CarrierId one = carrierAt(level, worldPos);
+            return one == null ? java.util.List.of() : java.util.List.of(one);
+        }
+
         /** A short description of the source, for the diagnostics. */
         default String describe() {
             return "none";
@@ -630,6 +644,19 @@ public final class CarrierStore {
      * live structure's bounds contain, and a failing lookup - "I could not tell" is never a coordinate, exactly as
      * {@link #plotOwnerOf} documents for the opposite direction.
      */
+    /** Every structure whose world bounds contain this position; empty when none does. */
+    public static java.util.List<CarrierId> carriersAt(ServerLevel level, BlockPos worldPos) {
+        CarrierSource carrierSource = source;
+        if (!active || carrierSource == null || level == null || worldPos == null) {
+            return java.util.List.of();
+        }
+        try {
+            return carrierSource.carriersAt(level, worldPos);
+        } catch (RuntimeException | LinkageError unreadable) {
+            return java.util.List.of();
+        }
+    }
+
     @Nullable
     public static CarrierId carrierAt(ServerLevel level, BlockPos worldPos) {
         CarrierSource carrierSource = source;

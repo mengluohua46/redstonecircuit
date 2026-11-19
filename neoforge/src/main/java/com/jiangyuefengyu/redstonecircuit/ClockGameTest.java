@@ -30,10 +30,10 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 public final class ClockGameTest {
 
     /** The period the ticking tests use: 0 秒 + 4 tick, so four ticks are one whole cycle. The 脉冲 is spelled out as
-     * the default 2 tick on purpose: <b>every clock this class drives is a default-width one</b> (nothing here sets 1
-     * tick), and the expected answer is compared against whatever pulse the setting itself carries, so these tests
-     * never assume a width the setting does not have. A 1 tick clock belongs in {@code ClockRuleTest}, where phases are
-     * pinned exactly. */
+     * the default 2 tick on purpose - the phase tests compare the observation against whatever pulse the setting itself
+     * carries, so they assume no width the setting does not have. The widths the old one-button screen could not express
+     * (5 tick, and one wider than the period) are counted in their own two tests below, because a count over a whole
+     * period does not care where in that period the watching started. */
     private static final ClockRule.Setting FAST = new ClockRule.Setting(0, 4, 10, ClockRule.DEFAULT_PULSE_TICKS);
 
     /** How many level ticks those tests watch it for: four whole cycles. */
@@ -131,12 +131,12 @@ public final class ClockGameTest {
         helper.succeed();
     }
 
-    /** The settings are not block state: two properties, eight states, and the numbers read from beside the block. */
+    /** The settings are not block state: two properties (six of them once 贴面 is one of them), and the numbers beside it. */
     @GameTest(template = "empty")
     public void theSettingsLiveBesideTheBlockAndNotInTheState(GameTestHelper helper) {
         int states = RCRegistry.CLOCK.get().getStateDefinition().getPossibleStates().size();
-        helper.assertTrue(states == 8,
-                "朝向 4 × 亮 2 = 8 个状态。秒 0-3600 要是进了状态就是 430 万个，实际 " + states);
+        helper.assertTrue(states == 72,
+                "贴面 6 × 正面 6 × 亮 2 = 72 个状态。秒 0-3600 要是进了状态就是 430 万个，实际 " + states);
 
         BlockPos plate = placeClock(helper, Direction.NORTH,
                 new ClockRule.Setting(0, 7, 3, ClockRule.DEFAULT_PULSE_TICKS));
@@ -214,6 +214,57 @@ public final class ClockGameTest {
         helper.assertTrue(level.getBlockState(plate).getSignal(level, plate, Direction.NORTH) == 0,
                 "而背面回答 0");
         helper.succeed();
+    }
+
+    /**
+     * A 脉冲 wider than the default is honoured, counted rather than compared: one whole period of looks must contain
+     * exactly the width in ticks of output. Five ticks of a one-second period is the setting the screen used to be
+     * unable to express.
+     */
+    @GameTest(template = "empty")
+    public void aCustomPulseIsHonoured(GameTestHelper helper) {
+        ClockRule.Setting setting = ClockRule.Setting.of(1, 0, 9, 5);
+        BlockPos plate = placeClock(helper, Direction.NORTH, setting);
+        countOutput(helper, plate, setting, setting.period(), setting.period(), new int[2]);
+    }
+
+    /**
+     * A 脉冲 at least as wide as the period covers every phase, so the answer never moves: the device is not just
+     * "mostly on", it is a constant source, which is what a player asking for a long 脉冲 is buying.
+     */
+    @GameTest(template = "empty")
+    public void aPulseWiderThanThePeriodNeverStops(GameTestHelper helper) {
+        ClockRule.Setting setting = ClockRule.Setting.of(0, 10, 6, 25);
+        BlockPos plate = placeClock(helper, Direction.NORTH, setting);
+        countOutput(helper, plate, setting, setting.period(), setting.period(), new int[2]);
+    }
+
+    /** Looks once per level tick for {@code looks} ticks ({@code planned} of them) and counts the ones that answered,
+     * then compares the count with what exactly one period of this setting can hold. */
+    private static void countOutput(GameTestHelper helper, BlockPos plate, ClockRule.Setting setting, int looks,
+                                    int planned, int[] counted) {
+        helper.runAfterDelay(1, () -> {
+            ServerLevel level = helper.getLevel();
+            BlockState state = level.getBlockState(plate);
+            int power = state.getSignal(level, plate, Direction.NORTH);
+            counted[0]++;
+            helper.assertTrue(power == 0 || power == setting.strength(),
+                    "背面只回答设定强度或 0，实际 " + power);
+            if (power > 0) {
+                counted[1]++;
+            }
+            if (looks <= 1) {
+                int expected = Math.min(setting.pulse(), setting.period());
+                helper.assertTrue(counted[0] == planned,
+                        "一个周期应当看 " + planned + " 次，实际 " + counted[0] + " 次");
+                helper.assertTrue(counted[1] == expected,
+                        "周期 " + setting.period() + "、脉冲 " + setting.pulse() + "：一个周期里应当有 "
+                                + expected + " tick 有输出，实际 " + counted[1] + " tick");
+                helper.succeed();
+                return;
+            }
+            countOutput(helper, plate, setting, looks - 1, planned, counted);
+        });
     }
 
     /**

@@ -6,7 +6,8 @@ import net.minecraft.nbt.CompoundTag;
  * <b>时钟源 - the three sentences as one pure function of the world clock.</b>
  *
  * <p>器件没有输入，只有周期、脉宽和强度：每个周期的头 {@code 脉冲} 个 tick 成立，而脉宽是<b>每台时钟自己的设置</b>
- * （1 或 2 tick，放下时 2 tick）。周期 = {@code 秒 × 20 + tick}（秒 0-3600，tick 0-19 为秒以下余数，故同一周期
+ * （1 tick 到 3600 秒 19 tick，放下时 2 tick；脉宽盖满整个周期时每个相位都成立，于是输出恒定）。周期 =
+ * {@code 秒 × 20 + tick}（秒 0-3600，tick 0-19 为秒以下余数，故同一周期
  * 只有一种写法）；相位跟随世界时钟，答案是 {@code floorMod(gameTime, period) < pulse}，不存状态，所以重载与搬运
  * 都不改变相位、两个同样的钟自然同步，0 秒 0 tick 表示关掉。设置不住在方块状态里（那个组合会在启动时建出几百万个
  * {@code BlockState}），而是方块旁的 {@link ClockSettings}，状态里只留 {@code LIT}。
@@ -32,16 +33,19 @@ public final class ClockRule {
 
     /** The narrowest 脉冲 a clock may be set to: one tick. It is offered because a designer chasing a tight interlock
      * wants two adjacent clocks not to overlap at all; the price (a consumer that only reads every other tick can miss
-     * it) is the player's to weigh, so it is a choice rather than something this class decides. */
+     * it) is the player's to weigh, so it is a choice rather than something this class decides. Nothing below one
+     * exists: 0 tick is not a width, it is a clock that never answers, and that is not a second way to switch off. */
     public static final int MIN_PULSE_TICKS = 1;
 
-    /** The widest: <b>2 tick</b>, and the default. Two rather than one because a pulse shorter than the window the
-     * structure machinery reads faces in can be treated as "already caught up" and lost, and one tick is also short
-     * enough for an ordinary consumer to miss between two reads; two is vanilla's own repeater/observer pulse width. */
-    public static final int MAX_PULSE_TICKS = 2;
+    /** The widest 脉冲: the same <b>3600 秒 19 tick</b> the longest period has, because the two are entered in the same
+     * pair of fields. A width this large covers every phase of any period worth setting, and the rule then answers at
+     * every tick - <b>constant output falls out of the rule</b>, it is not a case carved out here. */
+    public static final int MAX_PULSE_TICKS = MAX_SECONDS * TICKS_PER_SECOND + MAX_TICKS;
 
     /** What a clock is placed with - and what a save written before 脉冲 was a setting reads back as (see
-     * {@link Setting#load}). */
+     * {@link Setting#load}). Two rather than one because a pulse narrower than the window the structure machinery reads
+     * faces in can be treated as "already caught up" and lost, and one tick is also short enough for an ordinary
+     * consumer to miss between two reads; two is vanilla's own repeater/observer pulse width. */
     public static final int DEFAULT_PULSE_TICKS = 2;
 
     /** Out of the box: one second, full strength - a clock a player can see working before they touch anything. */
@@ -53,8 +57,8 @@ public final class ClockRule {
     /** Out of the box: full strength, like the other two devices. */
     public static final int DEFAULT_STRENGTH = MAX_STRENGTH;
 
-    /** The longest period there is, in ticks: 3600 秒 19 tick. */
-    public static final int MAX_PERIOD = MAX_SECONDS * TICKS_PER_SECOND + MAX_TICKS;
+    /** The longest period there is, in ticks: 3600 秒 19 tick - and therefore the widest 脉冲 too. */
+    public static final int MAX_PERIOD = MAX_PULSE_TICKS;
 
     private ClockRule() {
     }
@@ -74,7 +78,7 @@ public final class ClockRule {
         return value >= MIN_STRENGTH && value <= MAX_STRENGTH;
     }
 
-    /** Whether a number is a 脉冲 width this clock may be set to - the 1-2 the screen's one button walks. */
+    /** Whether a number is a 脉冲 width this clock may be set to - 1 tick up to 3600 秒 19 tick. */
     public static boolean isPulse(int value) {
         return value >= MIN_PULSE_TICKS && value <= MAX_PULSE_TICKS;
     }
@@ -94,10 +98,27 @@ public final class ClockRule {
         return Math.max(MIN_STRENGTH, Math.min(MAX_STRENGTH, value));
     }
 
-    /** The same, for the 脉冲. 0 and 3 are not widths this device has, and the rule below is what would otherwise turn a
-     * 0 into a clock that never answers, so it is clamped here rather than left to each caller. */
+    /** The same, for the 脉冲. 0 is not a width this device has - the rule below would turn it into a clock that never
+     * answers - so it is clamped here rather than left to each caller. */
     public static int clampPulse(int value) {
         return Math.max(MIN_PULSE_TICKS, Math.min(MAX_PULSE_TICKS, value));
+    }
+
+    /** The 秒 part of a 脉冲 width, split the way a period is: 25 tick reads back as 1 秒 5 tick. */
+    public static int pulseSeconds(int pulse) {
+        return clampPulse(pulse) / TICKS_PER_SECOND;
+    }
+
+    /** The tick part of the same split - the remainder the 秒 field does not spell out. */
+    public static int pulseTicks(int pulse) {
+        return clampPulse(pulse) % TICKS_PER_SECOND;
+    }
+
+    /** The screen's two 脉冲 fields added back into one width. Like the period, the pair is the width in ticks; 0 秒
+     * 0 tick is not one of them, so it lands on {@link #MIN_PULSE_TICKS} rather than becoming a clock that never
+     * answers (the payload decoder refuses it outright - see {@code ClockBlock#wanted}). */
+    public static int pulseOf(int seconds, int ticks) {
+        return clampPulse(clampSeconds(seconds) * TICKS_PER_SECOND + clampTicks(ticks));
     }
 
     /** The two units added, in one expression. 0 means <b>off</b>: a clock with no period does not run, which is the
@@ -123,8 +144,8 @@ public final class ClockRule {
     }
 
     /** What 背面 answers right now - the whole device, in one call. {@code seconds} is 0-3600, {@code ticks} 0-19,
-     * {@code strength} 1-15 and {@code pulse} 1-2; the answer is that strength during the pulse and 0 for the rest of
-     * the period. */
+     * {@code strength} 1-15 and {@code pulse} 1 tick .. 3600 秒 19 tick; the answer is that strength during the pulse
+     * and 0 for the rest of the period. */
     public static int answer(long gameTime, int seconds, int ticks, int strength, int pulse) {
         return isOn(gameTime, period(seconds, ticks), pulse) ? clampStrength(strength) : 0;
     }

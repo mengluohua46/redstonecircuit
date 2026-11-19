@@ -1,0 +1,84 @@
+{
+  "elements": [
+    {
+      "faces": {
+        "down": {
+          "rotation": 180,
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "east": {
+          "rotation": 90,
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "north": {
+          "rotation": 270,
+          "texture": "#top",
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ]
+        },
+        "south": {
+          "rotation": 270,
+          "texture": "#bottom",
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ]
+        },
+        "up": {
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "west": {
+          "rotation": 270,
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        }
+      },
+      "from": [
+        0,
+        0,
+        14
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ]
+    }
+  ],
+  "parent": "minecraft:block/block",
+  "textures": {
+    "bottom": "redstonecircuit:block/clock_bottom",
+    "particle": "redstonecircuit:block/clock_top",
+    "side": "redstonecircuit:block/clock_side",
+    "top": "redstonecircuit:block/clock_top"
+  }
+}

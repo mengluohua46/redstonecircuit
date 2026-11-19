@@ -413,7 +413,7 @@ class CarrierStructureSignalTest {
     @DisplayName("only the lossless wire is a pair: dust of the machine's own blocks still feeds it")
     void thePairIsTheLosslessWiresAlone() throws Exception {
         String network = flatten("src/main/java/com/jiangyuefengyu/redstonecircuit/logic/InnerRedstoneNetwork.java");
-        assertTrue(network.contains("state != null && SuperconductingWireBlock.isSuperconductor(state)"),
+        assertTrue(network.contains("state != null && SuperconductingWireBlock.isSuperconducting(state)"),
                 "the rule asks for OUR superconducting wire specifically - not for 'a wire block is there' and "
                         + "not for a vanilla wire: ordinary dust pays a hop, so a dust pair's equations are "
                         + "contradictory and it comes down by itself - pairing it would change a working "

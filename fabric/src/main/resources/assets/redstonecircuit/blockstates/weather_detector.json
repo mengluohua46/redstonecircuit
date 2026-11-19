@@ -1,10 +1,160 @@
 {
   "variants": {
-    "weather=clear,active=false": { "model": "redstonecircuit:block/weather_detector" },
-    "weather=clear,active=true": { "model": "redstonecircuit:block/weather_detector" },
-    "weather=rain,active=false": { "model": "redstonecircuit:block/weather_detector" },
-    "weather=rain,active=true": { "model": "redstonecircuit:block/weather_detector" },
-    "weather=thunder,active=false": { "model": "redstonecircuit:block/weather_detector" },
-    "weather=thunder,active=true": { "model": "redstonecircuit:block/weather_detector" }
+    "mount=down,weather=clear,active=false": {
+      "model": "redstonecircuit:block/weather_detector"
+    },
+    "mount=down,weather=clear,active=true": {
+      "model": "redstonecircuit:block/weather_detector"
+    },
+    "mount=down,weather=rain,active=false": {
+      "model": "redstonecircuit:block/weather_detector"
+    },
+    "mount=down,weather=rain,active=true": {
+      "model": "redstonecircuit:block/weather_detector"
+    },
+    "mount=down,weather=thunder,active=false": {
+      "model": "redstonecircuit:block/weather_detector"
+    },
+    "mount=down,weather=thunder,active=true": {
+      "model": "redstonecircuit:block/weather_detector"
+    },
+    "mount=east,weather=clear,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,weather=clear,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,weather=rain,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,weather=rain,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,weather=thunder,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,weather=thunder,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 270
+    },
+    "mount=north,weather=clear,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,weather=clear,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,weather=rain,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,weather=rain,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,weather=thunder,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,weather=thunder,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 180
+    },
+    "mount=south,weather=clear,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90
+    },
+    "mount=south,weather=clear,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90
+    },
+    "mount=south,weather=rain,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90
+    },
+    "mount=south,weather=rain,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90
+    },
+    "mount=south,weather=thunder,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90
+    },
+    "mount=south,weather=thunder,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90
+    },
+    "mount=up,weather=clear,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 180
+    },
+    "mount=up,weather=clear,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 180
+    },
+    "mount=up,weather=rain,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 180
+    },
+    "mount=up,weather=rain,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 180
+    },
+    "mount=up,weather=thunder,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 180
+    },
+    "mount=up,weather=thunder,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 180
+    },
+    "mount=west,weather=clear,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,weather=clear,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,weather=rain,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,weather=rain,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,weather=thunder,active=false": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,weather=thunder,active=true": {
+      "model": "redstonecircuit:block/weather_detector",
+      "x": 90,
+      "y": 90
+    }
   }
 }

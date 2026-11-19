@@ -61,6 +61,7 @@ public class ExtenderBlock extends RcPlateBlock {
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
+                .setValue(MOUNT, Direction.DOWN)
                 .setValue(LIT, false));
     }
 
@@ -81,7 +82,7 @@ public class ExtenderBlock extends RcPlateBlock {
         return true;
     }
 
-    /** 背面 only, as 控制器, 红石变压器 and 时钟源 have it: 正面 and the two sides answer 0. */
+    /** 背面 only, as 控制器, 红石变压器 and 时钟源 have it: 正面 and the four sides answer 0. */
     @Override
     protected int getSignal(BlockState state, BlockGetter level, BlockPos pos, Direction side) {
         if (side.getOpposite() != outputFace(state)) {

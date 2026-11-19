@@ -19,6 +19,15 @@ import com.jiangyuefengyu.redstonecircuit.block.RedstoneStructureBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.block.StructureBlock;
 import com.jiangyuefengyu.redstonecircuit.block.StructureBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.block.SuperconductingWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceComparatorBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfacePressurePlateBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceRepeaterBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceSuperconductingWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceTorchBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceTriggerBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceVariableRepeaterBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceWireEntity;
 import com.jiangyuefengyu.redstonecircuit.block.TransformerBlock;
 import com.jiangyuefengyu.redstonecircuit.block.TransmissionGateBlock;
 import com.jiangyuefengyu.redstonecircuit.block.VariableRepeaterBlock;
@@ -29,6 +38,7 @@ import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.RotationRodItem;
 import com.jiangyuefengyu.redstonecircuit.item.StructureBlockItem;
 import com.jiangyuefengyu.redstonecircuit.item.SuperconductingRedstoneItem;
+import com.jiangyuefengyu.redstonecircuit.item.WeatherDetectorItem;
 import com.jiangyuefengyu.redstonecircuit.recipe.GoggleFittingRecipe;
 import com.jiangyuefengyu.redstonecircuit.structure.StructureProductData;
 import com.mojang.serialization.Codec;
@@ -167,6 +177,118 @@ public final class RCRegistry {
             BuiltInRegistries.ITEM, RedstoneCircuit.id("double_retaining_repeater"),
             new BlockItem(DOUBLE_RETAINING_REPEATER, new Item.Properties()));
 
+    /**
+     * 中继器（贴面）- vanilla's repeater, hung on any of the six faces of its cell.
+     *
+     * <p>No item of its own: vanilla's repeater item places it on the faces vanilla cannot use (see
+     * {@code SurfaceRepeaterPlacement}), and breaking one gives a vanilla repeater back. Its properties are the three
+     * repeaters' above, so it is dug, sounded and pushed like a repeater.
+     */
+    public static final SurfaceRepeaterBlock SURFACE_REPEATER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_repeater"),
+            new SurfaceRepeaterBlock(repeaterProperties()));
+
+    /**
+     * 维持 / 双倍 / 双倍维持 中继器（贴面）- this mod's three repeaters on any face (作者 2026-11-15).
+     *
+     * <p>Same shape as 中继器（贴面） above, and the same rule for the player: the three items place their own twin on
+     * the faces their floor version cannot use. Three blocks rather than one with a kind property, so each carries its
+     * own name, its own drop and its own blockstate - the way vanilla's own four plates and this mod's own three
+     * repeaters are registered.
+     */
+    public static final SurfaceVariableRepeaterBlock SURFACE_RETAINING_REPEATER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_retaining_repeater"),
+            new SurfaceVariableRepeaterBlock(repeaterProperties(), 1, true, () -> RETAINING_REPEATER_ITEM));
+
+    public static final SurfaceVariableRepeaterBlock SURFACE_DOUBLE_REPEATER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_double_repeater"),
+            new SurfaceVariableRepeaterBlock(repeaterProperties(), 2, false, () -> DOUBLE_REPEATER_ITEM));
+
+    public static final SurfaceVariableRepeaterBlock SURFACE_DOUBLE_RETAINING_REPEATER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_double_retaining_repeater"),
+            new SurfaceVariableRepeaterBlock(repeaterProperties(), 2, true, () -> DOUBLE_RETAINING_REPEATER_ITEM));
+
+    /** 比较器（贴面）- the same idea for the comparator: any face, and any direction inside that face. */
+    public static final SurfaceComparatorBlock SURFACE_COMPARATOR = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_comparator"),
+            new SurfaceComparatorBlock(repeaterProperties()));
+
+    /**
+     * 压力板（贴面）- vanilla's four pressure plates, on the faces vanilla has no plate for (作者 2026-11-14).
+     *
+     * <p>Four blocks rather than one with a kind property: each then carries its own name, its own drop and its own
+     * blockstate file, the way vanilla's own four do.
+     */
+    public static final SurfacePressurePlateBlock SURFACE_STONE_PRESSURE_PLATE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_stone_pressure_plate"),
+            new SurfacePressurePlateBlock(plateProperties(SoundType.STONE), SurfacePressurePlateBlock.Kind.STONE));
+
+    public static final SurfacePressurePlateBlock SURFACE_OAK_PRESSURE_PLATE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_oak_pressure_plate"),
+            new SurfacePressurePlateBlock(plateProperties(SoundType.WOOD), SurfacePressurePlateBlock.Kind.OAK));
+
+    public static final SurfacePressurePlateBlock SURFACE_LIGHT_WEIGHTED_PRESSURE_PLATE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_light_weighted_pressure_plate"),
+            new SurfacePressurePlateBlock(plateProperties(SoundType.METAL), SurfacePressurePlateBlock.Kind.LIGHT));
+
+    public static final SurfacePressurePlateBlock SURFACE_HEAVY_WEIGHTED_PRESSURE_PLATE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_heavy_weighted_pressure_plate"),
+            new SurfacePressurePlateBlock(plateProperties(SoundType.METAL), SurfacePressurePlateBlock.Kind.HEAVY));
+
+    private static BlockBehaviour.Properties plateProperties(SoundType sound) {
+        return BlockBehaviour.Properties.of()
+                .noCollission()
+                .strength(0.5F)
+                .sound(sound)
+                .pushReaction(PushReaction.DESTROY);
+    }
+
+    /**
+     * 红石火把（贴面）- vanilla's torch on any face, the bottom face first (作者 2026-11-12). No item of its own:
+     * vanilla's torch item places it on the faces vanilla cannot use, and breaking one gives a torch back.
+     */
+    public static final SurfaceTorchBlock SURFACE_TORCH = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_redstone_torch"),
+            new SurfaceTorchBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .lightLevel(state -> state.getValue(SurfaceTorchBlock.LIT) ? 7 : 0)
+                            .sound(SoundType.WOOD)
+                            .pushReaction(PushReaction.DESTROY)));
+
+    /**
+     * 红石粉（贴面）- vanilla's wire, laid on any of the six faces of its cell.
+     *
+     * <p>No item of its own, like the two twins above: vanilla's redstone places it on the faces vanilla cannot use,
+     * and breaking one gives redstone back. Its properties are vanilla's wire's, so it is dug, sounded and pushed the
+     * same way, and it is not a full block for light or occlusion purposes.
+     */
+    public static final SurfaceWireBlock SURFACE_WIRE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_redstone_wire"),
+            new SurfaceWireBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .sound(SoundType.STONE)
+                            .pushReaction(PushReaction.DESTROY)));
+
+    /**
+     * 超导红石粉（贴面）- the superconducting dust on any face of one cell (作者 2026-11-15).
+     *
+     * <p>No item of its own: the superconducting dust places it on the faces its own code cannot use, and breaking one
+     * gives that dust back. Same properties as the ordinary sheet, because it is the same gesture on the same cell;
+     * what differs is only who decides its strength - see {@code SurfaceSuperconductingWireBlock}.
+     */
+    public static final SurfaceSuperconductingWireBlock SURFACE_SUPERCONDUCTING_WIRE = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_superconducting_redstone"),
+            new SurfaceSuperconductingWireBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .sound(SoundType.STONE)
+                            .pushReaction(PushReaction.DESTROY)));
+
     // ---------------------------------------------------------------- weather --
 
     /**
@@ -185,9 +307,9 @@ public final class RCRegistry {
                             .sound(SoundType.WOOD)
                             .ignitedByLava()));
 
-    public static final BlockItem WEATHER_DETECTOR_ITEM = Registry.register(
+    public static final WeatherDetectorItem WEATHER_DETECTOR_ITEM = Registry.register(
             BuiltInRegistries.ITEM, RedstoneCircuit.id("weather_detector"),
-            new BlockItem(WEATHER_DETECTOR, new Item.Properties()));
+            new WeatherDetectorItem(WEATHER_DETECTOR, new Item.Properties()));
 
     /**
      * 超导红石粉 as a block: an orange wire that loses nothing over distance.
@@ -396,6 +518,17 @@ public final class RCRegistry {
             Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RedstoneCircuit.id("block_placer"),
                     BlockEntityType.Builder.of(BlockPlacerBlockEntity::new, BLOCK_PLACER).build(null));
 
+    /**
+     * 红石粉（贴面） carries one only so that a renderer can draw from the world; it stores nothing.
+     *
+     * <p>One type for both dusts: the entity is the same nothing, and the renderer picks the art from the block the
+     * state names, so a second type would only be a second name for one thing.
+     */
+    public static final BlockEntityType<SurfaceWireEntity> SURFACE_WIRE_ENTITY =
+            Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, RedstoneCircuit.id("surface_redstone_wire"),
+                    BlockEntityType.Builder.of(SurfaceWireEntity::new,
+                            SURFACE_WIRE, SURFACE_SUPERCONDUCTING_WIRE).build(null));
+
     public static final BlockItem REDSTONE_STRUCTURE_BLOCK_ITEM = Registry.register(
             BuiltInRegistries.ITEM, RedstoneCircuit.id("redstone_structure_block"),
             new BlockItem(REDSTONE_STRUCTURE_BLOCK, new Item.Properties()));
@@ -454,6 +587,20 @@ public final class RCRegistry {
     public static final BlockItem TRIGGER_ITEM = Registry.register(
             BuiltInRegistries.ITEM, RedstoneCircuit.id("trigger"),
             new BlockItem(TRIGGER, new Item.Properties()));
+
+    /**
+     * 红石触发器（贴面）- the trigger glued to any face of the cell (作者 2026-11-15).
+     *
+     * <p>No item of its own: the trigger puts it on the four side faces, which the floor version refuses outright, and
+     * breaking one gives a trigger back. Same properties as the floor version, because it is the same device.
+     */
+    public static final SurfaceTriggerBlock SURFACE_TRIGGER = Registry.register(
+            BuiltInRegistries.BLOCK, RedstoneCircuit.id("surface_trigger"),
+            new SurfaceTriggerBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.STONE)
+                    .strength(1.0F)
+                    .sound(SoundType.WOOD)
+                    .noOcclusion()));
 
     /**
      * 调频器 - the item that binds 同步火把 into one channel and reads a channel back out of one.

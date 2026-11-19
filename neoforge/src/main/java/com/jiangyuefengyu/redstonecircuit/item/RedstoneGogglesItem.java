@@ -46,7 +46,6 @@ public class RedstoneGogglesItem extends ArmorItem {
                                 TooltipFlag flag) {
         // One line by default, the how-to behind [Shift], like Create's wrench (RcTooltips).
         RcTooltips.append(tooltip, flag, "item.redstonecircuit.redstone_goggles.tip",
-                RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.wear"),
                 RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.inside", ChatFormatting.AQUA),
                 RcTooltips.detail("item.redstonecircuit.redstone_goggles.tip.fitted"),
                 RcTooltips.required("item.redstonecircuit.redstone_goggles.tip.wrench"));

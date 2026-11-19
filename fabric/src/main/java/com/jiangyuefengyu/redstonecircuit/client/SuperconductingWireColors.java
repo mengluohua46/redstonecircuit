@@ -17,11 +17,10 @@ import net.fabricmc.fabric.api.client.rendering.v1.ColorProviderRegistry;
  * only has to say how bright it is.
  *
  * <h2>How it is registered on Fabric</h2>
- * NeoForge announced a <b>mod-bus</b> event ({@code RegisterColorHandlersEvent.Block}) that this class
- * could subscribe to itself. Fabric has no such event: the tint goes into a registry that has to be
- * filled while the client is starting up, so {@link #register()} is called from
- * {@link RedstoneCircuitClient#onInitializeClient()}. That is also why this class is client-only, hence
- * {@link Environment}.
+ * NeoForge announced a <b>mod-bus</b> event that this class could subscribe to itself. Fabric has no such
+ * event: the tint goes into a registry that has to be filled while the client is starting up, so
+ * {@link #register()} is called from {@link RedstoneCircuitClient#onInitializeClient()}. That is also why
+ * this class is client-only, hence {@link Environment}.
  *
  * <p>Registering it in the wrong place fails in a way that is easy to misread: a wire with no tint at
  * all is not merely duller. With none of vanilla's red applied it looks wrong in every state - which is
@@ -38,6 +37,7 @@ public final class SuperconductingWireColors {
     public static void register() {
         ColorProviderRegistry.BLOCK.register((state, level, pos, tintIndex) ->
                         InnerComponentModel.wireBrightness(state.getValue(SuperconductingWireBlock.POWER)),
-                RCRegistry.SUPERCONDUCTING_WIRE);
+                RCRegistry.SUPERCONDUCTING_WIRE,
+                RCRegistry.SURFACE_SUPERCONDUCTING_WIRE);
     }
 }

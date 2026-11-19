@@ -41,7 +41,7 @@ class TransformerWiringTest {
                 "正面 is the input face, read in both frames through the shared helper");
 
         String base = read("block", "RcPlateBlock.java");
-        assertTrue(base.contains("protected static int readingInto(")
+        assertTrue(base.contains("public static int readingInto(")
                         && base.contains("protected static void wakeOutput(")
                         && base.contains("public static Slot hostSlot(")
                         && base.contains("public static int hostReading("),
@@ -113,8 +113,9 @@ class TransformerWiringTest {
         }
 
         String blockstate = read("resources", "assets", "redstonecircuit", "blockstates", "transformer.json");
-        assertTrue(blockstate.contains("\"facing=south,lit=false\": { \"model\": \"redstonecircuit:block/transformer\" }"),
-                "未旋转的模型朝向正面 = 南（和控制器的约定一致，方块内画法用的是同一个基准）");
+        assertTrue(blockstate.contains("\"mount=down,facing=south,lit=false\":"
+                        + " { \"model\": \"redstonecircuit:block/transformer\" }"),
+                "地板上朝南那一套就是仓库里那份本体模型（和控制器的约定一致，方块内画法用的是同一个基准）");
         assertTrue(blockstate.contains("transformer_lit"),
                 "亮的那一套用另一个模型文件，四个面的亮贴图都在里面");
 

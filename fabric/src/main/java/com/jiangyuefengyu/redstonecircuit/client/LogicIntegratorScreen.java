@@ -251,8 +251,6 @@ public final class LogicIntegratorScreen extends Screen {
                 this.left + 4, this.top + 77, 0xA0A0A0);
         graphics.drawString(this.font, Component.translatable("redstonecircuit.logic.y"),
                 this.left + 66, this.top + 77, 0xA0A0A0);
-        graphics.drawString(this.font, Component.translatable("redstonecircuit.logic.blank"),
-                this.left + 124, this.top + 77, 0x808080);
         graphics.drawString(this.font, inputsLine(), this.left + 4, this.top + 98, 0xA0A0A0);
         graphics.drawString(this.font, Component.translatable("redstonecircuit.logic.facing", face(this.facing)),
                 this.left + 4, this.top + 112, 0xA0A0A0);

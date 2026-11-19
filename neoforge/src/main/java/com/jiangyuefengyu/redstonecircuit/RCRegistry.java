@@ -20,11 +20,21 @@ import com.jiangyuefengyu.redstonecircuit.block.StructureBlockEntity;
 import com.jiangyuefengyu.redstonecircuit.block.TransmissionGateBlock;
 import com.jiangyuefengyu.redstonecircuit.block.TriggerBlock;
 import com.jiangyuefengyu.redstonecircuit.block.SuperconductingWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceComparatorBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceRepeaterBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfacePressurePlateBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceTorchBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceSuperconductingWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceTriggerBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceVariableRepeaterBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceWireBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceWireEntity;
 import com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock;
 import com.jiangyuefengyu.redstonecircuit.block.VariableRepeaterBlock;
 import com.jiangyuefengyu.redstonecircuit.block.WeatherDetectorBlock;
 import com.jiangyuefengyu.redstonecircuit.item.FrequencyTunerItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneGogglesItem;
+import com.jiangyuefengyu.redstonecircuit.item.WeatherDetectorItem;
 import com.jiangyuefengyu.redstonecircuit.item.RedstoneWrenchItem;
 import com.jiangyuefengyu.redstonecircuit.item.RotationRodItem;
 import com.jiangyuefengyu.redstonecircuit.item.StructureBlockItem;
@@ -169,6 +179,113 @@ public final class RCRegistry {
             ITEMS.register("double_retaining_repeater",
                     () -> new BlockItem(DOUBLE_RETAINING_REPEATER.get(), new Item.Properties()));
 
+    /**
+     * 中继器（贴面）- vanilla's repeater, hung on any of the six faces of its cell.
+     *
+     * <p>No item of its own: vanilla's repeater item places it on the faces vanilla cannot use (see
+     * {@code SurfaceRepeaterPlacement}), and breaking one gives a vanilla repeater back. Its properties are the three
+     * repeaters' above, so it is dug, sounded and pushed like a repeater.
+     */
+    public static final DeferredHolder<Block, SurfaceRepeaterBlock> SURFACE_REPEATER =
+            BLOCKS.register("surface_repeater", () -> new SurfaceRepeaterBlock(repeaterProperties()));
+
+    /**
+     * 维持 / 双倍 / 双倍维持 中继器（贴面）- this mod's three repeaters on any face (作者 2026-11-15).
+     *
+     * <p>Same shape as 中继器（贴面） above, and the same rule for the player: the three items place their own twin on
+     * the faces their floor version cannot use. Three blocks rather than one with a kind property, so each carries its
+     * own name, its own drop and its own blockstate - the way vanilla's own four plates and this mod's own three
+     * repeaters are registered.
+     */
+    public static final DeferredHolder<Block, SurfaceVariableRepeaterBlock> SURFACE_RETAINING_REPEATER =
+            BLOCKS.register("surface_retaining_repeater", () -> new SurfaceVariableRepeaterBlock(
+                    repeaterProperties(), 1, true, () -> RETAINING_REPEATER_ITEM.get()));
+
+    public static final DeferredHolder<Block, SurfaceVariableRepeaterBlock> SURFACE_DOUBLE_REPEATER =
+            BLOCKS.register("surface_double_repeater", () -> new SurfaceVariableRepeaterBlock(
+                    repeaterProperties(), 2, false, () -> DOUBLE_REPEATER_ITEM.get()));
+
+    public static final DeferredHolder<Block, SurfaceVariableRepeaterBlock> SURFACE_DOUBLE_RETAINING_REPEATER =
+            BLOCKS.register("surface_double_retaining_repeater", () -> new SurfaceVariableRepeaterBlock(
+                    repeaterProperties(), 2, true, () -> DOUBLE_RETAINING_REPEATER_ITEM.get()));
+
+    /** 比较器（贴面）- the same idea for the comparator: any face, and any direction inside that face. */
+    public static final DeferredHolder<Block, SurfaceComparatorBlock> SURFACE_COMPARATOR =
+            BLOCKS.register("surface_comparator", () -> new SurfaceComparatorBlock(repeaterProperties()));
+
+    /**
+     * 红石粉（贴面）- vanilla's wire, laid on any of the six faces of its cell.
+     *
+     * <p>No item of its own, like the two twins above: vanilla's redstone places it on the faces vanilla cannot use,
+     * and breaking one gives redstone back. Its properties are vanilla's wire's, so it is dug, sounded and pushed the
+     * same way, and it is not a full block for light or occlusion purposes.
+     */
+    /**
+     * 红石火把（贴面）- vanilla's torch on any face, the bottom face first (作者 2026-11-12). No item of its own:
+     * vanilla's torch item places it on the faces vanilla cannot use, and breaking one gives a torch back.
+     */
+    /**
+     * 压力板（贴面）- vanilla's four pressure plates, on the faces vanilla has no plate for (作者 2026-11-14).
+     *
+     * <p>Four blocks rather than one with a kind property: each then carries its own name, its own drop and its own
+     * blockstate file, the way vanilla's own four do.
+     */
+    public static final DeferredHolder<Block, SurfacePressurePlateBlock> SURFACE_STONE_PRESSURE_PLATE =
+            BLOCKS.register("surface_stone_pressure_plate", () -> new SurfacePressurePlateBlock(
+                    plateProperties(SoundType.STONE), SurfacePressurePlateBlock.Kind.STONE));
+
+    public static final DeferredHolder<Block, SurfacePressurePlateBlock> SURFACE_OAK_PRESSURE_PLATE =
+            BLOCKS.register("surface_oak_pressure_plate", () -> new SurfacePressurePlateBlock(
+                    plateProperties(SoundType.WOOD), SurfacePressurePlateBlock.Kind.OAK));
+
+    public static final DeferredHolder<Block, SurfacePressurePlateBlock> SURFACE_LIGHT_WEIGHTED_PRESSURE_PLATE =
+            BLOCKS.register("surface_light_weighted_pressure_plate", () -> new SurfacePressurePlateBlock(
+                    plateProperties(SoundType.METAL), SurfacePressurePlateBlock.Kind.LIGHT));
+
+    public static final DeferredHolder<Block, SurfacePressurePlateBlock> SURFACE_HEAVY_WEIGHTED_PRESSURE_PLATE =
+            BLOCKS.register("surface_heavy_weighted_pressure_plate", () -> new SurfacePressurePlateBlock(
+                    plateProperties(SoundType.METAL), SurfacePressurePlateBlock.Kind.HEAVY));
+
+    private static BlockBehaviour.Properties plateProperties(SoundType sound) {
+        return BlockBehaviour.Properties.of()
+                .noCollission()
+                .strength(0.5F)
+                .sound(sound)
+                .pushReaction(PushReaction.DESTROY);
+    }
+
+    public static final DeferredHolder<Block, SurfaceTorchBlock> SURFACE_TORCH =
+            BLOCKS.register("surface_redstone_torch", () -> new SurfaceTorchBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .lightLevel(state -> state.getValue(SurfaceTorchBlock.LIT) ? 7 : 0)
+                            .sound(SoundType.WOOD)
+                            .pushReaction(PushReaction.DESTROY)));
+
+    public static final DeferredHolder<Block, SurfaceWireBlock> SURFACE_WIRE =
+            BLOCKS.register("surface_redstone_wire", () -> new SurfaceWireBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .sound(SoundType.STONE)
+                            .pushReaction(PushReaction.DESTROY)));
+
+    /**
+     * 超导红石粉（贴面）- the superconducting dust on any face of one cell (作者 2026-11-15).
+     *
+     * <p>No item of its own: the superconducting dust places it on the faces its own code cannot use, and breaking one
+     * gives that dust back. Same properties as the ordinary sheet, because it is the same gesture on the same cell;
+     * what differs is only who decides its strength - see {@code SurfaceSuperconductingWireBlock}.
+     */
+    public static final DeferredHolder<Block, SurfaceSuperconductingWireBlock> SURFACE_SUPERCONDUCTING_WIRE =
+            BLOCKS.register("surface_superconducting_redstone", () -> new SurfaceSuperconductingWireBlock(
+                    BlockBehaviour.Properties.of()
+                            .noCollission()
+                            .instabreak()
+                            .sound(SoundType.STONE)
+                            .pushReaction(PushReaction.DESTROY)));
+
     // ---------------------------------------------------------------- weather --
 
     /**
@@ -186,9 +303,9 @@ public final class RCRegistry {
                             .sound(SoundType.WOOD)
                             .ignitedByLava()));
 
-    public static final DeferredHolder<Item, BlockItem> WEATHER_DETECTOR_ITEM =
+    public static final DeferredHolder<Item, WeatherDetectorItem> WEATHER_DETECTOR_ITEM =
             ITEMS.register("weather_detector",
-                    () -> new BlockItem(WEATHER_DETECTOR.get(), new Item.Properties()));
+                    () -> new WeatherDetectorItem(WEATHER_DETECTOR.get(), new Item.Properties()));
 
     // -------------------------------------------------------- logic integrator --
 
@@ -360,6 +477,20 @@ public final class RCRegistry {
                             .noOcclusion()));
 
     /**
+     * 红石触发器（贴面）- the trigger glued to any face of the cell (作者 2026-11-15).
+     *
+     * <p>No item of its own: the trigger puts it on the four side faces, which the floor version refuses outright, and
+     * breaking one gives a trigger back. Same properties as the floor version, because it is the same device.
+     */
+    public static final DeferredHolder<Block, SurfaceTriggerBlock> SURFACE_TRIGGER =
+            BLOCKS.register("surface_trigger", () -> new SurfaceTriggerBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.STONE)
+                            .strength(1.0F)
+                            .sound(SoundType.WOOD)
+                            .noOcclusion()));
+
+    /**
      * The item a player holds: a plain right-click puts the trigger in the world as a block (贴地 or 贴天花板, and a wall
      * click is refused), while shift-right-click on a host block stores it inside as the {@code TRIGGER} component - the
      * same two gestures every other component item has ({@code HostRules}).
@@ -500,6 +631,17 @@ public final class RCRegistry {
             BLOCK_PLACER_ENTITY = BLOCK_ENTITIES.register("block_placer",
                     () -> BlockEntityType.Builder.of(BlockPlacerBlockEntity::new,
                             BLOCK_PLACER.get()).build(null));
+
+    /**
+     * 红石粉（贴面） carries one only so that a renderer can draw from the world; it stores nothing.
+     *
+     * <p>One type for both dusts: the entity is the same nothing, and the renderer picks the art from the block the
+     * state names, so a second type would only be a second name for one thing.
+     */
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SurfaceWireEntity>>
+            SURFACE_WIRE_ENTITY = BLOCK_ENTITIES.register("surface_redstone_wire",
+                    () -> BlockEntityType.Builder.of(SurfaceWireEntity::new,
+                            SURFACE_WIRE.get(), SURFACE_SUPERCONDUCTING_WIRE.get()).build(null));
 
     public static final DeferredHolder<Item, BlockItem> REDSTONE_STRUCTURE_BLOCK_ITEM =
             ITEMS.register("redstone_structure_block",

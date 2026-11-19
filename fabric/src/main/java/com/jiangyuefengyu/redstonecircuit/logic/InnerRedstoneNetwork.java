@@ -1,5 +1,7 @@
 package com.jiangyuefengyu.redstonecircuit.logic;
 
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceWireBlock;
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -464,6 +466,7 @@ public final class InnerRedstoneNetwork {
 
     /** Resolves everything queued for this level. Called once per server tick. */
     public static void tick(ServerLevel level) {
+        watchdog(level);
         // Holding the notifications until the pass that made them ends keeps them from re-entering the solve
         // below; every pass then flushes inside this tick, see settleCascading.
         SolverNotifications.Session session = SolverNotifications.begin(level);
@@ -666,6 +669,38 @@ public final class InnerRedstoneNetwork {
         // The level the projected-host log throttle last wrote for is going away, so the next level's first
         // line is not suppressed by a comparison with this one's.
         projectedLoggedTick = Long.MIN_VALUE;
+    }
+
+    /**
+     * 看门狗 - the one thing that has to happen at the start of every server tick.
+     *
+     * <p>Three pieces of state decide whether the world can still change, and all three live on the server rather than
+     * in the save: the solve window ({@link #SUPPRESS_SIGNAL}), the notification session the solver holds open, and
+     * {@link SurfaceWireBlock}'s silence counter. Each is balanced by try/finally on its own path, so a leftover can
+     * only come from a path nobody anticipated - and when one is left over the whole world stops answering, which is
+     * what 作者 hit on 2026-11-12: <b>every</b> redstone stuck, vanilla included, and only leaving the world cleared
+     * it. A reloaded world starts with these statics empty, which is exactly why re-entering fixed it.
+     *
+     * <p>So this does not try to be clever: a leftover is reported once, loudly, and cleared. A frozen world becomes at
+     * worst a one-tick hiccup, and the log names which of the three leaked, so the real path can be found from
+     * evidence instead of a guess.
+     */
+    public static void watchdog(ServerLevel level) {
+        if (SUPPRESS_SIGNAL.remove(level.dimension())) {
+            RCConfig.LOGGER.error("[redstonecircuit] watchdog: a solve window was left open on {} - cleared",
+                    level.dimension().location());
+        }
+        int held = SolverNotifications.pendingCount(level);
+        if (held > 0) {
+            SolverNotifications.end(level);
+            RCConfig.LOGGER.error("[redstonecircuit] watchdog: {} held notification(s) on {} were never sent - flushed",
+                    held, level.dimension().location());
+        }
+        int silent = SurfaceWireBlock.quietDepth();
+        if (silent != 0) {
+            SurfaceWireBlock.resetQuiet();
+            RCConfig.LOGGER.error("[redstonecircuit] watchdog: 贴面红石粉 silence counter was {} - reset to 0", silent);
+        }
     }
 
     /** True while the given level is evaluating wire power and must not report it to neighbours. */
@@ -1124,6 +1159,30 @@ public final class InnerRedstoneNetwork {
     }
 
     /**
+     * <b>What the component inside a world block offers towards one direction, read straight from the store.</b>
+     *
+     * <p>{@link #readSignal} and {@link #worldSignalAt} cannot be the read a <em>world block of ours</em> makes of a
+     * host: every query the solver makes goes through {@link #queryingWorld}, and that window hides the world store
+     * so a component cannot read its own half-computed output off the solid block next door. A plate standing in the
+     * world is not part of that solve - it asks what the host holds <b>now</b> - so a solve that merely touches the
+     * plate in passing would otherwise answer its side input as zero. Measured: the same read answers 13 outside the
+     * window and 0 inside it.
+     *
+     * <p>Only the world store. The carrier frames are already read by the caller through
+     * {@code RcPlateBlock#readingInto}, which owns the two-frame read.
+     */
+    public static int worldStoreSignalAt(ServerLevel level, BlockPos cell, Direction direction) {
+        Slot slot = InnerRedstoneStore.get(level) == null ? null : InnerRedstoneStore.get(level).slotAt(cell);
+        if (slot == null) {
+            return 0;
+        }
+        Direction emitted = direction.getOpposite();
+        int weak = PowerSolver.signalAnswer(slot, emitted, false, false, RCConfig.hostConductsStrongPower());
+        int strong = PowerSolver.signalAnswer(slot, emitted, true, false, RCConfig.hostConductsStrongPower());
+        return Math.max(weak, strong);
+    }
+
+    /**
      * Vanilla's own "what does this block offer a comparator" question: a comparator's back input is not a
      * redstone signal but the neighbour's analogue output (a cake's bites, a cauldron's level, a chest), and it
      * is additive to whatever redstone signal the same neighbour also pushes. {@code direction} points from the
@@ -1510,7 +1569,7 @@ public final class InnerRedstoneNetwork {
         }
         try {
             BlockState state = blocks.getBlockState(localPos);
-            return state != null && SuperconductingWireBlock.isSuperconductor(state);
+            return state != null && SuperconductingWireBlock.isSuperconducting(state);
         } catch (RuntimeException | LinkageError unreadable) {
             // Same rule as every other carrier read: a failure looks like a jar without the block view.
             return false;
@@ -1610,7 +1669,7 @@ public final class InnerRedstoneNetwork {
     public static boolean sameStructureLosslessPair(Level level, BlockPos wireCell, BlockPos hostCell,
                                                     @Nullable BlockState wireState) {
         if (!(level instanceof ServerLevel server) || wireCell == null || hostCell == null || wireState == null
-                || !SuperconductingWireBlock.isSuperconductor(wireState)) {
+                || !SuperconductingWireBlock.isSuperconducting(wireState)) {
             return false;
         }
         try {
@@ -2237,7 +2296,7 @@ public final class InnerRedstoneNetwork {
             if (skip != null && skip.contains(world)) {
                 return 0;
             }
-            if (SuperconductingWireBlock.isSuperconductor(level.getBlockState(world))) {
+            if (SuperconductingWireBlock.isSuperconducting(level.getBlockState(world))) {
                 return 0;
             }
             return worldSignalAt(level, world, CarrierDirections.worldDirection(pose, direction), carrier);
@@ -2385,7 +2444,7 @@ public final class InnerRedstoneNetwork {
                 return structureSupplyAt(server, neighbour, readerNetworkAt(runCell));
             }
             ComponentType runType =
-                    runState != null && SuperconductingWireBlock.isSuperconductor(runState)
+                    runState != null && SuperconductingWireBlock.isSuperconducting(runState)
                             ? ComponentType.SUPERCONDUCTOR
                             : null;
             CarrierProjection.ProjectedHost projected =

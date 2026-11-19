@@ -32,9 +32,10 @@ class ClockWiringTest {
                         && rule.contains("clampSeconds(seconds) * TICKS_PER_SECOND + clampTicks(ticks)"),
                 "周期是两个单位相加：秒 × 20 + tick");
         assertTrue(rule.contains("public static final int MIN_PULSE_TICKS = 1")
-                        && rule.contains("public static final int MAX_PULSE_TICKS = 2")
+                        && rule.contains("public static final int MAX_PULSE_TICKS = MAX_SECONDS * TICKS_PER_SECOND + MAX_TICKS")
                         && rule.contains("public static final int DEFAULT_PULSE_TICKS = 2"),
-                "脉宽是设定（1 或 2 tick）而不是常量，默认 2 tick：一个 tick 的脉冲会被结构那条路稀释掉");
+                "脉宽是设定而不是常量，默认 2 tick：一个 tick 的脉冲会被结构那条路稀释掉；上限与最长的周期同一口径"
+                        + "（3600 秒 19 tick），因为玩家是按秒 + tick 填它的");
         assertTrue(rule.contains("public static final int MAX_SECONDS = 3600")
                         && rule.contains("public static final int MAX_TICKS = 19"),
                 "范围：秒 0-3600、tick 0-19（20 tick 就是一秒，所以 tick 差一档不重复拼法）");
@@ -217,8 +218,9 @@ class ClockWiringTest {
     @DisplayName("资源：方块状态、两张模型、物品、掉落、合成、四张贴图、两种语言")
     void theResources() throws IOException {
         String blockstate = read("resources", "assets", "redstonecircuit", "blockstates", "clock.json");
-        assertTrue(blockstate.contains("\"facing=south,lit=false\": { \"model\": \"redstonecircuit:block/clock\" }"),
-                "模型自己朝南那一个不加 y（正面 = 南），和另外两件同一套约定");
+        assertTrue(blockstate.contains("\"mount=down,facing=south,lit=false\":"
+                        + " { \"model\": \"redstonecircuit:block/clock\" }"),
+                "地板上朝南那一套就是仓库里那份本体模型（正面 = 南），和另外两件同一套约定");
         assertTrue(blockstate.contains("clock_lit"), "亮的那一档要有自己的模型");
 
         String model = read("resources", "assets", "redstonecircuit", "models", "block", "clock.json");
@@ -257,7 +259,8 @@ class ClockWiringTest {
                     "block.redstonecircuit.clock.tip.detail", "redstonecircuit.clock.title",
                     "redstonecircuit.clock.rule", "redstonecircuit.clock.period", "redstonecircuit.clock.emitting",
                     "redstonecircuit.clock.silent", "redstonecircuit.clock.next", "redstonecircuit.device.seconds",
-                    "redstonecircuit.device.ticks", "redstonecircuit.device.pulse", "jade.redstonecircuit.inner.clock")) {
+                    "redstonecircuit.device.ticks", "redstonecircuit.device.period", "redstonecircuit.device.pulse",
+                    "redstonecircuit.clock.noedge", "jade.redstonecircuit.inner.clock")) {
                 assertTrue(file.contains("\"" + key + "\""), lang + " 少了 " + key);
             }
         }
@@ -308,7 +311,7 @@ class ClockWiringTest {
                 "世界里和方块内两处都真的读了第四个数");
         assertTrue(block.contains("public static ClockRule.Setting wanted(int seconds, int ticks, int strength, int pulse)")
                         && block.contains("|| !ClockRule.isPulse(pulse))"),
-                "而 1-2 之外的脉宽被拒绝，不是悄悄夹一下");
+                "而 1 tick - 3600 秒 19 tick 之外的脉宽被拒绝，不是悄悄夹一下");
         assertTrue(block.contains("readout.setting().strength(), readout.setting().pulse(), readout.power()"),
                 "回给界面的 view 也把脉宽放在第四位，屏幕才画得出当前值");
         assertTrue(block.contains("ClockRule.isOn(level.getGameTime(), setting.period(), setting.pulse())")
@@ -320,27 +323,41 @@ class ClockWiringTest {
     }
 
     @Test
-    @DisplayName("界面第四列是一个 2t ⇄ 1t 的循环按钮，不是输入框")
-    void theFourthColumnIsACycleButton() throws IOException {
+    @DisplayName("脉冲和周期一样填：界面上是「秒 + tick」两个输入框，不是一个循环按钮")
+    void thePulseIsTwoFieldsLikeThePeriod() throws IOException {
         String screen = read("client", "ClockScreen.java");
-        assertTrue(screen.contains("private static final int COLUMN_PULSE = 220;"),
-                "第四列在三个输入框右边（第三列 148 + 64 + 8）");
-        assertTrue(screen.contains("this.pulseButton = addRenderableWidget(Button.builder(pulseLabel(), button -> cyclePulse())"),
-                "第四个控件是按钮而不是输入框：1 和 2 两个值，能点的就不该能填");
-        assertFalse(screen.contains("pulseField"), "它没有对应的 EditBox");
-        assertTrue(screen.contains("this.pulse = this.pulse == ClockRule.MIN_PULSE_TICKS ? ClockRule.MAX_PULSE_TICKS"
-                        + " : ClockRule.MIN_PULSE_TICKS;"),
-                "点一下在 1 和 2 之间切换");
-        assertTrue(screen.contains("Component.translatable(\"redstonecircuit.device.pulse\", this.pulse)"),
-                "按钮上写的就是当前值（脉冲 2t ⇄ 脉冲 1t）");
-        assertTrue(screen.contains("seconds, ticks, strength, this.pulse)"),
-                "send() 把脉宽放进第四个数，和 SET payload 的 a/b/c/d 对齐");
+        assertTrue(screen.contains("private static final int COLUMN_PULSE_SECONDS = 220;")
+                        && screen.contains("private static final int COLUMN_PULSE_TICKS = 292;"),
+                "第四、五列接在三个输入框右边（第三列 148 + 64 + 8，再一格 + 72）");
+        assertTrue(screen.contains("private EditBox pulseSecondsField;")
+                        && screen.contains("private EditBox pulseTicksField;"),
+                "脉冲能长到 3600 秒，所以它只和能填数有关，和「点一下换一档」无关");
+        assertTrue(screen.contains("this.pulseSecondsField = field(COLUMN_PULSE_SECONDS, 4,")
+                        && screen.contains("this.pulseTicksField = field(COLUMN_PULSE_TICKS, 2,"),
+                "两个框的长度上限与周期那两个一样：秒 4 位、tick 2 位");
+        assertFalse(screen.contains("pulseButton"), "1-2 的循环按钮不该留下来");
+        assertFalse(screen.contains("cyclePulse"), "没有两个值可以循环了");
+        assertTrue(screen.contains("ClockRule.pulseSeconds(this.pulse)")
+                        && screen.contains("ClockRule.pulseTicks(this.pulse)"),
+                "回填时把一个宽度拆回秒 + tick：和「周期 = 秒 × 20 + tick」同一套换算");
+        assertTrue(screen.contains("private Integer typedPulse()"),
+                "两个字段合回一个宽度，并且 0 秒 0 tick 被拒（那不是脉宽，是永不输出）");
+        assertTrue(screen.contains("int width = seconds * ClockRule.TICKS_PER_SECOND + ticks;"),
+                "合的方式就是秒 × 20 + tick，与周期同一条算式");
+        assertTrue(screen.contains("seconds, ticks, strength, pulse)"),
+                "send() 把宽度放进第四个数，和 SET payload 的 a/b/c/d 对齐");
         assertTrue(screen.contains("this.pulse = message.d();"),
                 "而界面上的当前值来自服务端回的 view payload");
+        assertTrue(screen.contains("Component.translatable(\"redstonecircuit.device.pulse\")")
+                        && screen.contains("Component.translatable(\"redstonecircuit.device.period\")"),
+                "两列分组各有标题：四个长度都读「秒」「tick」，只有分组标题分得清哪一对是哪一对");
+        assertTrue(screen.contains("Component.translatable(\"redstonecircuit.clock.noedge\")"),
+                "脉冲盖满周期时没有下一个边沿可等，界面要说出来，而不是报一个永远重复的周期");
 
         for (String lang : List.of("zh_cn", "en_us")) {
             String file = read("resources", "assets", "redstonecircuit", "lang", lang + ".json");
-            assertTrue(file.contains("\"redstonecircuit.device.pulse\""), lang + " 少了脉宽按钮上的字");
+            assertTrue(file.contains("\"redstonecircuit.device.pulse\"") && file.contains("\"redstonecircuit.device.period\""),
+                    lang + " 少了分组标题的字");
         }
     }
 

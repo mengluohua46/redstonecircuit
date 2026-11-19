@@ -32,35 +32,45 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.SupportType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * The four 带界面的红石元件 are 薄板: one eighth of a block thick, lying at the bottom of their cell.
+ * The four 带界面的红石元件 are 薄板: one eighth of a block thick, and they hang on <b>any</b> face of their cell.
  *
  * <p>Each set has whole 16×16 squares for its two big faces and a 16×2 strip for its edges; the strip sits on the
  * bottom two rows, which is what vanilla's auto-UV samples for a two-pixel-tall element, so the plate is one element
- * with no rotation. {@link #FACING} is 正面, the <b>input</b> face, and every device answers on
- * {@code FACING.getOpposite()}; the facing is horizontal, so 正面 is the face towards whoever placed it. The class
- * owns the geometry, placement, rotations, the click that opens the screen, the edit distance and the throttle.
+ * with no rotation. {@link #MOUNT} is 贴面, the face it hangs on, and {@link #FACING} is 正面, the <b>input</b> face
+ * every device answers on the back of - a direction inside the plate's own plane, so a plate on a wall reads up or
+ * sideways along that wall, exactly as 中继器（贴面）does. On the floor and the ceiling 正面 still points back at
+ * whoever placed it. The class owns the geometry, placement, the support rule, rotations, the click that opens the
+ * screen, the edit distance and the throttle.
+ *
+ * <p>The plate's own model is the floor one (贴面 = down, 正面 = south); every other mounting is a baked copy of it,
+ * because a blockstate variant can only carry two rotations and the rest of the orientations are not in that group.
  */
 public abstract class RcPlateBlock extends Block {
 
     /**
-     * 正面 - the input face; the output is always {@code FACING.getOpposite()}. Horizontal, because the plate lies flat.
+     * 正面 - the input face; the output is always {@code FACING.getOpposite()}. Six values, because the plate can hang
+     * on any face and then reads inside its own plane.
      */
-    public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
+    public static final DirectionProperty FACING = DirectionProperty.create("facing", Direction.values());
 
-    /** 1/8 of a block, at the bottom of the cell. */
-    private static final VoxelShape SHAPE = Block.box(0.0, 0.0, 0.0, 16.0, 2.0, 16.0);
+    /** 贴面 - towards the block the plate hangs on. Separate question from {@link #FACING}, and never the same axis. */
+    public static final DirectionProperty MOUNT = DirectionProperty.create("mount", Direction.values());
 
     /** How far a player may be from the block (measured where it is drawn) and still edit it. */
     protected static final double RANGE = 8.0;
@@ -80,37 +90,111 @@ public abstract class RcPlateBlock extends Block {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING);
+        builder.add(FACING, MOUNT);
+    }
+
+    /** The 2 px plate on the face {@code mount} names - the same box the surface diodes use. */
+    public static VoxelShape shapeFor(Direction mount) {
+        return SurfaceDiodeBlock.shapeFor(mount);
     }
 
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return SHAPE;
+        return shapeFor(state.getValue(MOUNT));
     }
 
     @Override
     protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
                                            CollisionContext context) {
-        return SHAPE;
+        return shapeFor(state.getValue(MOUNT));
     }
 
     /**
-     * 正面 points back at whoever placed it - a repeater's own rule ({@code getHorizontalDirection().getOpposite()}), so
-     * the player is standing at the input face holding the wire that will feed it.
+     * The plate goes against the face that was clicked, and 正面 is taken from where the player is looking - see
+     * {@link #facingFor}. Nothing is placed where the plate could not hang: a wall or a ceiling has to be solid behind
+     * it, the rule a repeater already lives by.
      */
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
-        return defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
+        Direction mount = context.getClickedFace().getOpposite();
+        Direction horizontal = context.getHorizontalDirection().getOpposite();
+        BlockState state = defaultBlockState()
+                .setValue(MOUNT, mount)
+                .setValue(FACING, facingFor(mount, lookAway(context), horizontal));
+        return canStay(state, context.getLevel(), context.getClickedPos()) ? state : null;
+    }
+
+    /**
+     * 正面 for a click: on the floor and the ceiling it is still the face towards whoever placed the plate (what 1.3.0
+     * did), because a plate lying flat has no reason to prefer north; on a wall it is where the player is looking, read
+     * in three dimensions, so that looking up a wall gives a plate that reads upwards.
+     */
+    public static Direction facingFor(Direction mount, Direction lookAway, Direction horizontalAway) {
+        if (mount.getAxis().isVertical()) {
+            return horizontalAway;
+        }
+        return SurfaceDiodeBlock.placementFacing(mount, lookAway, horizontalAway);
+    }
+
+    /** The direction from the clicked face towards the player - {@code UseOnContext} carries no nearest-looking one. */
+    private static Direction lookAway(BlockPlaceContext context) {
+        if (context.getPlayer() == null) {
+            return context.getHorizontalDirection().getOpposite();
+        }
+        Vec3 look = context.getPlayer().getLookAngle();
+        return Direction.getNearest(-look.x, -look.y, -look.z);
+    }
+
+    /**
+     * Whether the plate has something to hang on: the block it is glued to has to present a solid face towards it, the
+     * same test a surface diode makes. Public because the placement path asks before it writes anything.
+     */
+    public static boolean canStay(BlockState state, LevelReader level, BlockPos pos) {
+        Direction mount = state.getValue(MOUNT);
+        return com.jiangyuefengyu.redstonecircuit.carrier.CarriedSupport.sturdy(
+                level, pos.relative(mount), mount.getOpposite(), SupportType.RIGID);
+    }
+
+    @Override
+    protected boolean canSurvive(BlockState state, LevelReader level, BlockPos pos) {
+        return canStay(state, level, pos);
+    }
+
+    /** The block behind the plate is gone: so is the plate. */
+    @Override
+    protected BlockState updateShape(BlockState state, Direction direction, BlockState neighbourState,
+                                     LevelAccessor level, BlockPos pos, BlockPos neighbourPos) {
+        if (direction == state.getValue(MOUNT)) {
+            return canStay(state, level, pos) ? state : Blocks.AIR.defaultBlockState();
+        }
+        return state;
     }
 
     @Override
     protected BlockState rotate(BlockState state, Rotation rotation) {
-        return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
+        return state.setValue(FACING, rotation.rotate(state.getValue(FACING)))
+                .setValue(MOUNT, rotation.rotate(state.getValue(MOUNT)));
     }
 
     @Override
     protected BlockState mirror(BlockState state, Mirror mirror) {
-        return state.rotate(mirror.getRotation(state.getValue(FACING)));
+        return state.setValue(FACING, mirror.mirror(state.getValue(FACING)))
+                .setValue(MOUNT, mirror.mirror(state.getValue(MOUNT)));
+    }
+
+    /**
+     * 转向杆: one click, one step round the ring this mounting can honour - up and down included on a wall.
+     *
+     * <p>The 正面 is a different cell now, so the device has to look again: the notification is the same one an
+     * ordinary neighbour change is, and every one of the four re-derives its answer from it ({@code announce}).
+     * 贴面 does not change - the plate stays on the block it is glued to.
+     */
+    public static Direction turnClockwise(ServerLevel level, BlockPos pos, BlockState state) {
+        Direction next = SurfaceDiodeBlock.nextFacing(state.getValue(MOUNT), state.getValue(FACING));
+        BlockState turned = state.setValue(FACING, next);
+        level.setBlock(pos, turned, Block.UPDATE_ALL);
+        level.neighborChanged(pos, turned.getBlock(), pos);
+        return next;
     }
 
     /**
@@ -173,7 +257,7 @@ public abstract class RcPlateBlock extends Block {
      * carrier whose storage is the level, the local coordinate as well, and takes the larger. A plate on the ground
      * degenerates to the ordinary read, so the two frames cannot drift apart.
      */
-    protected static int readingInto(Level level, BlockPos pos, Direction side) {
+    public static int readingInto(Level level, BlockPos pos, Direction side) {
         BlockPos neighbour = pos.relative(side);
         if (level instanceof ServerLevel serverLevel) {
             return PowerSolver.clamp(ProductFrame.carriedAt(serverLevel, pos).signalInto(serverLevel, neighbour, side));

@@ -81,6 +81,7 @@ public class ControllerBlock extends RcPlateBlock {
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
+                .setValue(MOUNT, Direction.DOWN)
                 .setValue(MAIN, ControllerRule.Main.GREATER)
                 .setValue(SUB, ControllerRule.Sub.EQUAL)
                 .setValue(X, 1)
@@ -106,7 +107,7 @@ public class ControllerBlock extends RcPlateBlock {
     }
 
     /**
-     * 背面 only, as the other plates have it: 正面 and the two sides answer 0. {@code side} is vanilla's
+     * 背面 only, as the other plates have it: 正面 and the four sides answer 0. {@code side} is vanilla's
      * backwards parameter - it names the way the query travelled, from the asker towards this block - so the
      * answering face is {@code side.getOpposite()}, and 背面 is {@code FACING.getOpposite()}.
      */

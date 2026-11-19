@@ -1,0 +1,20 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "lit": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_torch_on"
+      }
+    },
+    {
+      "when": {
+        "lit": "false"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_torch_off"
+      }
+    }
+  ]
+}

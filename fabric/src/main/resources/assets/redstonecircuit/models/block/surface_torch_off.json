@@ -1,0 +1,115 @@
+{
+  "render_type": "minecraft:cutout",
+  "ambientocclusion": false,
+  "textures": {
+    "particle": "minecraft:block/redstone_torch_off",
+    "torch": "minecraft:block/redstone_torch_off"
+  },
+  "elements": [
+    {
+      "from": [
+        7,
+        6,
+        7
+      ],
+      "to": [
+        9,
+        16,
+        9
+      ],
+      "shade": false,
+      "faces": {
+        "up": {
+          "uv": [
+            7,
+            13,
+            9,
+            15
+          ],
+          "texture": "#torch",
+          "rotation": 180
+        },
+        "down": {
+          "uv": [
+            7,
+            6,
+            9,
+            8
+          ],
+          "texture": "#torch",
+          "rotation": 180
+        }
+      }
+    },
+    {
+      "from": [
+        7,
+        0,
+        0
+      ],
+      "to": [
+        9,
+        16,
+        16
+      ],
+      "shade": false,
+      "faces": {
+        "east": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#torch",
+          "rotation": 180
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#torch",
+          "rotation": 180
+        }
+      }
+    },
+    {
+      "from": [
+        0,
+        0,
+        7
+      ],
+      "to": [
+        16,
+        16,
+        9
+      ],
+      "shade": false,
+      "faces": {
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#torch",
+          "rotation": 180
+        },
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#torch",
+          "rotation": 180
+        }
+      }
+    }
+  ]
+}

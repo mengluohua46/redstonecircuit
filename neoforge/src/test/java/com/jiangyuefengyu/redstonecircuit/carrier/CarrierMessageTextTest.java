@@ -79,7 +79,6 @@ class CarrierMessageTextTest {
         BY_KEY.put("message.redstonecircuit.wrench.linked_auto", "east");
         BY_KEY.put("message.redstonecircuit.switch.repeater", "2");
         BY_KEY.put("message.redstonecircuit.rotation_rod.to_input", "north");
-        BY_KEY.put("message.redstonecircuit.rotation_rod.to_output", "north");
     }
 
     /**
@@ -163,23 +162,6 @@ class CarrierMessageTextTest {
                                     + " characters, over the " + CarrierMessages.MAX_ACTION_BAR_CHARS
                                     + " the rule allows: " + rendered);
                 }
-            }
-        }
-
-        @Test
-        @DisplayName("the offending sentence is gone, and the new one names blocks")
-        void theAuthorsSentenceIsGone() throws IOException {
-            for (String language : List.of("zh_cn.json", "en_us.json")) {
-                String picked = messages(language).get("message.redstonecircuit.wrench.picked_elsewhere");
-                assertNotNull(picked, language + " must still have the key the message uses");
-                assertFalse(picked.contains("%s at %s"),
-                        language + " still names both ends by position: " + picked);
-                assertFalse(picked.contains("put both blocks in the same machine"),
-                        language + " still tells the player to merge two blocks that are already built: "
-                                + picked);
-                assertTrue(picked.contains("%s"),
-                        language + " must name the two BLOCKS, which is how a player tells them apart: "
-                                + picked);
             }
         }
 
@@ -348,13 +330,14 @@ class CarrierMessageTextTest {
                             "the name of " + type + " is its own enum constant, which is the leak");
                     assertFalse(REGISTRY_NAME.matcher(key).find(),
                             "the name of " + type + " is a registry id, not a translation key: " + key);
-                    // Either the item's own key or the block's, which is the fallback a BlockItem
-                    // without a separate item. entry really uses.
-                    String asBlock = "block" + key.substring("item".length());
-                    if (key.startsWith("item.redstonecircuit.")) {
-                        assertTrue(entries.containsKey(key) || entries.containsKey(asBlock),
-                                language + " has neither " + key + " nor " + asBlock
-                                        + ", so a player reading " + type + " would be shown the raw key");
+                    // Our own keys have to exist verbatim: there is no fallback at render time, so a key
+                    // of the other form is the raw key on a player's screen. Vanilla's half of the table
+                    // cannot be read here (vanilla's own file is not in this JVM) - CarrierNameGameTest
+                    // holds the whole table against the registry instead.
+                    if (key.contains(".redstonecircuit.")) {
+                        assertTrue(entries.containsKey(key),
+                                language + " has no " + key + ", so a player reading " + type
+                                        + " would be shown the raw key");
                     }
                     assertTrue(key.startsWith("item.") || key.startsWith("block."),
                             "a component's name has to be an item or block translation key: " + key);
@@ -451,8 +434,7 @@ class CarrierMessageTextTest {
             "message.redstonecircuit.wrench.cleared_carrier",
             "message.redstonecircuit.wrench.no_selection",
             "message.redstonecircuit.wrench.no_selection_carrier",
-            "message.redstonecircuit.wrench.picked_elsewhere",
-            "message.redstonecircuit.wrench.same_block",
+
             "message.redstonecircuit.wrench.not_adjacent_carrier",
             "message.redstonecircuit.wrench.block_unnamed",
             "message.redstonecircuit.wrench.block_named_facing",
@@ -462,22 +444,14 @@ class CarrierMessageTextTest {
             "message.redstonecircuit.wrench.linked_outside_on",
             "message.redstonecircuit.wrench.linked_outside_off",
             "message.redstonecircuit.wrench.linked_outside_auto",
-            "message.redstonecircuit.wrench.outside_no_pose",
             "message.redstonecircuit.wrench.linked_off",
             "message.redstonecircuit.wrench.linked_auto",
             "message.redstonecircuit.wrench.linked_across_on",
             "message.redstonecircuit.wrench.linked_across_off",
             "message.redstonecircuit.wrench.linked_across_auto",
             "message.redstonecircuit.wrench.no_component",
-            "message.redstonecircuit.wrench.need_goggles",
-            "message.redstonecircuit.rotation_rod.no_direction",
             "message.redstonecircuit.rotation_rod.nothing_there",
             "message.redstonecircuit.rotation_rod.to_input",
-            "message.redstonecircuit.rotation_rod.to_output",
-            "message.redstonecircuit.rotation_rod.need_goggles",
-            "message.redstonecircuit.carried.inserted",
-            "message.redstonecircuit.carried.retrieved",
-            "message.redstonecircuit.carried.handled",
         }) {
             keys.add(key);
         }

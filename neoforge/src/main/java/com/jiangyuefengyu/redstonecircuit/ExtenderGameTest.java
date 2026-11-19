@@ -165,11 +165,11 @@ public final class ExtenderGameTest {
         helper.succeed();
     }
 
-    /** 两个数字不住在方块状态里：朝向 4 × 亮 2 = 8 个状态, 秒和刻在方块旁边那张表里, 且照范围夹取。 */
+    /** 两个数字不住在方块状态里：贴面 6 × 正面 6 × 亮 2 = 72 个状态, 秒和刻在方块旁边那张表里, 且照范围夹取。 */
     @GameTest(template = "empty")
     public void theSettingsLiveBesideTheBlockAndNotInTheState(GameTestHelper helper) {
         int states = RCRegistry.EXTENDER.get().getStateDefinition().getPossibleStates().size();
-        helper.assertTrue(states == 8, "朝向 4 × 亮 2 = 8 个状态。秒 0-3600 × 刻 20 要是进了状态就是 57 万个，实际 "
+        helper.assertTrue(states == 72, "贴面 6 × 正面 6 × 亮 2 = 72 个状态。秒 0-3600 × 刻 20 要是进了状态就是 57 万个，实际 "
                 + states);
 
         BlockPos plate = placeExtender(helper, FRONT, new ExtenderRule.Setting(2, 5));

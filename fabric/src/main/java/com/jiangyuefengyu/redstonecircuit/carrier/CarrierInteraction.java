@@ -841,11 +841,8 @@ public final class CarrierInteraction {
 
         if (!wearsGoggles(player) && gogglesRequired(wrench)) {
             // The same gate the world's tools have, and one gate rather than two: a player who needs the
-            // goggles needs them on a machine as well.
-            message(player, Component.translatable(wrench
-                            ? "message.redstonecircuit.wrench.need_goggles"
-                            : "message.redstonecircuit.rotation_rod.need_goggles")
-                    .withStyle(ChatFormatting.RED));
+            // goggles needs them on a machine as well. Silent, like the world's own refusal: the tool's
+            // tooltip already carries the requirement.
             trace(entry, player, hand, hit.localPos(), face, hit, CarrierEntryTrace.Outcome.REFUSED,
                     "refused: the goggles are required and not worn");
             return true;
@@ -1909,17 +1906,16 @@ public final class CarrierInteraction {
      * the picked host emptied between the pick and the click, which the world's own wrench says nothing about
      * either.
      *
-     * <p>The two sentences reused for {@link OutsideStatus#UNREADABLE_POSITION} and
-     * {@link OutsideStatus#NO_SUCH_BLOCK} are the world's own: a machine whose position cannot be read is the
-     * same fact as one whose orientation cannot ({@code outside_no_pose}), and "there is no block on that
-     * side" is literally {@code nothing_there}. Reusing them keeps the player-facing rule "no new words
-     * without a reason".
+     * <p>{@link OutsideStatus#UNREADABLE_POSE}, {@link OutsideStatus#UNREADABLE_POSITION} and
+     * {@link OutsideStatus#NO_SUCH_BLOCK} used to reuse the world's two refusal sentences; they say nothing
+     * now. A silent status is silent on the ledger too - the trace line ({@code CarrierEntryTrace}) is what
+     * records the click - so the bar and the log still cannot drift apart.
      */
     static boolean needsANamedAnswer(OutsideStatus status) {
         return switch (status) {
-            case NOT_ADJACENT, UNREADABLE_POSE, UNREADABLE_POSITION, NO_SUCH_BLOCK,
-                 FAR_END_NOT_THE_PICKED_STRUCTURE -> true;
-            case LOCKED, LOCKED_INSIDE, NOTHING_PICKED, NOT_OUTSIDE, NOT_INSIDE, NO_COMPONENT -> false;
+            case NOT_ADJACENT, FAR_END_NOT_THE_PICKED_STRUCTURE -> true;
+            case LOCKED, LOCKED_INSIDE, NOTHING_PICKED, NOT_OUTSIDE, NOT_INSIDE, NO_COMPONENT,
+                 UNREADABLE_POSE, UNREADABLE_POSITION, NO_SUCH_BLOCK -> false;
         };
     }
 
@@ -1933,10 +1929,6 @@ public final class CarrierInteraction {
         return switch (status) {
             case NOT_ADJACENT, FAR_END_NOT_THE_PICKED_STRUCTURE -> Component.translatable(
                     "message.redstonecircuit.wrench.not_adjacent_carrier");
-            case UNREADABLE_POSE, UNREADABLE_POSITION -> Component.translatable(
-                    "message.redstonecircuit.wrench.outside_no_pose");
-            case NO_SUCH_BLOCK -> Component.translatable(
-                    "message.redstonecircuit.wrench.nothing_there");
             default -> Component.empty();
         };
     }
@@ -2216,7 +2208,10 @@ public final class CarrierInteraction {
             }
             return Boolean.TRUE;
         }, false);
-        message(player, describe(action, CarrierStore.indexOf(level)));
+        Component sentence = describe(action, CarrierStore.indexOf(level));
+        if (sentence != null) {
+            message(player, sentence);
+        }
         trace(entry, player, hand, hit.localPos(), face, hit, CarrierEntryTrace.Outcome.MATCH,
                 action == null ? null : action.describe());
         logAction(entry, hit, face, action == null ? "no action" : action.describe(),
@@ -2284,7 +2279,6 @@ public final class CarrierInteraction {
             broadcastPlacementChange(level, hit, action);
             return Boolean.TRUE;
         }, false);
-        message(player, describePlacement(action));
         trace(entry, player, hand, hit.localPos(), face, hit, CarrierEntryTrace.Outcome.MATCH,
                 action.describe());
         logAction(entry, hit, face, action.describe(),
@@ -2720,6 +2714,7 @@ public final class CarrierInteraction {
      * inside a machine as on the ground; the keys with {@code _carrier} in the name exist because the world's
      * versions of those take a <b>position</b> as an argument, and the carrier side must not.
      */
+    @Nullable
     private static Component describe(@Nullable CarriedTool.Action action,
                                       @Nullable CarriedHostIndex index) {
         if (action == null) {
@@ -2778,29 +2773,18 @@ public final class CarrierInteraction {
                     "message.redstonecircuit.wrench.not_adjacent_carrier"));
         }
         if (action instanceof CarriedTool.Action.AlreadyClear) {
-            return Component.translatable("message.redstonecircuit.wrench.same_block")
-                    .withStyle(ChatFormatting.YELLOW);
+            // Silent: the click changed nothing the player could not already see.
+            return null;
         }
         if (action instanceof CarriedTool.Action.NoPick) {
             return CarrierMessages.refused(Component.translatable(
                     "message.redstonecircuit.wrench.no_selection_carrier"));
         }
-        if (action instanceof CarriedTool.Action.PickedElsewhere picked) {
-            Slot mine = CarriedInsert.slotOf(index, picked.pickedCarrier(), picked.pickedLocalPos());
-            Slot theirs = CarriedInsert.slotOf(index, picked.carrier(), picked.localPos());
-            // The position on this line is a fact about the WORLD - where the two blocks stand relative to
-            // each other - and never a coordinate. See CarrierMessages#whereRelativeTo.
-            return CarrierMessages.refused(Component.translatable(
-                    "message.redstonecircuit.wrench.picked_elsewhere",
-                    CarrierMessages.blockLabel(mine, CarrierMessages.componentName(mine == null ? null
-                            : mine.type)),
-                    CarrierMessages.whereRelativeTo(picked.pickedWorld(), picked.clickWorld()),
-                    CarrierMessages.blockLabel(theirs, CarrierMessages.componentName(theirs == null ? null
-                            : theirs.type))));
-        }
-        if (action instanceof CarriedTool.Action.NoDirection) {
-            return CarrierMessages.refused(Component.translatable(
-                    "message.redstonecircuit.rotation_rod.no_direction"));
+        if (action instanceof CarriedTool.Action.PickedElsewhere
+                || action instanceof CarriedTool.Action.NoDirection) {
+            // Silent: a pick made in one structure and a click in another, and wire, which has no direction.
+            // The trace line keeps both; the action bar has nothing to add.
+            return null;
         }
         if (action instanceof CarriedTool.Action.NoComponent noComponent) {
             return "rod".equals(noComponent.tool())
@@ -2816,10 +2800,9 @@ public final class CarrierInteraction {
         }
         // THE LAST PLACE AN ACTION COULD REACH THE ACTION BAR AS ITS OWN LOG TEXT. Every branch above names
         // what happened in words a player reads; falling back to the action's own description text would put the
-        // JUDGEMENT-LINE text - an internal coordinate and a debug phrase - on the action bar. The neutral
-        // sentence below says the same thing without either, and the judgement line keeps the detail.
-        return Component.translatable("message.redstonecircuit.carried.handled")
-                .withStyle(ChatFormatting.RED);
+        // JUDGEMENT-LINE text - an internal coordinate and a debug phrase - on the action bar. So the fallback
+        // says nothing at all, and the judgement line keeps the detail.
+        return null;
     }
 
     /**
@@ -2847,28 +2830,6 @@ public final class CarrierInteraction {
             case ON -> text.copy().withStyle(ChatFormatting.GREEN);
             case OFF -> text.copy().withStyle(ChatFormatting.RED);
             case AUTO -> text.copy().withStyle(ChatFormatting.GRAY);
-        };
-    }
-
-    /**
-     * What a placement gesture reports on the action bar.
-     *
-     * <p>Two new translation keys rather than the world's, because the world's placement shows itself by
-     * the component appearing inside the block, and a carried component is not drawn until the overlay
-     * has been re-sent - so the player needs one line that says what just happened.
-     */
-    private static Component describePlacement(CarriedInsert.Action action) {
-        return switch (action) {
-            case INSERT -> Component.translatable("message.redstonecircuit.carried.inserted")
-                    .withStyle(ChatFormatting.GREEN);
-            case RETRIEVE -> Component.translatable("message.redstonecircuit.carried.retrieved")
-                    .withStyle(ChatFormatting.AQUA);
-            // Not reachable today - `applyPlacementPlan` only reports INSERT and RETRIEVE - but the fallback is
-            // a sentence and not the action's own description text, which is the judgement-line text with an
-            // internal coordinate in it: a branch that cannot be reached must still not print a coordinate if
-            // the reachability ever changes.
-            default -> Component.translatable("message.redstonecircuit.carried.handled")
-                    .withStyle(ChatFormatting.RED);
         };
     }
 

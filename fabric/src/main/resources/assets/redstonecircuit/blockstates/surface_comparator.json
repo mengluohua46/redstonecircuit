@@ -1,0 +1,492 @@
+{
+  "variants": {
+    "mount=down,facing=north,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "y": 180
+    },
+    "mount=down,facing=south,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator"
+    },
+    "mount=down,facing=east,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "y": 270
+    },
+    "mount=down,facing=west,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "y": 90
+    },
+    "mount=down,facing=up,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "y": 180
+    },
+    "mount=down,facing=down,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "y": 180
+    },
+    "mount=up,facing=north,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "x": 180
+    },
+    "mount=up,facing=south,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "x": 180
+    },
+    "mount=up,facing=down,mode=compare,powered=false": {
+      "model": "minecraft:block/comparator",
+      "x": 180
+    },
+    "mount=north,facing=north,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator"
+    },
+    "mount=north,facing=south,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator"
+    },
+    "mount=north,facing=east,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_east_comparator"
+    },
+    "mount=north,facing=west,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_west_comparator"
+    },
+    "mount=north,facing=up,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator"
+    },
+    "mount=north,facing=down,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_down_comparator"
+    },
+    "mount=south,facing=north,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator"
+    },
+    "mount=south,facing=south,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator"
+    },
+    "mount=south,facing=east,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_east_comparator"
+    },
+    "mount=south,facing=west,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_west_comparator"
+    },
+    "mount=south,facing=up,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator"
+    },
+    "mount=south,facing=down,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_down_comparator"
+    },
+    "mount=east,facing=north,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_north_comparator"
+    },
+    "mount=east,facing=south,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_south_comparator"
+    },
+    "mount=east,facing=east,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator"
+    },
+    "mount=east,facing=west,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator"
+    },
+    "mount=east,facing=up,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator"
+    },
+    "mount=east,facing=down,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_down_comparator"
+    },
+    "mount=west,facing=north,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_north_comparator"
+    },
+    "mount=west,facing=south,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_south_comparator"
+    },
+    "mount=west,facing=east,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator"
+    },
+    "mount=west,facing=west,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator"
+    },
+    "mount=west,facing=up,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator"
+    },
+    "mount=west,facing=down,mode=compare,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_down_comparator"
+    },
+    "mount=down,facing=north,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "y": 180
+    },
+    "mount=down,facing=south,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on"
+    },
+    "mount=down,facing=east,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "y": 270
+    },
+    "mount=down,facing=west,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "y": 90
+    },
+    "mount=down,facing=up,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "y": 180
+    },
+    "mount=down,facing=down,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "y": 180
+    },
+    "mount=up,facing=north,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "x": 180
+    },
+    "mount=up,facing=south,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "x": 180
+    },
+    "mount=up,facing=down,mode=compare,powered=true": {
+      "model": "minecraft:block/comparator_on",
+      "x": 180
+    },
+    "mount=north,facing=north,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_on"
+    },
+    "mount=north,facing=south,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_on"
+    },
+    "mount=north,facing=east,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_east_comparator_on"
+    },
+    "mount=north,facing=west,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_west_comparator_on"
+    },
+    "mount=north,facing=up,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_on"
+    },
+    "mount=north,facing=down,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_down_comparator_on"
+    },
+    "mount=south,facing=north,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_on"
+    },
+    "mount=south,facing=south,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_on"
+    },
+    "mount=south,facing=east,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_east_comparator_on"
+    },
+    "mount=south,facing=west,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_west_comparator_on"
+    },
+    "mount=south,facing=up,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_on"
+    },
+    "mount=south,facing=down,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_down_comparator_on"
+    },
+    "mount=east,facing=north,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_north_comparator_on"
+    },
+    "mount=east,facing=south,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_south_comparator_on"
+    },
+    "mount=east,facing=east,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_on"
+    },
+    "mount=east,facing=west,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_on"
+    },
+    "mount=east,facing=up,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_on"
+    },
+    "mount=east,facing=down,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_down_comparator_on"
+    },
+    "mount=west,facing=north,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_north_comparator_on"
+    },
+    "mount=west,facing=south,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_south_comparator_on"
+    },
+    "mount=west,facing=east,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_on"
+    },
+    "mount=west,facing=west,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_on"
+    },
+    "mount=west,facing=up,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_on"
+    },
+    "mount=west,facing=down,mode=compare,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_down_comparator_on"
+    },
+    "mount=down,facing=north,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "y": 180
+    },
+    "mount=down,facing=south,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract"
+    },
+    "mount=down,facing=east,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "y": 270
+    },
+    "mount=down,facing=west,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "y": 90
+    },
+    "mount=down,facing=up,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "y": 180
+    },
+    "mount=down,facing=down,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "y": 180
+    },
+    "mount=up,facing=north,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "x": 180
+    },
+    "mount=up,facing=south,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "x": 180
+    },
+    "mount=up,facing=down,mode=subtract,powered=false": {
+      "model": "minecraft:block/comparator_subtract",
+      "x": 180
+    },
+    "mount=north,facing=north,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_subtract"
+    },
+    "mount=north,facing=south,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_subtract"
+    },
+    "mount=north,facing=east,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_east_comparator_subtract"
+    },
+    "mount=north,facing=west,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_west_comparator_subtract"
+    },
+    "mount=north,facing=up,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_subtract"
+    },
+    "mount=north,facing=down,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_north_down_comparator_subtract"
+    },
+    "mount=south,facing=north,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_subtract"
+    },
+    "mount=south,facing=south,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_subtract"
+    },
+    "mount=south,facing=east,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_east_comparator_subtract"
+    },
+    "mount=south,facing=west,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_west_comparator_subtract"
+    },
+    "mount=south,facing=up,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_subtract"
+    },
+    "mount=south,facing=down,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_south_down_comparator_subtract"
+    },
+    "mount=east,facing=north,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_north_comparator_subtract"
+    },
+    "mount=east,facing=south,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_south_comparator_subtract"
+    },
+    "mount=east,facing=east,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_subtract"
+    },
+    "mount=east,facing=west,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_subtract"
+    },
+    "mount=east,facing=up,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_subtract"
+    },
+    "mount=east,facing=down,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_east_down_comparator_subtract"
+    },
+    "mount=west,facing=north,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_north_comparator_subtract"
+    },
+    "mount=west,facing=south,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_south_comparator_subtract"
+    },
+    "mount=west,facing=east,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_subtract"
+    },
+    "mount=west,facing=west,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_subtract"
+    },
+    "mount=west,facing=up,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_subtract"
+    },
+    "mount=west,facing=down,mode=subtract,powered=false": {
+      "model": "redstonecircuit:block/surface_comparator_west_down_comparator_subtract"
+    },
+    "mount=down,facing=north,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "y": 180
+    },
+    "mount=down,facing=south,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract"
+    },
+    "mount=down,facing=east,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "y": 270
+    },
+    "mount=down,facing=west,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "y": 90
+    },
+    "mount=down,facing=up,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "y": 180
+    },
+    "mount=down,facing=down,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "y": 180
+    },
+    "mount=up,facing=north,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "x": 180
+    },
+    "mount=up,facing=south,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "x": 180
+    },
+    "mount=up,facing=down,mode=subtract,powered=true": {
+      "model": "minecraft:block/comparator_on_subtract",
+      "x": 180
+    },
+    "mount=north,facing=north,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_on_subtract"
+    },
+    "mount=north,facing=south,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_on_subtract"
+    },
+    "mount=north,facing=east,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_east_comparator_on_subtract"
+    },
+    "mount=north,facing=west,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_west_comparator_on_subtract"
+    },
+    "mount=north,facing=up,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_up_comparator_on_subtract"
+    },
+    "mount=north,facing=down,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_north_down_comparator_on_subtract"
+    },
+    "mount=south,facing=north,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_on_subtract"
+    },
+    "mount=south,facing=south,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_on_subtract"
+    },
+    "mount=south,facing=east,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_east_comparator_on_subtract"
+    },
+    "mount=south,facing=west,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_west_comparator_on_subtract"
+    },
+    "mount=south,facing=up,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_up_comparator_on_subtract"
+    },
+    "mount=south,facing=down,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_south_down_comparator_on_subtract"
+    },
+    "mount=east,facing=north,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_north_comparator_on_subtract"
+    },
+    "mount=east,facing=south,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_south_comparator_on_subtract"
+    },
+    "mount=east,facing=east,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_on_subtract"
+    },
+    "mount=east,facing=west,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_on_subtract"
+    },
+    "mount=east,facing=up,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_up_comparator_on_subtract"
+    },
+    "mount=east,facing=down,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_east_down_comparator_on_subtract"
+    },
+    "mount=west,facing=north,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_north_comparator_on_subtract"
+    },
+    "mount=west,facing=south,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_south_comparator_on_subtract"
+    },
+    "mount=west,facing=east,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_on_subtract"
+    },
+    "mount=west,facing=west,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_on_subtract"
+    },
+    "mount=west,facing=up,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_up_comparator_on_subtract"
+    },
+    "mount=west,facing=down,mode=subtract,powered=true": {
+      "model": "redstonecircuit:block/surface_comparator_west_down_comparator_on_subtract"
+    }
+  }
+}

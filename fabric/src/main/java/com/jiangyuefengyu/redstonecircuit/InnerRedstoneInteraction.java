@@ -171,7 +171,6 @@ public final class InnerRedstoneInteraction {
             // The name a player reads is the block label from the translation keys, not the component's
             // enum constant; the log keeps the constant.
             message(player, Component.translatable("message.redstonecircuit.wrench.selected",
-                    Component.literal(pos.toShortString()),
                     WrenchLinks.label(slot)).withStyle(ChatFormatting.YELLOW));
             return WrenchOutcome.CONSUMED;
         }
@@ -211,19 +210,20 @@ public final class InnerRedstoneInteraction {
 
         boolean farEndHoldsComponent = WrenchLinks.slotAt(level, pos) != null;
         WrenchLinks.Result result = WrenchLinks.link(level, selected, pos);
-        message(player, describeLink(result, selected, pos, farEndHoldsComponent));
+        Component sentence = describeLink(result, selected, pos, farEndHoldsComponent);
+        if (sentence != null) {
+            message(player, sentence);
+        }
         debug("wrench link {} -> {} : {}", selected.toShortString(), pos.toShortString(), result);
         return WrenchOutcome.CONSUMED;
     }
 
-    /** True when the wrench must be refused because the goggles are not being worn (and says so). */
+    /**
+     * True when the wrench must be refused because the goggles are not being worn. Silent on purpose: the wrench's
+     * own tooltip already carries the requirement, and a click that says the same thing again is noise.
+     */
     private static boolean refuseWithoutGoggles(ServerPlayer player) {
-        if (!RCConfig.wrenchNeedsGoggles() || wearsGoggles(player)) {
-            return false;
-        }
-        message(player, Component.translatable("message.redstonecircuit.wrench.need_goggles")
-                .withStyle(ChatFormatting.RED));
-        return true;
+        return RCConfig.wrenchNeedsGoggles() && !wearsGoggles(player);
     }
 
     /**
@@ -251,13 +251,21 @@ public final class InnerRedstoneInteraction {
      * @return whether the click was ours to consume
      */
     private boolean useRotationRod(ServerLevel level, ServerPlayer player, BlockPos pos) {
+        // A diode that is a block rather than a component in a slot - 中继器（贴面）and vanilla's repeater - is turned
+        // here, before the slot lookup. No goggles: what it turns is already in plain sight, unlike a component
+        // hidden inside a host block.
+        Direction nowFacing = RotationRod.turnWorldDiode(level, pos);
+        if (nowFacing != null) {
+            message(player, turnedTo(nowFacing));
+            debug("rotation rod at {} -> world diode reads {}", pos.toShortString(), nowFacing);
+            return true;
+        }
         Slot slot = WrenchLinks.slotAt(level, pos);
         if (slot == null) {
             return false;
         }
         if (RCConfig.rotationRodNeedsGoggles() && !wearsGoggles(player)) {
-            message(player, Component.translatable("message.redstonecircuit.rotation_rod.need_goggles")
-                    .withStyle(ChatFormatting.RED));
+            // Silent, like the wrench: the rod's tooltip names the requirement.
             return true;
         }
 
@@ -265,24 +273,24 @@ public final class InnerRedstoneInteraction {
         // The step was written into the slot the store hands out, so re-reading it answers where the rod points now.
         Slot turned = WrenchLinks.slotAt(level, pos);
         Direction now = turned == null ? null : turned.facing;
-        message(player, describeTurn(result, now));
+        if (result == RotationRod.Result.TURNED) {
+            message(player, turnedTo(now));
+        }
         debug("rotation rod at {} -> {} ({})", pos.toShortString(), result, now);
         return true;
     }
 
-    private static Component describeTurn(RotationRod.Result result, Direction facing) {
-        return switch (result) {
-            case TURNED -> Component.translatable(
-                    "message.redstonecircuit.rotation_rod.to_input",
-                    Component.literal(facing == null ? "?" : facing.getName()))
-                    .withStyle(ChatFormatting.YELLOW);
-            case NO_DIRECTION -> Component.translatable(
-                    "message.redstonecircuit.rotation_rod.no_direction").withStyle(ChatFormatting.RED);
-            case NOTHING_THERE -> Component.translatable(
-                    "message.redstonecircuit.rotation_rod.nothing_there").withStyle(ChatFormatting.RED);
-        };
+    /** The one sentence the rod has left: which way the input face now points. */
+    private static Component turnedTo(Direction facing) {
+        return Component.translatable("message.redstonecircuit.rotation_rod.to_input",
+                Component.literal(facing == null ? "?" : facing.getName())).withStyle(ChatFormatting.YELLOW);
     }
 
+    /**
+     * What the shift-click did, or {@code null} when it has nothing to say: a click on a side with no block at all
+     * stays silent, the way the wrench's other non-answers do.
+     */
+    @Nullable
     private static Component describeLink(WrenchLinks.Result result, BlockPos a, BlockPos b,
                                           boolean farEndHoldsComponent) {
         String direction = WrenchLinks.directionBetween(a, b)
@@ -301,8 +309,7 @@ public final class InnerRedstoneInteraction {
                     "message.redstonecircuit.wrench.not_adjacent").withStyle(ChatFormatting.RED);
             case NO_COMPONENT -> Component.translatable(
                     "message.redstonecircuit.wrench.no_component").withStyle(ChatFormatting.RED);
-            case NOTHING_THERE -> Component.translatable(
-                    "message.redstonecircuit.wrench.nothing_there").withStyle(ChatFormatting.RED);
+            case NOTHING_THERE -> null;
             case CLEARED -> Component.translatable("message.redstonecircuit.wrench.cleared",
                     Component.literal(a.toShortString())).withStyle(ChatFormatting.AQUA);
         };

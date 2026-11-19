@@ -316,6 +316,10 @@ final class SableProductDriver {
         if (volume <= 0) {
             return;
         }
+        // EVERY CARRIED SHEET, EVERY TICK, BEFORE THE BOX WALK. The walk below covers the plot a slice at a time, so a
+        // sheet waited a whole pass for its turn - and a pass over a machine is long enough that nothing ever looked
+        // lit. Sheets are few and cheap, so the ones registered when they were placed are recomputed here directly
+        // (作者 2026-11-17：那张粉连一行自己的诊断都没有，它根本没人重算过).
         UUID uuid = subLevel.getUniqueId();
         int start = SOURCE_CURSORS.getOrDefault(uuid, 0);
         if (start >= volume) {
@@ -388,6 +392,11 @@ final class SableProductDriver {
                     // same reason the clock's is - the cell's own tick never comes. Before the wake-up below, so the
                     // world is poked with the answer the torch now gives.
                     com.jiangyuefengyu.redstonecircuit.block.SyncTorchBlock.refreshCarried(level, cell, state);
+                    // 压力板(贴面) 的答案不来自任何邻居, 它数的是踩在上面的实体 —— 而物理化之后脚踩的是世界里画出来的
+                    // 那一格, plot 里那一格永远收不到 entityInside ({@code 作者 2026-11-16: 物理方块上的贴面压力板无法被激活})。
+                    // 这条走查是唯一会到它那儿的人, 所以它同时也是压力板的时钟: 自己不再排程。
+                    com.jiangyuefengyu.redstonecircuit.block.SurfacePressurePlateBlock.refreshCarried(level, cell, state);
+                    // (两块相邻的贴面在存储里可能相距几千万格)。这条走查是唯一会替它重算的人, 所以它也是这张粉的时钟。
                     if (toldFor(uuid).spots.add(drawn.asLong())) {
                         pokeWorld(level, drawn, state);
                     }

@@ -56,26 +56,29 @@ class ControllerWiringTest {
     }
 
     @Test
-    @DisplayName("薄板：1/8 格高、贴格子底部、水平朝向，模型就是一个 16×2×16 的元素")
+    @DisplayName("薄板：1/8 格厚、挂在哪面就贴哪面，盒子与贴面二极管共用一个来源")
     void thePlateIsOneEighthOfABlock() throws IOException {
         String plate = read("src", "main", "java", "com", "jiangyuefengyu", "redstonecircuit", "block",
                 "RcPlateBlock.java");
-        assertTrue(plate.contains("Block.box(0.0, 0.0, 0.0, 16.0, 2.0, 16.0)"),
-                "薄板高 1/8 格 - two pixels of sixteen, and the shape and the collision are the same box");
-        assertTrue(plate.contains("BlockStateProperties.HORIZONTAL_FACING")
-                        && plate.contains("context.getHorizontalDirection().getOpposite()"),
-                "the front is horizontal and points at whoever placed it - a repeater's own rule, because a plate never"
-                        + " stands on a wall");
+        assertTrue(plate.contains("SurfaceDiodeBlock.shapeFor(mount)"),
+                "六面各有自己的盒子，而且就是贴面二极管那六块 - 一份来源，两处用");
+        assertTrue(plate.contains("DirectionProperty.create(\"mount\", Direction.values())")
+                        && plate.contains("DirectionProperty.create(\"facing\", Direction.values())"),
+                "贴面 + 正面都是六值：挂到墙上以后正面落在板面内（理由与贴面中继器同 - 水平属性表达不了"
+                        + "「沿墙往上读」）");
+        assertTrue(plate.contains("SupportType.RIGID") && plate.contains("Blocks.AIR.defaultBlockState()"),
+                "贴着的那一面不再是实心面就掉、也挂不上 - 与贴面中继器、天气探测器同一条规矩");
 
         String model = read("src", "main", "resources", "assets", "redstonecircuit", "models", "block",
                 "controller.json");
         assertTrue(model.contains("\"to\": [16, 2, 16]") && model.contains("\"from\": [0, 0, 0]"),
-                "and the model is that same box: the edges' 16x2 strips are sampled by vanilla's own auto-UV (a 2-tall"
-                        + " element spans v 14…16)");
+                "本体模型仍是那块地板板：边条 16x2，贴图最下两行正是原版 auto-UV 给 2 像素高元素的采样范围");
         String states = read("src", "main", "resources", "assets", "redstonecircuit", "blockstates",
                 "controller.json");
-        assertTrue(states.contains("redstonecircuit:block/controller") && states.contains("controller_lit"),
-                "lit=false/true pick the plain and the lit model - 控制器上面--亮 is the lit top face");
+        assertTrue(states.contains("\"mount=down,facing=south,lit=false\":"
+                        + " { \"model\": \"redstonecircuit:block/controller\" }")
+                        && states.contains("controller_lit"),
+                "地板上朝南那一套是本体烤出来的，亮灭各一份 - 控制器上面--亮 是那张亮顶面");
         for (String texture : List.of("controller_top", "controller_top_lit", "controller_bottom", "controller_side")) {
             assertTrue(Files.isRegularFile(path("src", "main", "resources", "assets", "redstonecircuit", "textures",
                             "block", texture + ".png")),
@@ -178,22 +181,43 @@ class ControllerWiringTest {
     }
 
     @Test
-    @DisplayName("八个朝向变体：模型跟着 facing 转（控制器放置下来只朝一个方向）")
-    void theModelTurnsWithTheFacing() throws IOException {
+    @DisplayName("七十二个变体：六个挂载面 × 六个正面 × 亮灭，每个都是一份烤好的模型")
+    void theModelTurnsWithTheFacingAndTheMount() throws IOException {
         String states = read("src", "main", "resources", "assets", "redstonecircuit", "blockstates",
                 "controller.json");
-        for (String facing : List.of("north", "east", "south", "west")) {
-            assertTrue(states.contains("\"facing=" + facing + ",lit=false\"")
-                            && states.contains("\"facing=" + facing + ",lit=true\""),
-                    "a plate whose art is the same on all four edges looks"
-                            + " identical whichever way it points unless the model is turned, and each facing needs"
-                            + " both its plain and its lit variant: facing=" + facing);
+        java.util.Set<String> mounts = java.util.Set.of("down", "up", "north", "south", "west", "east");
+        int legal = 0;
+        for (String mount : mounts) {
+            for (String facing : mounts) {
+                for (boolean lit : new boolean[] {false, true}) {
+                    String key = "mount=" + mount + ",facing=" + facing + ",lit=" + lit + "\":";
+                    assertTrue(states.contains("\"" + key),
+                            "缺变体：" + key + " - 方块状态里有的组合一个都不能少，否则那一个状态没有模型");
+                    if (!axisOf(mount).equals(axisOf(facing))) {
+                        legal++;
+                        // 本体姿态（贴地 + 朝南）用仓库里那份本体模型，物品模型也指着它
+                        String model = mount.equals("down") && facing.equals("south")
+                                ? "controller" + (lit ? "_lit" : "")
+                                : "controller_" + mount + "_" + facing + (lit ? "_lit" : "");
+                        assertTrue(states.contains("\"" + key + " { \"model\": \"redstonecircuit:block/" + model
+                                        + "\" }"),
+                                "正面在板面内的那一对要有自己的模型：" + key + " → " + model);
+                    }
+                }
+            }
         }
-        assertTrue(states.contains("\"y\": 180") && states.contains("\"y\": 270") && states.contains("\"y\": 90"),
-                "with the four rotations (south is the unrotated one). The top face's display bar is drawn near the"
-                        + " BOTTOM of the texture and vanilla's auto-UV puts a top face's bottom texture rows at its"
-                        + " SOUTH part, so the model's own front is its south face and 正面 = north is a half turn"
-                        + " (y = 180) - the bar then sits at the front, which is the 输入面");
+        assertTrue(legal == 48, "合法组合 24 对 × 亮灭 2 = 48，实际 " + legal);
+        assertTrue(!states.contains("\"y\":") && !states.contains("\"x\":"),
+                "一个 y/x 都不用：这 24 个朝向不在「两次旋转」那个群里的部分已经烤进几何了");
+    }
+
+    /** 哪根轴：正面与贴面同轴就是转不出板面的那一对。 */
+    private static String axisOf(String direction) {
+        return switch (direction) {
+            case "down", "up" -> "y";
+            case "north", "south" -> "z";
+            default -> "x";
+        };
     }
 
     @Test

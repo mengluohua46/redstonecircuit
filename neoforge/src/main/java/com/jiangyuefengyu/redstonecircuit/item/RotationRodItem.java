@@ -30,8 +30,6 @@ public class RotationRodItem extends Item {
         // One line by default, the how-to behind [Shift], like Create's wrench (RcTooltips).
         RcTooltips.append(tooltip, flag, "item.redstonecircuit.rotation_rod.tip",
                 RcTooltips.detail("item.redstonecircuit.rotation_rod.tip.input"),
-                RcTooltips.detail("item.redstonecircuit.rotation_rod.tip.output"),
-                RcTooltips.detail("item.redstonecircuit.rotation_rod.tip.wire"),
                 RcTooltips.required("item.redstonecircuit.rotation_rod.tip.requires"));
     }
 }

@@ -1,0 +1,343 @@
+﻿{
+    "textures":  {
+                     "particle":  "redstonecircuit:block/double_retaining_repeater_top_on",
+                     "slab":  "redstonecircuit:block/retaining_repeater_base",
+                     "top":  "redstonecircuit:block/double_retaining_repeater_top_on",
+                     "lit":  "block/redstone_torch",
+                     "lock":  "block/bedrock"
+                 },
+    "elements":  [
+                     {
+                         "from":  [
+                                      0.0,
+                                      0.0,
+                                      0.0
+                                  ],
+                         "to":  [
+                                    16.0,
+                                    16.0,
+                                    2.0
+                                ],
+                         "faces":  {
+                                       "north":  {
+                                                     "uv":  [
+                                                                0,
+                                                                0,
+                                                                16,
+                                                                16
+                                                            ],
+                                                     "texture":  "#slab",
+                                                     "cullface":  "north"
+                                                 },
+                                       "south":  {
+                                                     "uv":  [
+                                                                0,
+                                                                0,
+                                                                16,
+                                                                16
+                                                            ],
+                                                     "texture":  "#top",
+                                                     "rotation":  180
+                                                 },
+                                       "down":  {
+                                                    "uv":  [
+                                                               0,
+                                                               14,
+                                                               16,
+                                                               16
+                                                           ],
+                                                    "texture":  "#slab",
+                                                    "cullface":  "down"
+                                                },
+                                       "up":  {
+                                                  "uv":  [
+                                                             0,
+                                                             14,
+                                                             16,
+                                                             16
+                                                         ],
+                                                  "texture":  "#slab",
+                                                  "cullface":  "up",
+                                                  "rotation":  180
+                                              },
+                                       "east":  {
+                                                    "uv":  [
+                                                               0,
+                                                               14,
+                                                               16,
+                                                               16
+                                                           ],
+                                                    "texture":  "#slab",
+                                                    "cullface":  "east",
+                                                    "rotation":  270
+                                                },
+                                       "west":  {
+                                                    "uv":  [
+                                                               0,
+                                                               14,
+                                                               16,
+                                                               16
+                                                           ],
+                                                    "texture":  "#slab",
+                                                    "cullface":  "west",
+                                                    "rotation":  90
+                                                }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      2.0,
+                                      6.0,
+                                      2.0
+                                  ],
+                         "to":  [
+                                    14.0,
+                                    8.0,
+                                    4.0
+                                ],
+                         "faces":  {
+                                       "north":  {
+                                                     "uv":  [
+                                                                7,
+                                                                2,
+                                                                9,
+                                                                14
+                                                            ],
+                                                     "texture":  "#lock",
+                                                     "rotation":  90
+                                                 },
+                                       "south":  {
+                                                     "uv":  [
+                                                                7,
+                                                                2,
+                                                                9,
+                                                                14
+                                                            ],
+                                                     "texture":  "#lock",
+                                                     "rotation":  180
+                                                 },
+                                       "down":  {
+                                                    "uv":  [
+                                                               2,
+                                                               7,
+                                                               14,
+                                                               9
+                                                           ],
+                                                    "texture":  "#lock"
+                                                },
+                                       "up":  {
+                                                  "uv":  [
+                                                             2,
+                                                             7,
+                                                             14,
+                                                             9
+                                                         ],
+                                                  "texture":  "#lock",
+                                                  "rotation":  180
+                                              },
+                                       "east":  {
+                                                    "uv":  [
+                                                               6,
+                                                               7,
+                                                               8,
+                                                               9
+                                                           ],
+                                                    "texture":  "#lock",
+                                                    "rotation":  270
+                                                },
+                                       "west":  {
+                                                    "uv":  [
+                                                               6,
+                                                               7,
+                                                               8,
+                                                               9
+                                                           ],
+                                                    "texture":  "#lock",
+                                                    "rotation":  90
+                                                }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      10,
+                                      2,
+                                      7
+                                  ],
+                         "to":  [
+                                    12,
+                                    4,
+                                    7
+                                ],
+                         "faces":  {
+                                       "south":  {
+                                                     "uv":  [
+                                                                7,
+                                                                6,
+                                                                9,
+                                                                8
+                                                            ],
+                                                     "texture":  "#lit",
+                                                     "rotation":  180
+                                                 }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      4,
+                                      2,
+                                      7
+                                  ],
+                         "to":  [
+                                    6,
+                                    4,
+                                    7
+                                ],
+                         "faces":  {
+                                       "south":  {
+                                                     "uv":  [
+                                                                7,
+                                                                6,
+                                                                9,
+                                                                8
+                                                            ],
+                                                     "texture":  "#lit",
+                                                     "rotation":  180
+                                                 }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      10,
+                                      1,
+                                      2
+                                  ],
+                         "to":  [
+                                    12,
+                                    5,
+                                    8
+                                ],
+                         "faces":  {
+                                       "east":  {
+                                                    "uv":  [
+                                                               6,
+                                                               5,
+                                                               10,
+                                                               11
+                                                           ],
+                                                    "texture":  "#lit",
+                                                    "rotation":  270
+                                                },
+                                       "west":  {
+                                                    "uv":  [
+                                                               6,
+                                                               5,
+                                                               10,
+                                                               11
+                                                           ],
+                                                    "texture":  "#lit",
+                                                    "rotation":  90
+                                                }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      4,
+                                      1,
+                                      2
+                                  ],
+                         "to":  [
+                                    6,
+                                    5,
+                                    8
+                                ],
+                         "faces":  {
+                                       "east":  {
+                                                    "uv":  [
+                                                               6,
+                                                               5,
+                                                               10,
+                                                               11
+                                                           ],
+                                                    "texture":  "#lit",
+                                                    "rotation":  270
+                                                },
+                                       "west":  {
+                                                    "uv":  [
+                                                               6,
+                                                               5,
+                                                               10,
+                                                               11
+                                                           ],
+                                                    "texture":  "#lit",
+                                                    "rotation":  90
+                                                }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      9,
+                                      2,
+                                      2
+                                  ],
+                         "to":  [
+                                    13,
+                                    4,
+                                    8
+                                ],
+                         "faces":  {
+                                       "down":  {
+                                                    "uv":  [
+                                                               6,
+                                                               5,
+                                                               10,
+                                                               11
+                                                           ],
+                                                    "texture":  "#lit"
+                                                },
+                                       "up":  {
+                                                  "uv":  [
+                                                             6,
+                                                             5,
+                                                             10,
+                                                             11
+                                                         ],
+                                                  "texture":  "#lit",
+                                                  "rotation":  180
+                                              }
+                                   }
+                     },
+                     {
+                         "from":  [
+                                      3,
+                                      2,
+                                      2
+                                  ],
+                         "to":  [
+                                    7,
+                                    4,
+                                    8
+                                ],
+                         "faces":  {
+                                       "down":  {
+                                                    "uv":  [
+                                                               6,
+                                                               5,
+                                                               10,
+                                                               11
+                                                           ],
+                                                    "texture":  "#lit"
+                                                },
+                                       "up":  {
+                                                  "uv":  [
+                                                             6,
+                                                             5,
+                                                             10,
+                                                             11
+                                                         ],
+                                                  "texture":  "#lit",
+                                                  "rotation":  180
+                                              }
+                                   }
+                     }
+                 ]
+}

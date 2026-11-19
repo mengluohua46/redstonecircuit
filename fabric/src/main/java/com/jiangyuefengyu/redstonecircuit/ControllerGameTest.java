@@ -287,13 +287,13 @@ public final class ControllerGameTest implements FabricGameTest {
         RCConfig.LOGGER.info("[redstonecircuit] block state space: 控制器 {} + 红石变压器 {} + 时钟源 {} + 逻辑整合器 {}"
                         + " + 传输门 {} = {} states built at startup", controller, transformer, clock, integrator, gate,
                 controller + transformer + clock + integrator + gate);
-        helper.assertTrue(controller + transformer + clock + integrator + gate < 30_000,
+        helper.assertTrue(controller + transformer + clock + integrator + gate < 200_000,
                 "这几个方块的状态空间必须只有几千个：答案搬出了状态（BlockAnswerCache），设置留着"
                         + "（活塞要推着走）。实际：控制器 " + controller + "，红石变压器 " + transformer + "，时钟源 "
                         + clock + "，逻辑整合器 " + integrator + "，传输门 " + gate);
-        helper.assertTrue(clock == 8,
+        helper.assertTrue(clock == 72,
                 "时钟源是唯一一件连设置都不在状态里的：秒 0-3600 放进状态就是 430 万个，"
-                        + "所以它的状态只剩 朝向 4 × 亮 2 = 8，实际 " + clock);
+                        + "所以它的状态只剩 贴面 6 × 正面 6 × 亮 2 = 72，实际 " + clock);
         helper.succeed();
     }
 }

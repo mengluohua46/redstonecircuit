@@ -1,0 +1,652 @@
+{
+  "variants": {
+    "mount=down,facing=down,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "mount=down,facing=down,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "mount=down,facing=down,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "mount=down,facing=down,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "mount=down,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 90
+    },
+    "mount=down,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 90
+    },
+    "mount=down,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 90
+    },
+    "mount=down,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 90
+    },
+    "mount=down,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "mount=down,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "mount=down,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "mount=down,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "mount=down,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 180
+    },
+    "mount=down,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 180
+    },
+    "mount=down,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 180
+    },
+    "mount=down,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 180
+    },
+    "mount=down,facing=up,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "mount=down,facing=up,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "mount=down,facing=up,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger"
+    },
+    "mount=down,facing=up,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on"
+    },
+    "mount=down,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 270
+    },
+    "mount=down,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 270
+    },
+    "mount=down,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "y": 270
+    },
+    "mount=down,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "y": 270
+    },
+    "mount=east,facing=down,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=down,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=down,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=down,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=up,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=up,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=up,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=up,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 270
+    },
+    "mount=east,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 270
+    },
+    "mount=north,facing=down,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=down,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=down,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=down,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=up,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=up,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=up,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=up,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90,
+      "y": 180
+    },
+    "mount=north,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90,
+      "y": 180
+    },
+    "mount=south,facing=down,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90
+    },
+    "mount=south,facing=down,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90
+    },
+    "mount=south,facing=down,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90
+    },
+    "mount=south,facing=down,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90
+    },
+    "mount=south,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90
+    },
+    "mount=south,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90
+    },
+    "mount=south,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90
+    },
+    "mount=south,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90
+    },
+    "mount=south,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90
+    },
+    "mount=south,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90
+    },
+    "mount=south,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90
+    },
+    "mount=south,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90
+    },
+    "mount=south,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90
+    },
+    "mount=south,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90
+    },
+    "mount=south,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90
+    },
+    "mount=south,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90
+    },
+    "mount=south,facing=up,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90
+    },
+    "mount=south,facing=up,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90
+    },
+    "mount=south,facing=up,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90
+    },
+    "mount=south,facing=up,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90
+    },
+    "mount=south,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90
+    },
+    "mount=south,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90
+    },
+    "mount=south,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90
+    },
+    "mount=south,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90
+    },
+    "mount=up,facing=down,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "mount=up,facing=down,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "mount=up,facing=down,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "mount=up,facing=down,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "mount=up,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "mount=up,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "mount=up,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "mount=up,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "mount=up,facing=up,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "mount=up,facing=up,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "mount=up,facing=up,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180
+    },
+    "mount=up,facing=up,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180
+    },
+    "mount=up,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=west,facing=down,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=down,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=down,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=down,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=east,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=east,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=east,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=east,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=north,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=north,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=north,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn3",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=north,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn3",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=south,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=south,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=south,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn1",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=south,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn1",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=up,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=up,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=up,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger_turn2",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=up,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on_turn2",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=west,input=false,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=west,input=false,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=west,input=true,powered=false": {
+      "model": "redstonecircuit:block/trigger",
+      "x": 90,
+      "y": 90
+    },
+    "mount=west,facing=west,input=true,powered=true": {
+      "model": "redstonecircuit:block/trigger_on",
+      "x": 90,
+      "y": 90
+    }
+  }
+}

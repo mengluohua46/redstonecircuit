@@ -41,7 +41,7 @@ public final class Slot {
      */
     public int transformer = com.jiangyuefengyu.redstonecircuit.logic.TransformerRule.DEFAULT;
     /**
-     * 时钟源's four settings: 秒 0-3600, tick 0-19, 强度 1-15 and 脉宽 1-2 tick - see
+     * 时钟源's four settings: 秒 0-3600, tick 0-19, 强度 1-15 and 脉宽 1 tick .. 3600 秒 19 tick - see
      * {@link com.jiangyuefengyu.redstonecircuit.logic.ClockRule}. One record rather than four fields because
      * they always travel together: a save tag, a payload, a screen and a rule all want exactly this value.
      */

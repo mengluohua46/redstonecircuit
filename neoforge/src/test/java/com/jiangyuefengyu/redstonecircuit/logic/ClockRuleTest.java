@@ -96,8 +96,8 @@ class ClockRuleTest {
         assertTrue(ClockRule.isOn(20, 20, 1), "下一个周期的相位 0 又亮");
         assertFalse(ClockRule.isOn(21, 20, 1), "相位 1 静默");
 
-        assertEquals(9, ClockRule.answer(0, 1, 0, 9, ClockRule.MAX_PULSE_TICKS), "脉冲 2 tick：相位 0 输出");
-        assertEquals(9, ClockRule.answer(1, 1, 0, 9, ClockRule.MAX_PULSE_TICKS), "脉冲 2 tick：相位 1 还在输出");
+        assertEquals(9, ClockRule.answer(0, 1, 0, 9, ClockRule.DEFAULT_PULSE_TICKS), "脉冲 2 tick：相位 0 输出");
+        assertEquals(9, ClockRule.answer(1, 1, 0, 9, ClockRule.DEFAULT_PULSE_TICKS), "脉冲 2 tick：相位 1 还在输出");
         assertTrue(ClockRule.isOn(1, 20, 2));
         assertFalse(ClockRule.isOn(2, 20, 2), "相位 2 静默");
 
@@ -109,6 +109,58 @@ class ClockRuleTest {
         }
         assertEquals(6, ClockRule.answer(7, 0, 1, 6, 1), "0 秒 1 tick 的周期 1、脉冲 1：世界时钟第 7 tick 也还亮");
         assertEquals(0, ClockRule.answer(3, 0, 2, 6, 1), "周期 2 tick + 脉冲 1 tick 才是第一个会闪的组合");
+    }
+
+    @Test
+    @DisplayName("脉宽可以填成任意 tick：周期 20 的钟设 5 tick，一个周期里正好 5 tick 有输出")
+    void aCustomPulseIsAsWideAsItsSetting() {
+        int pulse = 5;
+        int on = 0;
+        for (int phase = 0; phase < 20; phase++) {
+            if (ClockRule.isOn(phase, 20, pulse)) {
+                on++;
+            }
+        }
+        assertEquals(pulse, on, "一个完整周期里有几个相位成立，就该正好等于脉宽");
+        assertTrue(ClockRule.isOn(0, 20, pulse) && ClockRule.isOn(4, 20, pulse), "头 5 个相位都在脉冲里");
+        assertFalse(ClockRule.isOn(5, 20, pulse), "第 6 个相位已经静默");
+        assertEquals(5, ClockRule.ticksToEdge(0, 20, pulse), "相位 0 还要 5 tick 才灭");
+        assertEquals(13, ClockRule.ticksToEdge(7, 20, pulse), "静默里从相位 7 走到下一个脉冲的相位 0 要 13 tick");
+    }
+
+    @Test
+    @DisplayName("脉冲和周期一样按「秒 + tick」填：拆开再合回去不变，两个字段也各自夹到自己那一档")
+    void aPulseIsSpelledInSecondsAndTicks() {
+        for (int width : new int[] {ClockRule.MIN_PULSE_TICKS, ClockRule.DEFAULT_PULSE_TICKS, 25, 1001,
+                ClockRule.MAX_PULSE_TICKS}) {
+            assertEquals(width, ClockRule.pulseOf(ClockRule.pulseSeconds(width), ClockRule.pulseTicks(width)),
+                    "宽度 " + width + " 拆成秒 + tick 再合回去必须一样");
+        }
+        assertEquals(1, ClockRule.pulseSeconds(25), "25 tick 读回成 1 秒 5 tick");
+        assertEquals(5, ClockRule.pulseTicks(25));
+        assertEquals(0, ClockRule.pulseSeconds(ClockRule.DEFAULT_PULSE_TICKS), "默认 2 tick 没有整秒");
+        assertEquals(2, ClockRule.pulseTicks(ClockRule.DEFAULT_PULSE_TICKS));
+        assertEquals(ClockRule.MAX_SECONDS, ClockRule.pulseSeconds(ClockRule.MAX_PULSE_TICKS));
+        assertEquals(ClockRule.MAX_TICKS, ClockRule.pulseTicks(ClockRule.MAX_PULSE_TICKS), "上限就是周期那一档：3600 秒 19 tick");
+        assertEquals(ClockRule.MIN_PULSE_TICKS, ClockRule.pulseOf(0, 0), "0 秒 0 tick 不是宽度，收进 1 tick");
+        assertEquals(ClockRule.MAX_PULSE_TICKS, ClockRule.pulseOf(9999, 99), "两个字段各自先夹到自己那一档");
+    }
+
+    @Test
+    @DisplayName("脉宽比周期长就是恒定输出：每个相位都成立，和把脉宽设成周期一样")
+    void aPulseWiderThanThePeriodNeverStops() {
+        for (int period : new int[] {1, 4, 20, 37}) {
+            for (int pulse : new int[] {period, period + 1, period * 7 + 3}) {
+                for (long time = 0; time < 50; time++) {
+                    assertTrue(ClockRule.isOn(time, period, pulse),
+                            "周期 " + period + "、脉冲 " + pulse + "：世界时钟 " + time + " 也在输出");
+                }
+            }
+        }
+        assertEquals(ClockRule.answer(13, 1, 0, 9, 19), ClockRule.answer(13, 1, 0, 9, 20),
+                "20 tick 的周期上，脉冲 19 和 20 都是恒亮，答案必须一样");
+        assertEquals(ClockRule.answer(13, 1, 0, 9, 19), ClockRule.answer(13, 1, 0, 9, ClockRule.MAX_PULSE_TICKS),
+                "再宽也一样：超过周期之后就没有可分辨的差别了");
     }
 
     @Test
@@ -186,7 +238,7 @@ class ClockRuleTest {
     }
 
     @Test
-    @DisplayName("save → load 往返保住脉宽，0 和 3 被收进 1..2")
+    @DisplayName("save → load 往返保住脉宽，0 收进 1，3 和 25 原样保住")
     void aSettingKeepsItsPulseAndBringsItIntoRange() {
         for (int pulse : new int[] {ClockRule.MIN_PULSE_TICKS, ClockRule.MAX_PULSE_TICKS}) {
             ClockRule.Setting setting = ClockRule.Setting.of(2, 5, 9, pulse);
@@ -199,9 +251,12 @@ class ClockRuleTest {
         }
 
         assertEquals(1, ClockRule.Setting.of(1, 0, 15, 0).pulse(), "0 收进 1，不是「没有脉宽」");
-        assertEquals(2, ClockRule.Setting.of(1, 0, 15, 3).pulse(), "3 收进 2");
-        assertTrue(ClockRule.isPulse(1) && ClockRule.isPulse(2));
-        assertFalse(ClockRule.isPulse(0) && ClockRule.isPulse(3), "1-2 之外不是这台设备有的脉宽");
+        assertEquals(3, ClockRule.Setting.of(1, 0, 15, 3).pulse(), "3 tick 现在是合法脉宽，原样保住");
+        assertEquals(25, ClockRule.Setting.of(1, 0, 15, 25).pulse(), "25 tick（1 秒 5 tick）也一样");
+        assertTrue(ClockRule.isPulse(1) && ClockRule.isPulse(2) && ClockRule.isPulse(25));
+        assertFalse(ClockRule.isPulse(0), "0 tick 不是脉宽：那是永不输出，不是第二个关掉的写法");
+        assertTrue(ClockRule.isPulse(ClockRule.MAX_PULSE_TICKS));
+        assertFalse(ClockRule.isPulse(ClockRule.MAX_PULSE_TICKS + 1), "再宽就没有「3600 秒 20 tick」这种写法了");
 
         // 生产 API 只有一条路：脉宽必须显式给。三个数的写法与两参规则已经删掉 —— 它们静悄悄地等于「脉宽 2 tick」，
         // 正是那种将来会藏住 bug 的形状，所以这里用反射把「它不存在」当成一条断言钉住。
@@ -244,7 +299,8 @@ class ClockRuleTest {
         assertEquals(15, ClockRule.clampStrength(99));
         assertEquals(12, ClockRule.clampStrength(12));
         assertEquals(1, ClockRule.clampPulse(0));
-        assertEquals(2, ClockRule.clampPulse(3));
+        assertEquals(3, ClockRule.clampPulse(3));
+        assertEquals(ClockRule.MAX_PULSE_TICKS, ClockRule.clampPulse(ClockRule.MAX_PULSE_TICKS + 5));
     }
 
     @Test

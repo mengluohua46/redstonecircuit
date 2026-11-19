@@ -26,6 +26,8 @@ public final class SuperconductingWireColors {
     @SubscribeEvent
     public static void onRegisterBlockColors(RegisterColorHandlersEvent.Block event) {
         event.register((state, level, pos, tintIndex) -> InnerComponentModel.wireBrightness(
-                state.getValue(SuperconductingWireBlock.POWER)), RCRegistry.SUPERCONDUCTING_WIRE.get());
+                        state.getValue(SuperconductingWireBlock.POWER)),
+                RCRegistry.SUPERCONDUCTING_WIRE.get(),
+                RCRegistry.SURFACE_SUPERCONDUCTING_WIRE.get());
     }
 }

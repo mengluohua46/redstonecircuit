@@ -163,15 +163,6 @@ public final class StructureProductScreen extends Screen {
         graphics.drawString(this.font, Component.translatable("redstonecircuit.structure.product.keys",
                         count, RCConfig.structureManualEntryLimit(), page(count) + 1, PanelGrid.pages(count)),
                 this.left + 4, this.top + 28, 0xA0A0A0);
-        if (found != null && !manualKeys()) {
-            // Face mode: say so, in place of the keys the structure does not have.
-            graphics.drawString(this.font, Component.translatable("redstonecircuit.structure.product.faces"),
-                    this.left + 4, this.top + 52, 0xA0A0A0);
-            graphics.drawString(this.font, Component.translatable("redstonecircuit.structure.product.nokeys"),
-                    this.left + 4, this.top + 66, 0x808080);
-        }
-        graphics.drawString(this.font, Component.translatable("redstonecircuit.structure.product.hint"),
-                this.left + 4, this.top + HEIGHT - 40, 0x808080);
     }
 
     /** The name the player gave this button, with the stored key as the fallback for rows captured by an older build. */

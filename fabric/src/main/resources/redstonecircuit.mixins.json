@@ -3,6 +3,7 @@
   "package": "com.jiangyuefengyu.redstonecircuit.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "BlockItemPlacementMixin",
     "BlockStateSignalMixin",
     "RedStoneWireBlockMixin",
     "SignalGetterMixin",
@@ -11,7 +12,8 @@
     "DiodeBlockNeighborNotifyMixin",
     "HoneyPistonMixin",
     "PistonBaseBlockMixin",
-    "PistonStructureResolverMixin"
+    "PistonStructureResolverMixin",
+    "SurfaceWireMiningMixin"
   ],
   "client": [
     "BlockRenderDispatcherMixin"

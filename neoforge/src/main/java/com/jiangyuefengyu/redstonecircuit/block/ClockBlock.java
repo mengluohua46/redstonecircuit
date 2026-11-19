@@ -58,6 +58,7 @@ public class ClockBlock extends RcPlateBlock {
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
+                .setValue(MOUNT, Direction.DOWN)
                 .setValue(LIT, false));
     }
 
@@ -79,7 +80,7 @@ public class ClockBlock extends RcPlateBlock {
     }
 
     /**
-     * 背面 only, exactly as 控制器 and 红石变压器 have it: 正面 and the two sides answer 0. The number is the
+     * 背面 only, exactly as 控制器 and 红石变压器 have it: 正面 and the four sides answer 0. The number is the
      * last announced answer rather than a fresh reading of the clock, and the strength comes from the
      * settings beside the block.
      */

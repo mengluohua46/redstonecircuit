@@ -466,6 +466,45 @@ final class CarrierResolver implements CarrierStore.CarrierSource {
     }
 
     /**
+     * {@code CarrierSource#carriersAt}: <b>every</b> sub-level whose world bounds contain the position.
+     *
+     * <p>The single-answer form above stops at the first match, and a container is free to keep its sub-levels in any
+     * order - so with two machines drawn through each other the answer flipped between them from one call to the next,
+     * and a neighbour read named one structure's block where the player sees the other's (作者 2026-11-17 的日志：同一格
+     * 一次答 oak_planks、一次答 air). The list is what lets the reader pick the structure that really holds a block
+     * there; the same two narrowing questions are applied to each candidate as before.
+     */
+    @Override
+    public java.util.List<CarrierId> carriersAt(ServerLevel level, BlockPos worldPos) {
+        if (!PhysicsCompat.sableLoaded() || level == null || worldPos == null) {
+            return java.util.List.of();
+        }
+        try {
+            var container = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level);
+            if (container == null) {
+                return java.util.List.of();
+            }
+            java.util.List<CarrierId> found = new java.util.ArrayList<>(2);
+            for (SubLevel candidate : container.getAllSubLevels()) {
+                if (candidate == null || candidate.isRemoved() || candidate.boundingBox() == null
+                        || candidate.getPlot() == null) {
+                    continue;
+                }
+                if (!candidate.boundingBox().contains(worldPos.getX() + 0.5, worldPos.getY() + 0.5,
+                        worldPos.getZ() + 0.5)) {
+                    continue;
+                }
+                found.add(CarrierId.subLevel(candidate.getUniqueId()));
+            }
+            return found;
+        } catch (RuntimeException | LinkageError failed) {
+            RCConfig.LOGGER.warn("[redstonecircuit] carrier list at {} failed: {}",
+                    worldPos.toShortString(), failed.toString());
+            return java.util.List.of();
+        }
+    }
+
+    /**
      * {@code CarrierSource#plotOwnerAt}: which sub-level's own block storage contains this level position.
      *
      * <p>A sub-level's local coordinates are the level's own block coordinates inside the plot region, and a

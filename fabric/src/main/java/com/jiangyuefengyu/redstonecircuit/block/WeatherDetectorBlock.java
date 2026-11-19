@@ -2,6 +2,7 @@ package com.jiangyuefengyu.redstonecircuit.block;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import com.jiangyuefengyu.redstonecircuit.RcTooltips;
 import com.mojang.serialization.MapCodec;
@@ -17,13 +18,21 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Mirror;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.SupportType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -45,6 +54,12 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * like a lever being thrown. {@link #WEATHER} is the setting the player chose and is saved with the world, while
  * {@link #ACTIVE} is what the block is announcing right now - keeping both is what makes "did anything change?" a
  * single comparison.
+ *
+ * <p><b>哪一面都贴得住。</b>{@link #MOUNT} is the face it is glued to - six values, the same word and the same
+ * convention the 贴面 families use - because the plate wants exactly one thing from its cell: a sturdy face behind it.
+ * The plate then lies <em>in</em> that face's plane, which the blockstate's {@code x}/{@code y} reaches without any baked
+ * geometry: this device has no 朝向 inside the plane (a right-click walks the weather, not a direction), so one pair of
+ * angles per mount is the whole pose.
  */
 public class WeatherDetectorBlock extends Block {
 
@@ -79,15 +94,30 @@ public class WeatherDetectorBlock extends Block {
     /** What the block is outputting now: true while the weather matches the setting. */
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
 
+    /** 挂载: the face it is glued to, the same six values the 贴面 families carry. */
+    public static final DirectionProperty MOUNT = DirectionProperty.create("mount", Direction.values());
+
     /** How often the weather is looked at again, in ticks. One second is far finer than weather moves. */
     private static final int POLL_INTERVAL = 20;
 
-    /** The plate is six pixels tall, as the daylight detector's is; the post above it does not collide. */
-    private static final VoxelShape SHAPE = Block.box(0.0, 0.0, 0.0, 16.0, 6.0, 16.0);
+    /**
+     * The plate, six pixels thick as the daylight detector's is - lying in whichever face it is glued to.
+     *
+     * <p>The post and the cap above it do not collide, and the plate is the whole shape: a block whose shape is a full
+     * cube would cull the touching faces of its neighbours, and the plate does not fill the cell.
+     */
+    private static final Map<Direction, VoxelShape> SHAPES = Map.of(
+            Direction.DOWN, Block.box(0.0, 0.0, 0.0, 16.0, 6.0, 16.0),
+            Direction.UP, Block.box(0.0, 10.0, 0.0, 16.0, 16.0, 16.0),
+            Direction.NORTH, Block.box(0.0, 0.0, 0.0, 16.0, 16.0, 6.0),
+            Direction.SOUTH, Block.box(0.0, 0.0, 10.0, 16.0, 16.0, 16.0),
+            Direction.WEST, Block.box(0.0, 0.0, 0.0, 6.0, 16.0, 16.0),
+            Direction.EAST, Block.box(10.0, 0.0, 0.0, 16.0, 16.0, 16.0));
 
     public WeatherDetectorBlock(BlockBehaviour.Properties properties) {
         super(properties);
-        registerDefaultState(stateDefinition.any().setValue(WEATHER, Mode.CLEAR).setValue(ACTIVE, false));
+        registerDefaultState(stateDefinition.any().setValue(WEATHER, Mode.CLEAR).setValue(ACTIVE, false)
+                .setValue(MOUNT, Direction.DOWN));
     }
 
     @Override
@@ -97,7 +127,7 @@ public class WeatherDetectorBlock extends Block {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(WEATHER, ACTIVE);
+        builder.add(WEATHER, ACTIVE, MOUNT);
     }
 
     /** A weak source on every side, like the daylight detector: it lights and drives, it does not charge. */
@@ -122,13 +152,50 @@ public class WeatherDetectorBlock extends Block {
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos,
                                   CollisionContext context) {
-        return SHAPE;
+        return SHAPES.get(state.getValue(MOUNT));
     }
 
     /** Light is only blocked by the plate, not by the whole cube, so the post is not pitch dark. */
     @Override
     protected boolean useShapeForLightOcclusion(BlockState state) {
         return true;
+    }
+
+    // ------------------------------------------------------------------ which face --
+
+    /** A plate goes onto the face the player clicked - glued to it, so that face is the mount. */
+    @Override
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        Direction mount = context.getClickedFace().getOpposite();
+        BlockState state = defaultBlockState().setValue(MOUNT, mount);
+        return state.canSurvive(context.getLevel(), context.getClickedPos()) ? state : null;
+    }
+
+    @Override
+    protected boolean canSurvive(BlockState state, LevelReader level, BlockPos pos) {
+        Direction mount = state.getValue(MOUNT);
+        return com.jiangyuefengyu.redstonecircuit.carrier.CarriedSupport.sturdy(
+                level, pos.relative(mount), mount.getOpposite(), SupportType.RIGID);
+    }
+
+    /** Knock the wall away and the plate goes with it, exactly as it does for the 贴面 families. */
+    @Override
+    protected BlockState updateShape(BlockState state, Direction direction, BlockState neighbourState,
+                                     LevelAccessor level, BlockPos pos, BlockPos neighbourPos) {
+        if (direction == state.getValue(MOUNT)) {
+            return canSurvive(state, level, pos) ? state : Blocks.AIR.defaultBlockState();
+        }
+        return state;
+    }
+
+    @Override
+    protected BlockState rotate(BlockState state, Rotation rotation) {
+        return state.setValue(MOUNT, rotation.rotate(state.getValue(MOUNT)));
+    }
+
+    @Override
+    protected BlockState mirror(BlockState state, Mirror mirror) {
+        return state.setValue(MOUNT, mirror.mirror(state.getValue(MOUNT)));
     }
 
     @Override

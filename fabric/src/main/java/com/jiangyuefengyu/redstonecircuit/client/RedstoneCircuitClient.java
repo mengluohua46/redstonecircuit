@@ -36,8 +36,10 @@ import net.minecraft.client.gui.screens.Screen;
  *       {@link HostRenderPass#register} (the overlay pass, the carried pass and the client tick that
  *       ages carrier poses), {@link StructurePreviewRenderer#register} (the preview borders),
  *       {@link StructureClientSetup#register} (the structure block's block-entity renderer and the
- *       structure item's own renderer) and {@link SuperconductingWireColors#register} (the wire tint,
- *       which has to be filled while the client is initialising, before any chunk is baked).</li>
+ *       structure item's own renderer), {@link SuperconductingWireColors#register} and
+ *       {@link SurfaceWireColors#register} (the wire tints, and {@link SurfaceWireClientSetup#register}
+ *       for 红石粉（贴面）'s block-entity renderer and the strip models it draws - all of them have to be
+ *       filled while the client is initialising, before any chunk is baked).</li>
  *   <li><b>The server-to-client receivers.</b> The payload <em>types</em> are registered in
  *       {@code RCNetwork.register} on both sides; the handling is registered only here, because the
  *       caches they write to are client-only - and a dedicated server must not even load those classes.
@@ -68,9 +70,13 @@ public class RedstoneCircuitClient implements ClientModInitializer {
         // in one place.
         HostRenderPass.register();
 
-        // The wire tint, and the two renderers the structure block needs (its own block entity, and the
+        // The wire tints, and the two renderers the structure block needs (its own block entity, and the
         // structure as an item).
         SuperconductingWireColors.register();
+        // 红石粉（贴面）: tint, block entity renderer, and the 24 strip models - registered as top-level
+        // models because no blockstate names them (see SurfaceWireClientSetup).
+        SurfaceWireColors.register();
+        SurfaceWireClientSetup.register();
         StructureClientSetup.register();
         StructurePreviewRenderer.register();
 

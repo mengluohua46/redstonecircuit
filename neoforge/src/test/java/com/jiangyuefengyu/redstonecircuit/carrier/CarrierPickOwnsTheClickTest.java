@@ -297,8 +297,7 @@ class CarrierPickOwnsTheClickTest {
             for (CarrierInteraction.OutsideStatus status : statuses) {
                 String name = String.valueOf(status);
                 boolean expected = switch (name) {
-                    case "NOT_ADJACENT", "UNREADABLE_POSE", "UNREADABLE_POSITION", "NO_SUCH_BLOCK",
-                         "FAR_END_NOT_THE_PICKED_STRUCTURE" -> true;
+                    case "NOT_ADJACENT", "FAR_END_NOT_THE_PICKED_STRUCTURE" -> true;
                     default -> false;
                 };
                 assertEquals(expected, CarrierPickOwnsTheClickTest.named(status),
@@ -309,7 +308,7 @@ class CarrierPickOwnsTheClickTest {
                     named++;
                 }
             }
-            assertEquals(5, named, "five of the eleven have something to say");
+            assertEquals(2, named, "two of the eleven have something to say");
         }
 
         @Test
@@ -329,19 +328,21 @@ class CarrierPickOwnsTheClickTest {
         }
 
         @Test
-        @DisplayName("no new language keys: both statuses reuse the world's own sentences")
+        @DisplayName("no new language keys: the one refusal left reuses the world's own sentence")
         void noNewLanguageKeys() throws IOException {
             String source = flatCarrierHandler();
-            for (String key : new String[] {"message.redstonecircuit.wrench.not_adjacent_carrier",
-                    "message.redstonecircuit.wrench.outside_no_pose",
+            String key = "message.redstonecircuit.wrench.not_adjacent_carrier";
+            assertTrue(source.contains("\"" + key + "\""), "the refusal mapping must use " + key);
+            for (String language : new String[] {"zh_cn.json", "en_us.json"}) {
+                assertTrue(language(language).contains("\"" + key + "\""),
+                        language + " must already hold " + key + " - no key is added, so every sentence "
+                                + "it can show already exists");
+            }
+            // 2026-11-16：另外两条（读不到朝向 / 那一侧没方块）已经改成不出声，键也从两份语言文件里删掉了。
+            for (String gone : new String[] {"message.redstonecircuit.wrench.outside_no_pose",
                     "message.redstonecircuit.wrench.nothing_there"}) {
-                assertTrue(source.contains("\"" + key + "\""),
-                        "the refusal mapping must use " + key);
-                for (String language : new String[] {"zh_cn.json", "en_us.json"}) {
-                    assertTrue(language(language).contains("\"" + key + "\""),
-                            language + " must already hold " + key + " - no key is added, so every sentence "
-                                    + "it can show already exists");
-                }
+                assertFalse(source.contains("\"" + gone + "\""),
+                        gone + " is a sentence no click says any more");
             }
         }
 

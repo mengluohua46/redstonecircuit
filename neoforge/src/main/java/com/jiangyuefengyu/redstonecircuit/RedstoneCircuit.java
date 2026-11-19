@@ -38,6 +38,7 @@ public final class RedstoneCircuit {
         // exactly the events it always saw. See CarrierInteraction.
         NeoForge.EVENT_BUS.register(new com.jiangyuefengyu.redstonecircuit.carrier.CarrierInteraction());
         NeoForge.EVENT_BUS.register(new com.jiangyuefengyu.redstonecircuit.logic.InnerRedstoneTickHandler());
+        NeoForge.EVENT_BUS.register(new com.jiangyuefengyu.redstonecircuit.logic.WeatherDetectorWearer());
 
         // The pocket dimension (红石结构方块): mirrors the overworld's time and weather into it, and drops the plot
         // table when a server stops; it returns on its first statement for every level that is not the pocket.

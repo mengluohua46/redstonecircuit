@@ -209,7 +209,7 @@ public class TriggerBlock extends Block {
     }
 
     /**
-     * 背面 only, exactly as 控制器 / 红石变压器 / 时钟源 / 信号延长器 have it: 正面 and the two sides answer 0.
+     * 背面 only, exactly as 控制器 / 红石变压器 / 时钟源 / 信号延长器 have it: 正面 and the four sides answer 0.
      *
      * <p>{@code side} 是"从提问者指向这个方块"的方向 - vanilla 自己的口径 ({@code SignalGetter#hasNeighborSignal} 里写的是
      * {@code getSignal(pos.below(), DOWN)}), 于是 {@code side.getOpposite()} 是信号要走的那一面. 让这个式子与那四件

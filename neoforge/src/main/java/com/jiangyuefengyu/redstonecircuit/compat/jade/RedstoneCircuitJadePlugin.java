@@ -4,6 +4,10 @@ import com.jiangyuefengyu.redstonecircuit.HostRules;
 import com.jiangyuefengyu.redstonecircuit.RCConfig;
 import com.jiangyuefengyu.redstonecircuit.RCRegistry;
 import com.jiangyuefengyu.redstonecircuit.RedstoneCircuit;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceComparatorBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceDiodeBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceRepeaterBlock;
+import com.jiangyuefengyu.redstonecircuit.block.SurfaceWireBlock;
 import com.jiangyuefengyu.redstonecircuit.block.VariableRepeaterBlock;
 import com.jiangyuefengyu.redstonecircuit.block.WeatherDetectorBlock;
 import com.jiangyuefengyu.redstonecircuit.carrier.CarrierIndex;
@@ -15,6 +19,7 @@ import com.jiangyuefengyu.redstonecircuit.data.Slot;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceKey;
@@ -53,6 +58,10 @@ public class RedstoneCircuitJadePlugin implements IWailaPlugin {
             ResourceLocation.fromNamespaceAndPath(RedstoneCircuit.MODID, "weather_detector");
     private static final ResourceLocation INNER_COMPONENT =
             ResourceLocation.fromNamespaceAndPath(RedstoneCircuit.MODID, "inner_component");
+    private static final ResourceLocation SURFACE_DIODE =
+            ResourceLocation.fromNamespaceAndPath(RedstoneCircuit.MODID, "surface_diode");
+    private static final ResourceLocation SURFACE_WIRE =
+            ResourceLocation.fromNamespaceAndPath(RedstoneCircuit.MODID, "surface_wire");
 
     /** Language keys, named here so the switch and the translation file cannot drift apart. */
     private static final String K_DUST = "jade.redstonecircuit.inner.dust";
@@ -90,24 +99,94 @@ public class RedstoneCircuitJadePlugin implements IWailaPlugin {
         registration.registerBlockComponent(new WeatherModeProvider(), WeatherDetectorBlock.class);
         // Any block can hold a component, so this one is registered for every block and checks the synced
         // host data instead.
+        // 贴面中继器 / 贴面比较器: the same readouts vanilla's own get, on the twins that are not vanilla blocks.
+        registration.registerBlockComponent(new SurfaceDiodeProvider(), SurfaceDiodeBlock.class);
         registration.registerBlockComponent(new InnerRepeaterProvider(), Block.class);
+        // 红石粉（贴面）: vanilla's wire line says nothing, and this sheet's strength and mounting are both
+        // the player's business.
+        registration.registerBlockComponent(new SurfaceWireProvider(), SurfaceWireBlock.class);
+
     }
 
-    /** The setting and what it costs in ticks, for the three repeaters this mod adds. */
+    /**
+     * 红石粉（贴面）: the face the sheet lies on.
+     *
+     * <p>Only the face: 玉 already prints a "红石强度" line for every signal source, so printing the strength here as
+     * well showed it twice (作者 2026-11-14). The mount line is the part 玉 cannot know, and it comes from the block
+     * state, which is synced - a client has no business asking the world what a redstone answer is.
+     */
+    private static final class SurfaceWireProvider implements IBlockComponentProvider {
+
+        @Override
+        public void appendTooltip(ITooltip tooltip, BlockAccessor accessor, IPluginConfig config) {
+            BlockState state = accessor.getBlockState();
+            if (!(state.getBlock() instanceof SurfaceWireBlock)) {
+                return;
+            }
+            for (Direction face : SurfaceWireBlock.faces(state)) {
+                tooltip.add(Component.translatable("jade.redstonecircuit.surface_wire.mount",
+                                // 说的是**贴着的那个方块**的哪一面，不是朝哪边走：吊顶上的粉贴着上面那块方块的底面，
+                                // 所以显示「底面」。（作者 2026-11-11：「底面的红石粉玉显示是叫上面，改为底面」。）
+                                Component.translatable("jade.redstonecircuit.mount."
+                                        + face.getOpposite().getName()))
+                        .withStyle(ChatFormatting.GRAY));
+            }
+        }
+
+        @Override
+        public ResourceLocation getUid() {
+            return SURFACE_WIRE;
+        }
+    }
+
+    /**
+     * 贴面中继器 / 贴面比较器: the delay and the direction a plate reads, or a comparator's mode and answer.
+     *
+     * <p>Vanilla's own Jade provider matches {@code RepeaterBlock} instances, and these two are not ones - their
+     * {@code FACING} has six values - so the lines have to be written here.
+     */
+    private static final class SurfaceDiodeProvider implements IBlockComponentProvider {
+
+        @Override
+        public void appendTooltip(ITooltip tooltip, BlockAccessor accessor, IPluginConfig config) {
+            BlockState state = accessor.getBlockState();
+            if (!(state.getBlock() instanceof SurfaceDiodeBlock)) {
+                return;
+            }
+            if (state.getBlock() instanceof SurfaceRepeaterBlock) {
+                // 档位序号，与原版方块上玉的显示一致：玩家调的就是这一档，tick 数由档位族的规则决定。
+                tooltip.add(Component.translatable("jade.redstonecircuit.surface_repeater.delay",
+                                state.getValue(SurfaceRepeaterBlock.DELAY))
+                        .withStyle(ChatFormatting.WHITE));
+            } else if (state.getBlock() instanceof SurfaceComparatorBlock) {
+                boolean subtract = state.getValue(SurfaceComparatorBlock.MODE)
+                        == net.minecraft.world.level.block.state.properties.ComparatorMode.SUBTRACT;
+                tooltip.add(Component.translatable("jade.redstonecircuit.surface_comparator.mode",
+                        Component.translatable(subtract
+                                ? "jade.redstonecircuit.inner.mode.subtract"
+                                : "jade.redstonecircuit.inner.mode.compare")).withStyle(ChatFormatting.WHITE));
+            }
+            tooltip.add(Component.translatable("jade.redstonecircuit.surface_diode.facing",
+                    state.getValue(SurfaceDiodeBlock.FACING).getName()).withStyle(ChatFormatting.DARK_GRAY));
+        }
+
+        @Override
+        public ResourceLocation getUid() {
+            return SURFACE_DIODE;
+        }
+    }
+
+    /** The delay setting, in the words vanilla's own Jade line uses: the setting, not the ticks. */
     private static final class RepeaterDelayProvider implements IBlockComponentProvider {
 
         @Override
         public void appendTooltip(ITooltip tooltip, BlockAccessor accessor, IPluginConfig config) {
             BlockState state = accessor.getBlockState();
-            if (!(state.getBlock() instanceof RepeaterBlock repeater)) {
+            if (!(state.getBlock() instanceof RepeaterBlock)) {
                 return;
             }
-            int setting = state.getValue(RepeaterBlock.DELAY);
-            int ticks = repeater instanceof VariableRepeaterBlock variable
-                    ? variable.ticksFor(state)
-                    // Vanilla's own two ticks per setting, in case this ever gets registered wider.
-                    : setting * 2;
-            tooltip.add(Component.translatable("jade.redstonecircuit.repeater", setting, ticks)
+            tooltip.add(Component.translatable("jade.redstonecircuit.repeater",
+                            state.getValue(RepeaterBlock.DELAY))
                     .withStyle(ChatFormatting.GRAY));
         }
 
@@ -261,8 +340,7 @@ public class RedstoneCircuitJadePlugin implements IWailaPlugin {
             }
             return switch (line.kind()) {
                 case STRENGTH -> Component.translatable(K_DUST, line.power());
-                case REPEATER -> Component.translatable(K_REPEATER, output(line), line.delay(),
-                        line.type().delayTicks(line.delay()));
+                case REPEATER -> Component.translatable(K_REPEATER, output(line), line.delay());
                 // A comparator has no delay setting, and its mode is named on its own rather than through
                 // the switch message.
                 case COMPARATOR -> Component.translatable(K_COMPARATOR, output(line),

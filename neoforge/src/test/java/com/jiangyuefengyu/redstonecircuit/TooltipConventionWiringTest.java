@@ -30,13 +30,13 @@ class TooltipConventionWiringTest {
             "src/main/java/com/jiangyuefengyu/redstonecircuit/block/BlockPlacerBlock.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/block/TransmissionGateBlock.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/block/ControllerBlock.java",
-            "src/main/java/com/jiangyuefengyu/redstonecircuit/block/StructureBlock.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RedstoneWrenchItem.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RedstoneGogglesItem.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/SuperconductingRedstoneItem.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/item/RotationRodItem.java",
             "src/main/java/com/jiangyuefengyu/redstonecircuit/block/VariableRepeaterBlock.java",
-            "src/main/java/com/jiangyuefengyu/redstonecircuit/block/WeatherDetectorBlock.java");
+            "src/main/java/com/jiangyuefengyu/redstonecircuit/block/WeatherDetectorBlock.java",
+            "src/main/java/com/jiangyuefengyu/redstonecircuit/block/HoneyPistonBlock.java");
 
     @Test
     @DisplayName("扳手式 tooltip：默认只有一行提示，按住 [Shift] 才显示概要（靠 TooltipFlag，不是 F3+H）")
@@ -83,6 +83,40 @@ class TooltipConventionWiringTest {
             for (String key : summaries) {
                 assertTrue(text.contains("\"" + key + "\""),
                         lang + " is missing the summary " + key + ", which would show a player the raw key in game");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("代码里点名的每个 tooltip 键，两份语言文件里都得有 —— 少一个玩家就看键名")
+    void everyTooltipKeyExistsInBothLanguages() throws IOException {
+        Path root = Path.of("src", "main", "java");
+        if (!Files.isDirectory(root)) {
+            root = Path.of("neoforge").resolve(root);
+        }
+        assertTrue(Files.isDirectory(root), "找不到源码根目录：" + root);
+
+        Pattern summaryLine = Pattern.compile("RcTooltips\\.append\\(\\s*tooltip,\\s*flag,\\s*\"([^\"]+)\"");
+        Pattern otherLine = Pattern.compile("RcTooltips\\.(?:summary|detail|state|required)\\(\\s*\"([^\"]+)\"");
+        java.util.Set<String> keys = new java.util.TreeSet<>();
+        try (java.util.stream.Stream<Path> files = Files.walk(root)) {
+            for (Path file : files.filter(p -> p.toString().endsWith(".java")).toList()) {
+                String text = Files.readString(file, StandardCharsets.UTF_8).replace("\n", " ");
+                for (Pattern each : List.of(summaryLine, otherLine)) {
+                    Matcher matcher = each.matcher(text);
+                    while (matcher.find()) {
+                        keys.add(matcher.group(1));
+                    }
+                }
+            }
+        }
+        assertTrue(keys.size() > 20, "整棵树只找到 " + keys.size() + " 个 tooltip 键，正则大概率没匹配上");
+
+        for (String lang : List.of("zh_cn.json", "en_us.json")) {
+            String text = read("src/main/resources/assets/redstonecircuit/lang/" + lang);
+            for (String each : keys) {
+                assertTrue(text.contains("\"" + each + "\""),
+                        lang + " 缺 " + each + " —— 游戏里会把这串键名原样显示给玩家");
             }
         }
     }

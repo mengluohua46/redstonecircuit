@@ -64,17 +64,17 @@ class InnerSwitchesTest {
     }
 
     @Test
-    @DisplayName("the delay readout names the setting and what it costs in ticks")
+    @DisplayName("the delay readout carries the setting, which is what vanilla's own Jade line shows")
     void delayReadout() {
         Slot repeater = slot(ComponentType.REPEATER);
         repeater.delay = 3;
         TranslatableContents text = contents(repeater);
 
         assertEquals("message.redstonecircuit.switch.repeater", text.getKey());
-        assertEquals(2, text.getArgs().length, "the setting and its tick cost");
-        assertEquals("3", ((Component) text.getArgs()[0]).getString(), "the setting");
-        assertEquals("6", ((Component) text.getArgs()[1]).getString(),
-                "and 2 ticks per setting, as vanilla's delay is");
+        // 「中继器：%s」里的数字是档位序号（1-4），与原版方块上玉的延迟显示一致；tick 数由档位族的规则决定
+        // （双倍族一档 4 tick），不进这一行。
+        assertEquals(1, text.getArgs().length, "one number: the delay setting");
+        assertEquals("3", ((Component) text.getArgs()[0]).getString(), "the setting the player set");
     }
 
     @Test

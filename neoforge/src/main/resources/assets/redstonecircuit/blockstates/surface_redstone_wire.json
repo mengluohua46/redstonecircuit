@@ -1,0 +1,52 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "down": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_dust_down_dot"
+      }
+    },
+    {
+      "when": {
+        "up": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_dust_up_dot"
+      }
+    },
+    {
+      "when": {
+        "north": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_dust_north_dot"
+      }
+    },
+    {
+      "when": {
+        "south": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_dust_south_dot"
+      }
+    },
+    {
+      "when": {
+        "west": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_dust_west_dot"
+      }
+    },
+    {
+      "when": {
+        "east": "true"
+      },
+      "apply": {
+        "model": "redstonecircuit:block/surface_dust_east_dot"
+      }
+    }
+  ]
+}

@@ -249,7 +249,6 @@ class CarrierSameHostWordingTest {
             for (String key : new String[] {
                     "message.redstonecircuit.wrench.selected_carrier",
                     "message.redstonecircuit.wrench.cleared_carrier",
-                    "message.redstonecircuit.wrench.same_block",
                     "message.redstonecircuit.wrench.no_component"}) {
                 for (String file : new String[] {"en_us.json", "zh_cn.json"}) {
                     assertTrue(lang(file).contains("\"" + key + "\""),

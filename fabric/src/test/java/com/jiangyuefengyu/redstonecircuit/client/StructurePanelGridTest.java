@@ -81,6 +81,36 @@ class StructurePanelGridTest {
                 "a panel of forty is two pages, here as in the editor");
     }
 
+    @Test
+    @DisplayName("both languages name the count, the limit and the page, in the two count lines")
+    void theCountLinesCarryFourNumbers() throws IOException {
+        for (String lang : List.of("zh_cn.json", "en_us.json")) {
+            String text = read("src", "main", "resources", "assets", "redstonecircuit", "lang", lang);
+            for (String key : List.of("redstonecircuit.structure.screen.panel.header",
+                    "redstonecircuit.structure.product.keys")) {
+                String line = lineOf(text, key);
+                assertTrue(line.split("%s", -1).length == 5,
+                        "count, limit, page and page count - four numbers, or the page is a riddle: " + key);
+                if (key.equals("redstonecircuit.structure.screen.panel.header")) {
+                    // 作者 2026-11-16 把「（每页 6×6 格）」从编辑界面这一行删掉了：格子数由按钮自己画出来，
+                    // 说一遍是多余的。放置出来的结构那块（product.keys）他没动，所以那里还留着。
+                    assertFalse(line.contains("6x6") || line.contains("6×6"),
+                            "the editor's count line must not repeat the grid size any more: " + lang);
+                }
+            }
+        }
+    }
+
+    /** The one line of a lang file that defines this key. */
+    private static String lineOf(String file, String key) {
+        for (String line : file.split("\n")) {
+            if (line.contains("\"" + key + "\"")) {
+                return line;
+            }
+        }
+        throw new AssertionError("no line defines " + key);
+    }
+
     /** One of the mod's own files, addressed from this project's directory. */
     private static String read(String... parts) throws IOException {
         Path relative = Path.of("", parts);

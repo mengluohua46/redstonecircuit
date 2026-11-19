@@ -1,0 +1,85 @@
+{
+  "elements": [
+    {
+      "faces": {
+        "down": {
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "east": {
+          "rotation": 270,
+          "texture": "#front",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "north": {
+          "rotation": 270,
+          "texture": "#top",
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ]
+        },
+        "south": {
+          "rotation": 270,
+          "texture": "#top",
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ]
+        },
+        "up": {
+          "rotation": 180,
+          "texture": "#side",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        },
+        "west": {
+          "rotation": 90,
+          "texture": "#back",
+          "uv": [
+            0,
+            14,
+            16,
+            16
+          ]
+        }
+      },
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        16,
+        2
+      ]
+    }
+  ],
+  "parent": "minecraft:block/block",
+  "textures": {
+    "back": "redstonecircuit:block/transformer_back",
+    "front": "redstonecircuit:block/transformer_front",
+    "particle": "redstonecircuit:block/transformer_top",
+    "side": "redstonecircuit:block/transformer_side",
+    "top": "redstonecircuit:block/transformer_top"
+  }
+}

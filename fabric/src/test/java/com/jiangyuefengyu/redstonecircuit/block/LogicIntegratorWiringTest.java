@@ -283,11 +283,14 @@ class LogicIntegratorWiringTest {
                         language + " is missing the sentence the screen shows for " + mode.key()
                                 + " - the one place a player can read what X and Y mean for the gate they picked");
             }
-            for (String key : List.of("title", "x", "y", "blank", "close", "inputs", "inputs.none", "facing",
+            for (String key : List.of("title", "x", "y", "close", "inputs", "inputs.none", "facing",
                     "output", "notworking.count", "notworking.x", "notworking.y", "mode.chosen")) {
                 assertTrue(lang.contains("\"redstonecircuit.logic." + key + "\""),
                         language + " is missing redstonecircuit.logic." + key + ", which the screen draws");
             }
+            // 「留空 = 未填写」那一行提示已经删掉（作者 2026-11-16：没用的话不许留着），键跟着一起走。
+            assertFalse(lang.contains("\"redstonecircuit.logic.blank\""),
+                    language + " still carries redstonecircuit.logic.blank, which no screen draws any more");
         }
     }
 

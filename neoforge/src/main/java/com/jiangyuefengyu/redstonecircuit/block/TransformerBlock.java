@@ -65,6 +65,7 @@ public class TransformerBlock extends RcPlateBlock {
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
+                .setValue(MOUNT, Direction.DOWN)
                 .setValue(SETTING, TransformerRule.DEFAULT)
                 .setValue(LIT, false));
     }
@@ -87,7 +88,7 @@ public class TransformerBlock extends RcPlateBlock {
     }
 
     /**
-     * The 背面 only, exactly as 控制器 and 传输门 have it: the front and the two sides answer 0. {@code side} is
+     * The 背面 only, exactly as 控制器 and 传输门 have it: the front and the four sides answer 0. {@code side} is
      * vanilla's backwards parameter - it names the way the query travelled, from the asker towards this block.
      */
     @Override

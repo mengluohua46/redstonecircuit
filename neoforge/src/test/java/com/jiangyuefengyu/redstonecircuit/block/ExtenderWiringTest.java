@@ -206,8 +206,9 @@ class ExtenderWiringTest {
     @DisplayName("资源：方块状态、两张模型（顶面动画 + 亮点）、物品、掉落、合成、六张文件、两种语言")
     void theResources() throws IOException {
         String blockstate = read("resources", "assets", "redstonecircuit", "blockstates", "extender.json");
-        assertTrue(blockstate.contains("\"facing=south,lit=false\": { \"model\": \"redstonecircuit:block/extender\" }"),
-                "模型自己朝南那一个不加 y（正面 = 南），和其它三件同一套约定");
+        assertTrue(blockstate.contains("\"mount=down,facing=south,lit=false\":"
+                        + " { \"model\": \"redstonecircuit:block/extender\" }"),
+                "地板上朝南那一套就是仓库里那份本体模型（正面 = 南），和另外三件同一套约定");
         assertTrue(blockstate.contains("extender_lit"), "亮的那一档要有自己的模型");
 
         String model = read("resources", "assets", "redstonecircuit", "models", "block", "extender.json");

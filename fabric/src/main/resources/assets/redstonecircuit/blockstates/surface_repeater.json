@@ -1,0 +1,1956 @@
+{
+  "variants": {
+    "mount=down,facing=north,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick"
+    },
+    "mount=down,facing=east,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=1,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_1tick",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick"
+    },
+    "mount=north,facing=south,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick"
+    },
+    "mount=north,facing=east,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_1tick"
+    },
+    "mount=north,facing=west,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_1tick"
+    },
+    "mount=north,facing=up,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick"
+    },
+    "mount=north,facing=down,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_1tick"
+    },
+    "mount=south,facing=north,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick"
+    },
+    "mount=south,facing=south,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick"
+    },
+    "mount=south,facing=east,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_1tick"
+    },
+    "mount=south,facing=west,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_1tick"
+    },
+    "mount=south,facing=up,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick"
+    },
+    "mount=south,facing=down,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_1tick"
+    },
+    "mount=east,facing=north,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_1tick"
+    },
+    "mount=east,facing=south,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_1tick"
+    },
+    "mount=east,facing=east,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick"
+    },
+    "mount=east,facing=west,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick"
+    },
+    "mount=east,facing=up,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick"
+    },
+    "mount=east,facing=down,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_1tick"
+    },
+    "mount=west,facing=north,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_1tick"
+    },
+    "mount=west,facing=south,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_1tick"
+    },
+    "mount=west,facing=east,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick"
+    },
+    "mount=west,facing=west,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick"
+    },
+    "mount=west,facing=up,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick"
+    },
+    "mount=west,facing=down,delay=1,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_1tick"
+    },
+    "mount=down,facing=north,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on"
+    },
+    "mount=down,facing=east,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=1,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_on"
+    },
+    "mount=north,facing=south,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_on"
+    },
+    "mount=north,facing=east,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_1tick_on"
+    },
+    "mount=north,facing=west,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_1tick_on"
+    },
+    "mount=north,facing=up,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_on"
+    },
+    "mount=north,facing=down,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_1tick_on"
+    },
+    "mount=south,facing=north,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_on"
+    },
+    "mount=south,facing=south,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_on"
+    },
+    "mount=south,facing=east,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_1tick_on"
+    },
+    "mount=south,facing=west,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_1tick_on"
+    },
+    "mount=south,facing=up,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_on"
+    },
+    "mount=south,facing=down,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_1tick_on"
+    },
+    "mount=east,facing=north,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_1tick_on"
+    },
+    "mount=east,facing=south,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_1tick_on"
+    },
+    "mount=east,facing=east,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_on"
+    },
+    "mount=east,facing=west,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_on"
+    },
+    "mount=east,facing=up,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_on"
+    },
+    "mount=east,facing=down,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_1tick_on"
+    },
+    "mount=west,facing=north,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_1tick_on"
+    },
+    "mount=west,facing=south,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_1tick_on"
+    },
+    "mount=west,facing=east,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_on"
+    },
+    "mount=west,facing=west,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_on"
+    },
+    "mount=west,facing=up,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_on"
+    },
+    "mount=west,facing=down,delay=1,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_1tick_on"
+    },
+    "mount=down,facing=north,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked"
+    },
+    "mount=down,facing=east,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=1,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_1tick_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_locked"
+    },
+    "mount=north,facing=south,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_locked"
+    },
+    "mount=north,facing=east,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_1tick_locked"
+    },
+    "mount=north,facing=west,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_1tick_locked"
+    },
+    "mount=north,facing=up,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_locked"
+    },
+    "mount=north,facing=down,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_1tick_locked"
+    },
+    "mount=south,facing=north,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_locked"
+    },
+    "mount=south,facing=south,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_locked"
+    },
+    "mount=south,facing=east,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_1tick_locked"
+    },
+    "mount=south,facing=west,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_1tick_locked"
+    },
+    "mount=south,facing=up,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_locked"
+    },
+    "mount=south,facing=down,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_1tick_locked"
+    },
+    "mount=east,facing=north,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_1tick_locked"
+    },
+    "mount=east,facing=south,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_1tick_locked"
+    },
+    "mount=east,facing=east,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_locked"
+    },
+    "mount=east,facing=west,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_locked"
+    },
+    "mount=east,facing=up,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_locked"
+    },
+    "mount=east,facing=down,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_1tick_locked"
+    },
+    "mount=west,facing=north,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_1tick_locked"
+    },
+    "mount=west,facing=south,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_1tick_locked"
+    },
+    "mount=west,facing=east,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_locked"
+    },
+    "mount=west,facing=west,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_locked"
+    },
+    "mount=west,facing=up,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_locked"
+    },
+    "mount=west,facing=down,delay=1,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_1tick_locked"
+    },
+    "mount=down,facing=north,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked"
+    },
+    "mount=down,facing=east,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=1,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_1tick_on_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_on_locked"
+    },
+    "mount=north,facing=south,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_on_locked"
+    },
+    "mount=north,facing=east,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_1tick_on_locked"
+    },
+    "mount=north,facing=west,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_1tick_on_locked"
+    },
+    "mount=north,facing=up,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_1tick_on_locked"
+    },
+    "mount=north,facing=down,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_1tick_on_locked"
+    },
+    "mount=south,facing=north,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_on_locked"
+    },
+    "mount=south,facing=south,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_on_locked"
+    },
+    "mount=south,facing=east,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_1tick_on_locked"
+    },
+    "mount=south,facing=west,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_1tick_on_locked"
+    },
+    "mount=south,facing=up,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_1tick_on_locked"
+    },
+    "mount=south,facing=down,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_1tick_on_locked"
+    },
+    "mount=east,facing=north,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_1tick_on_locked"
+    },
+    "mount=east,facing=south,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_1tick_on_locked"
+    },
+    "mount=east,facing=east,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_on_locked"
+    },
+    "mount=east,facing=west,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_on_locked"
+    },
+    "mount=east,facing=up,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_1tick_on_locked"
+    },
+    "mount=east,facing=down,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_1tick_on_locked"
+    },
+    "mount=west,facing=north,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_1tick_on_locked"
+    },
+    "mount=west,facing=south,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_1tick_on_locked"
+    },
+    "mount=west,facing=east,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_on_locked"
+    },
+    "mount=west,facing=west,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_on_locked"
+    },
+    "mount=west,facing=up,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_1tick_on_locked"
+    },
+    "mount=west,facing=down,delay=1,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_1tick_on_locked"
+    },
+    "mount=down,facing=north,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick"
+    },
+    "mount=down,facing=east,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=2,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_2tick",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick"
+    },
+    "mount=north,facing=south,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick"
+    },
+    "mount=north,facing=east,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_2tick"
+    },
+    "mount=north,facing=west,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_2tick"
+    },
+    "mount=north,facing=up,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick"
+    },
+    "mount=north,facing=down,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_2tick"
+    },
+    "mount=south,facing=north,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick"
+    },
+    "mount=south,facing=south,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick"
+    },
+    "mount=south,facing=east,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_2tick"
+    },
+    "mount=south,facing=west,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_2tick"
+    },
+    "mount=south,facing=up,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick"
+    },
+    "mount=south,facing=down,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_2tick"
+    },
+    "mount=east,facing=north,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_2tick"
+    },
+    "mount=east,facing=south,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_2tick"
+    },
+    "mount=east,facing=east,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick"
+    },
+    "mount=east,facing=west,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick"
+    },
+    "mount=east,facing=up,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick"
+    },
+    "mount=east,facing=down,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_2tick"
+    },
+    "mount=west,facing=north,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_2tick"
+    },
+    "mount=west,facing=south,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_2tick"
+    },
+    "mount=west,facing=east,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick"
+    },
+    "mount=west,facing=west,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick"
+    },
+    "mount=west,facing=up,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick"
+    },
+    "mount=west,facing=down,delay=2,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_2tick"
+    },
+    "mount=down,facing=north,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on"
+    },
+    "mount=down,facing=east,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=2,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_on"
+    },
+    "mount=north,facing=south,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_on"
+    },
+    "mount=north,facing=east,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_2tick_on"
+    },
+    "mount=north,facing=west,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_2tick_on"
+    },
+    "mount=north,facing=up,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_on"
+    },
+    "mount=north,facing=down,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_2tick_on"
+    },
+    "mount=south,facing=north,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_on"
+    },
+    "mount=south,facing=south,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_on"
+    },
+    "mount=south,facing=east,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_2tick_on"
+    },
+    "mount=south,facing=west,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_2tick_on"
+    },
+    "mount=south,facing=up,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_on"
+    },
+    "mount=south,facing=down,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_2tick_on"
+    },
+    "mount=east,facing=north,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_2tick_on"
+    },
+    "mount=east,facing=south,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_2tick_on"
+    },
+    "mount=east,facing=east,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_on"
+    },
+    "mount=east,facing=west,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_on"
+    },
+    "mount=east,facing=up,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_on"
+    },
+    "mount=east,facing=down,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_2tick_on"
+    },
+    "mount=west,facing=north,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_2tick_on"
+    },
+    "mount=west,facing=south,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_2tick_on"
+    },
+    "mount=west,facing=east,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_on"
+    },
+    "mount=west,facing=west,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_on"
+    },
+    "mount=west,facing=up,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_on"
+    },
+    "mount=west,facing=down,delay=2,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_2tick_on"
+    },
+    "mount=down,facing=north,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked"
+    },
+    "mount=down,facing=east,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=2,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_2tick_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_locked"
+    },
+    "mount=north,facing=south,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_locked"
+    },
+    "mount=north,facing=east,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_2tick_locked"
+    },
+    "mount=north,facing=west,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_2tick_locked"
+    },
+    "mount=north,facing=up,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_locked"
+    },
+    "mount=north,facing=down,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_2tick_locked"
+    },
+    "mount=south,facing=north,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_locked"
+    },
+    "mount=south,facing=south,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_locked"
+    },
+    "mount=south,facing=east,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_2tick_locked"
+    },
+    "mount=south,facing=west,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_2tick_locked"
+    },
+    "mount=south,facing=up,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_locked"
+    },
+    "mount=south,facing=down,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_2tick_locked"
+    },
+    "mount=east,facing=north,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_2tick_locked"
+    },
+    "mount=east,facing=south,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_2tick_locked"
+    },
+    "mount=east,facing=east,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_locked"
+    },
+    "mount=east,facing=west,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_locked"
+    },
+    "mount=east,facing=up,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_locked"
+    },
+    "mount=east,facing=down,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_2tick_locked"
+    },
+    "mount=west,facing=north,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_2tick_locked"
+    },
+    "mount=west,facing=south,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_2tick_locked"
+    },
+    "mount=west,facing=east,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_locked"
+    },
+    "mount=west,facing=west,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_locked"
+    },
+    "mount=west,facing=up,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_locked"
+    },
+    "mount=west,facing=down,delay=2,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_2tick_locked"
+    },
+    "mount=down,facing=north,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked"
+    },
+    "mount=down,facing=east,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=2,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_2tick_on_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_on_locked"
+    },
+    "mount=north,facing=south,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_on_locked"
+    },
+    "mount=north,facing=east,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_2tick_on_locked"
+    },
+    "mount=north,facing=west,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_2tick_on_locked"
+    },
+    "mount=north,facing=up,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_2tick_on_locked"
+    },
+    "mount=north,facing=down,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_2tick_on_locked"
+    },
+    "mount=south,facing=north,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_on_locked"
+    },
+    "mount=south,facing=south,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_on_locked"
+    },
+    "mount=south,facing=east,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_2tick_on_locked"
+    },
+    "mount=south,facing=west,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_2tick_on_locked"
+    },
+    "mount=south,facing=up,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_2tick_on_locked"
+    },
+    "mount=south,facing=down,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_2tick_on_locked"
+    },
+    "mount=east,facing=north,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_2tick_on_locked"
+    },
+    "mount=east,facing=south,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_2tick_on_locked"
+    },
+    "mount=east,facing=east,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_on_locked"
+    },
+    "mount=east,facing=west,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_on_locked"
+    },
+    "mount=east,facing=up,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_2tick_on_locked"
+    },
+    "mount=east,facing=down,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_2tick_on_locked"
+    },
+    "mount=west,facing=north,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_2tick_on_locked"
+    },
+    "mount=west,facing=south,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_2tick_on_locked"
+    },
+    "mount=west,facing=east,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_on_locked"
+    },
+    "mount=west,facing=west,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_on_locked"
+    },
+    "mount=west,facing=up,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_2tick_on_locked"
+    },
+    "mount=west,facing=down,delay=2,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_2tick_on_locked"
+    },
+    "mount=down,facing=north,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick"
+    },
+    "mount=down,facing=east,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=3,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_3tick",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick"
+    },
+    "mount=north,facing=south,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick"
+    },
+    "mount=north,facing=east,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_3tick"
+    },
+    "mount=north,facing=west,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_3tick"
+    },
+    "mount=north,facing=up,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick"
+    },
+    "mount=north,facing=down,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_3tick"
+    },
+    "mount=south,facing=north,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick"
+    },
+    "mount=south,facing=south,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick"
+    },
+    "mount=south,facing=east,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_3tick"
+    },
+    "mount=south,facing=west,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_3tick"
+    },
+    "mount=south,facing=up,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick"
+    },
+    "mount=south,facing=down,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_3tick"
+    },
+    "mount=east,facing=north,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_3tick"
+    },
+    "mount=east,facing=south,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_3tick"
+    },
+    "mount=east,facing=east,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick"
+    },
+    "mount=east,facing=west,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick"
+    },
+    "mount=east,facing=up,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick"
+    },
+    "mount=east,facing=down,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_3tick"
+    },
+    "mount=west,facing=north,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_3tick"
+    },
+    "mount=west,facing=south,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_3tick"
+    },
+    "mount=west,facing=east,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick"
+    },
+    "mount=west,facing=west,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick"
+    },
+    "mount=west,facing=up,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick"
+    },
+    "mount=west,facing=down,delay=3,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_3tick"
+    },
+    "mount=down,facing=north,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on"
+    },
+    "mount=down,facing=east,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=3,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_on"
+    },
+    "mount=north,facing=south,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_on"
+    },
+    "mount=north,facing=east,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_3tick_on"
+    },
+    "mount=north,facing=west,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_3tick_on"
+    },
+    "mount=north,facing=up,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_on"
+    },
+    "mount=north,facing=down,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_3tick_on"
+    },
+    "mount=south,facing=north,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_on"
+    },
+    "mount=south,facing=south,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_on"
+    },
+    "mount=south,facing=east,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_3tick_on"
+    },
+    "mount=south,facing=west,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_3tick_on"
+    },
+    "mount=south,facing=up,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_on"
+    },
+    "mount=south,facing=down,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_3tick_on"
+    },
+    "mount=east,facing=north,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_3tick_on"
+    },
+    "mount=east,facing=south,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_3tick_on"
+    },
+    "mount=east,facing=east,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_on"
+    },
+    "mount=east,facing=west,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_on"
+    },
+    "mount=east,facing=up,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_on"
+    },
+    "mount=east,facing=down,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_3tick_on"
+    },
+    "mount=west,facing=north,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_3tick_on"
+    },
+    "mount=west,facing=south,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_3tick_on"
+    },
+    "mount=west,facing=east,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_on"
+    },
+    "mount=west,facing=west,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_on"
+    },
+    "mount=west,facing=up,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_on"
+    },
+    "mount=west,facing=down,delay=3,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_3tick_on"
+    },
+    "mount=down,facing=north,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked"
+    },
+    "mount=down,facing=east,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=3,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_3tick_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_locked"
+    },
+    "mount=north,facing=south,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_locked"
+    },
+    "mount=north,facing=east,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_3tick_locked"
+    },
+    "mount=north,facing=west,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_3tick_locked"
+    },
+    "mount=north,facing=up,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_locked"
+    },
+    "mount=north,facing=down,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_3tick_locked"
+    },
+    "mount=south,facing=north,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_locked"
+    },
+    "mount=south,facing=south,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_locked"
+    },
+    "mount=south,facing=east,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_3tick_locked"
+    },
+    "mount=south,facing=west,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_3tick_locked"
+    },
+    "mount=south,facing=up,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_locked"
+    },
+    "mount=south,facing=down,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_3tick_locked"
+    },
+    "mount=east,facing=north,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_3tick_locked"
+    },
+    "mount=east,facing=south,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_3tick_locked"
+    },
+    "mount=east,facing=east,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_locked"
+    },
+    "mount=east,facing=west,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_locked"
+    },
+    "mount=east,facing=up,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_locked"
+    },
+    "mount=east,facing=down,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_3tick_locked"
+    },
+    "mount=west,facing=north,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_3tick_locked"
+    },
+    "mount=west,facing=south,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_3tick_locked"
+    },
+    "mount=west,facing=east,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_locked"
+    },
+    "mount=west,facing=west,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_locked"
+    },
+    "mount=west,facing=up,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_locked"
+    },
+    "mount=west,facing=down,delay=3,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_3tick_locked"
+    },
+    "mount=down,facing=north,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked"
+    },
+    "mount=down,facing=east,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=3,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_3tick_on_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_on_locked"
+    },
+    "mount=north,facing=south,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_on_locked"
+    },
+    "mount=north,facing=east,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_3tick_on_locked"
+    },
+    "mount=north,facing=west,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_3tick_on_locked"
+    },
+    "mount=north,facing=up,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_3tick_on_locked"
+    },
+    "mount=north,facing=down,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_3tick_on_locked"
+    },
+    "mount=south,facing=north,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_on_locked"
+    },
+    "mount=south,facing=south,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_on_locked"
+    },
+    "mount=south,facing=east,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_3tick_on_locked"
+    },
+    "mount=south,facing=west,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_3tick_on_locked"
+    },
+    "mount=south,facing=up,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_3tick_on_locked"
+    },
+    "mount=south,facing=down,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_3tick_on_locked"
+    },
+    "mount=east,facing=north,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_3tick_on_locked"
+    },
+    "mount=east,facing=south,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_3tick_on_locked"
+    },
+    "mount=east,facing=east,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_on_locked"
+    },
+    "mount=east,facing=west,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_on_locked"
+    },
+    "mount=east,facing=up,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_3tick_on_locked"
+    },
+    "mount=east,facing=down,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_3tick_on_locked"
+    },
+    "mount=west,facing=north,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_3tick_on_locked"
+    },
+    "mount=west,facing=south,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_3tick_on_locked"
+    },
+    "mount=west,facing=east,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_on_locked"
+    },
+    "mount=west,facing=west,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_on_locked"
+    },
+    "mount=west,facing=up,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_3tick_on_locked"
+    },
+    "mount=west,facing=down,delay=3,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_3tick_on_locked"
+    },
+    "mount=down,facing=north,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick"
+    },
+    "mount=down,facing=east,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=4,locked=false,powered=false": {
+      "model": "minecraft:block/repeater_4tick",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick"
+    },
+    "mount=north,facing=south,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick"
+    },
+    "mount=north,facing=east,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_4tick"
+    },
+    "mount=north,facing=west,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_4tick"
+    },
+    "mount=north,facing=up,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick"
+    },
+    "mount=north,facing=down,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_4tick"
+    },
+    "mount=south,facing=north,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick"
+    },
+    "mount=south,facing=south,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick"
+    },
+    "mount=south,facing=east,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_4tick"
+    },
+    "mount=south,facing=west,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_4tick"
+    },
+    "mount=south,facing=up,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick"
+    },
+    "mount=south,facing=down,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_4tick"
+    },
+    "mount=east,facing=north,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_4tick"
+    },
+    "mount=east,facing=south,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_4tick"
+    },
+    "mount=east,facing=east,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick"
+    },
+    "mount=east,facing=west,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick"
+    },
+    "mount=east,facing=up,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick"
+    },
+    "mount=east,facing=down,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_4tick"
+    },
+    "mount=west,facing=north,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_4tick"
+    },
+    "mount=west,facing=south,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_4tick"
+    },
+    "mount=west,facing=east,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick"
+    },
+    "mount=west,facing=west,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick"
+    },
+    "mount=west,facing=up,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick"
+    },
+    "mount=west,facing=down,delay=4,locked=false,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_4tick"
+    },
+    "mount=down,facing=north,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on"
+    },
+    "mount=down,facing=east,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=4,locked=false,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_on"
+    },
+    "mount=north,facing=south,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_on"
+    },
+    "mount=north,facing=east,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_4tick_on"
+    },
+    "mount=north,facing=west,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_4tick_on"
+    },
+    "mount=north,facing=up,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_on"
+    },
+    "mount=north,facing=down,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_4tick_on"
+    },
+    "mount=south,facing=north,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_on"
+    },
+    "mount=south,facing=south,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_on"
+    },
+    "mount=south,facing=east,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_4tick_on"
+    },
+    "mount=south,facing=west,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_4tick_on"
+    },
+    "mount=south,facing=up,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_on"
+    },
+    "mount=south,facing=down,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_4tick_on"
+    },
+    "mount=east,facing=north,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_4tick_on"
+    },
+    "mount=east,facing=south,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_4tick_on"
+    },
+    "mount=east,facing=east,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_on"
+    },
+    "mount=east,facing=west,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_on"
+    },
+    "mount=east,facing=up,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_on"
+    },
+    "mount=east,facing=down,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_4tick_on"
+    },
+    "mount=west,facing=north,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_4tick_on"
+    },
+    "mount=west,facing=south,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_4tick_on"
+    },
+    "mount=west,facing=east,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_on"
+    },
+    "mount=west,facing=west,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_on"
+    },
+    "mount=west,facing=up,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_on"
+    },
+    "mount=west,facing=down,delay=4,locked=false,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_4tick_on"
+    },
+    "mount=down,facing=north,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked"
+    },
+    "mount=down,facing=east,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=4,locked=true,powered=false": {
+      "model": "minecraft:block/repeater_4tick_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_locked"
+    },
+    "mount=north,facing=south,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_locked"
+    },
+    "mount=north,facing=east,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_4tick_locked"
+    },
+    "mount=north,facing=west,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_4tick_locked"
+    },
+    "mount=north,facing=up,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_locked"
+    },
+    "mount=north,facing=down,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_4tick_locked"
+    },
+    "mount=south,facing=north,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_locked"
+    },
+    "mount=south,facing=south,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_locked"
+    },
+    "mount=south,facing=east,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_4tick_locked"
+    },
+    "mount=south,facing=west,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_4tick_locked"
+    },
+    "mount=south,facing=up,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_locked"
+    },
+    "mount=south,facing=down,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_4tick_locked"
+    },
+    "mount=east,facing=north,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_4tick_locked"
+    },
+    "mount=east,facing=south,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_4tick_locked"
+    },
+    "mount=east,facing=east,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_locked"
+    },
+    "mount=east,facing=west,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_locked"
+    },
+    "mount=east,facing=up,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_locked"
+    },
+    "mount=east,facing=down,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_4tick_locked"
+    },
+    "mount=west,facing=north,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_4tick_locked"
+    },
+    "mount=west,facing=south,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_4tick_locked"
+    },
+    "mount=west,facing=east,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_locked"
+    },
+    "mount=west,facing=west,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_locked"
+    },
+    "mount=west,facing=up,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_locked"
+    },
+    "mount=west,facing=down,delay=4,locked=true,powered=false": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_4tick_locked"
+    },
+    "mount=down,facing=north,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=south,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked"
+    },
+    "mount=down,facing=east,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "y": 270
+    },
+    "mount=down,facing=west,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "y": 90
+    },
+    "mount=down,facing=up,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "y": 180
+    },
+    "mount=down,facing=down,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "y": 180
+    },
+    "mount=up,facing=north,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=south,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "x": 180,
+      "y": 180
+    },
+    "mount=up,facing=east,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "x": 180,
+      "y": 90
+    },
+    "mount=up,facing=west,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "x": 180,
+      "y": 270
+    },
+    "mount=up,facing=up,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "x": 180
+    },
+    "mount=up,facing=down,delay=4,locked=true,powered=true": {
+      "model": "minecraft:block/repeater_4tick_on_locked",
+      "x": 180
+    },
+    "mount=north,facing=north,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_on_locked"
+    },
+    "mount=north,facing=south,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_on_locked"
+    },
+    "mount=north,facing=east,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_east_repeater_4tick_on_locked"
+    },
+    "mount=north,facing=west,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_west_repeater_4tick_on_locked"
+    },
+    "mount=north,facing=up,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_up_repeater_4tick_on_locked"
+    },
+    "mount=north,facing=down,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_north_down_repeater_4tick_on_locked"
+    },
+    "mount=south,facing=north,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_on_locked"
+    },
+    "mount=south,facing=south,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_on_locked"
+    },
+    "mount=south,facing=east,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_east_repeater_4tick_on_locked"
+    },
+    "mount=south,facing=west,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_west_repeater_4tick_on_locked"
+    },
+    "mount=south,facing=up,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_up_repeater_4tick_on_locked"
+    },
+    "mount=south,facing=down,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_south_down_repeater_4tick_on_locked"
+    },
+    "mount=east,facing=north,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_north_repeater_4tick_on_locked"
+    },
+    "mount=east,facing=south,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_south_repeater_4tick_on_locked"
+    },
+    "mount=east,facing=east,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_on_locked"
+    },
+    "mount=east,facing=west,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_on_locked"
+    },
+    "mount=east,facing=up,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_up_repeater_4tick_on_locked"
+    },
+    "mount=east,facing=down,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_east_down_repeater_4tick_on_locked"
+    },
+    "mount=west,facing=north,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_north_repeater_4tick_on_locked"
+    },
+    "mount=west,facing=south,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_south_repeater_4tick_on_locked"
+    },
+    "mount=west,facing=east,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_on_locked"
+    },
+    "mount=west,facing=west,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_on_locked"
+    },
+    "mount=west,facing=up,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_up_repeater_4tick_on_locked"
+    },
+    "mount=west,facing=down,delay=4,locked=true,powered=true": {
+      "model": "redstonecircuit:block/surface_repeater_west_down_repeater_4tick_on_locked"
+    }
+  }
+}
