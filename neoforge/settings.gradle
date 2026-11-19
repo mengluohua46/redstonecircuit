@@ -1,6 +1,12 @@
 pluginManagement {
     repositories {
         gradlePluginPortal()
+        // The portal serves the plugins themselves, but not every transitive artifact they need:
+        // ModDevGradle's idea-ext wants com.google.code.gson:gson, which is published on Maven
+        // Central only. Without this line a cold cache (CI) fails during configuration with
+        // "Could not find com.google.code.gson:gson:2.10.1" - while a warm developer cache hides it.
+        // fabric/settings.gradle already lists mavenCentral() for the same reason.
+        mavenCentral()
     }
 }
 

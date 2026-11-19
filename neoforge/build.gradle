@@ -45,6 +45,12 @@ repositories {
             includeGroup 'com.simibubi.create'
         }
     }
+    // Maven Central, last so the specialised repositories above always win for their own groups.
+    // It is not optional: the test source set asks for the JUnit BOM and the Jupiter artifacts,
+    // which are published here and nowhere else - and nothing else in this build adds Central
+    // (the fabric module gets it from Loom, which is exactly why only the neoforge CI job failed
+    // on a cold cache with "Could not resolve ... junit").
+    mavenCentral()
 }
 
 // --- optional "physics structure" compatibility targets -------------------------------------------
